@@ -2636,39 +2636,115 @@ async function lookupMileageWithAPI(lanes){
   
   if(statusEl)statusEl.textContent=`Looking up ${lanes.length} lane(s)...`;
   
+  // Try server API first, fall back to direct API calls
   try{
-    // Call server API for bulk lookup
     const res=await fetch('/api/mileage/bulk',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify({lanes})
     });
     
-    const data=await res.json();
-    
-    if(data.results){
-      data.results.forEach(r=>{
-        if(r.miles){
-          S.lanes.push({origin:r.origin,dest:r.dest,miles:r.miles,added:new Date().toISOString()});
-          console.log(`✓ ${r.origin} → ${r.dest}: ${r.miles} mi`);
-        }else{
-          failedLanes.push({origin:r.origin,dest:r.dest});
-        }
-      });
-      save('lanes',S.lanes);
+    if(res.ok){
+      const data=await res.json();
+      if(data.results){
+        data.results.forEach(r=>{
+          if(r.miles){
+            S.lanes.push({origin:r.origin,dest:r.dest,miles:r.miles,added:new Date().toISOString()});
+            console.log(`✓ ${r.origin} → ${r.dest}: ${r.miles} mi`);
+          }else{
+            failedLanes.push({origin:r.origin,dest:r.dest});
+          }
+        });
+        save('lanes',S.lanes);
+        if(statusEl)statusEl.textContent='';
+        return failedLanes;
+      }
     }
   }catch(e){
-    console.error('Bulk mileage API error:',e);
-    // All failed
-    lanes.forEach(l=>failedLanes.push(l));
+    console.log('Server API not available, trying direct lookup...');
   }
+  
+  // Fallback: Direct API calls from browser
+  for(const lane of lanes){
+    if(statusEl)statusEl.textContent=`Looking up ${lane.origin} → ${lane.dest}...`;
+    const miles=await getDirectMileage(lane.origin,lane.dest);
+    if(miles){
+      S.lanes.push({origin:lane.origin,dest:lane.dest,miles,added:new Date().toISOString()});
+      console.log(`✓ ${lane.origin} → ${lane.dest}: ${miles} mi`);
+    }else{
+      failedLanes.push(lane);
+    }
+    await sleep(600); // Rate limit
+  }
+  save('lanes',S.lanes);
   
   if(statusEl)statusEl.textContent='';
   return failedLanes;
 }
 
-// Single mileage lookup via server API
+// Direct mileage lookup via free APIs (no backend needed)
+async function getDirectMileage(origin,dest){
+  try{
+    // Step 1: Geocode origin
+    const originCoords=await geocodeLocation(origin);
+    if(!originCoords)return null;
+    
+    await sleep(500);
+    
+    // Step 2: Geocode destination
+    const destCoords=await geocodeLocation(dest);
+    if(!destCoords)return null;
+    
+    await sleep(300);
+    
+    // Step 3: Get driving distance via OSRM
+    const coordsStr=`${originCoords.lon},${originCoords.lat};${destCoords.lon},${destCoords.lat}`;
+    const routeRes=await fetch(`https://router.project-osrm.org/route/v1/driving/${coordsStr}?overview=false`);
+    const routeData=await routeRes.json();
+    
+    if(routeData.code==='Ok'&&routeData.routes?.length){
+      const meters=routeData.routes[0].distance;
+      return Math.round(meters/1609.34);
+    }
+    return null;
+  }catch(e){
+    console.error('Direct mileage error:',e);
+    return null;
+  }
+}
+
+// Geocode cache
+const geoCache={};
+
+async function geocodeLocation(location){
+  if(!location)return null;
+  
+  const key=location.toLowerCase().trim();
+  if(geoCache[key])return geoCache[key];
+  
+  try{
+    const res=await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(location)}&format=json&limit=1&countrycodes=us`,{
+      headers:{'User-Agent':'SYP-Analytics/1.0'}
+    });
+    const data=await res.json();
+    
+    if(data?.length){
+      const coords={lat:parseFloat(data[0].lat),lon:parseFloat(data[0].lon)};
+      geoCache[key]=coords;
+      return coords;
+    }
+    return null;
+  }catch(e){
+    console.error('Geocode error:',e);
+    return null;
+  }
+}
+
+function sleep(ms){return new Promise(r=>setTimeout(r,ms))}
+
+// Single mileage lookup via server API (with fallback)
 async function getMileageFromAPI(origin,dest){
+  // Try server first
   try{
     const res=await fetch('/api/mileage',{
       method:'POST',
@@ -2676,18 +2752,14 @@ async function getMileageFromAPI(origin,dest){
       body:JSON.stringify({origin,dest})
     });
     
-    if(!res.ok){
-      const err=await res.json();
-      console.warn('Mileage API error:',err.error);
-      return null;
+    if(res.ok){
+      const data=await res.json();
+      if(data.miles)return data.miles;
     }
-    
-    const data=await res.json();
-    return data.miles;
-  }catch(e){
-    console.error('Mileage API error:',e);
-    return null;
-  }
+  }catch(e){}
+  
+  // Fallback to direct
+  return await getDirectMileage(origin,dest);
 }
 
 // Show modal for entering missing mileages (fallback)
@@ -4983,95 +5055,310 @@ function confirmLinkShort(sellId){
   }
 }
 
-// AI
+// AI AGENT with Tool Capabilities
+const AI_TOOLS=[
+  {name:'create_buy',desc:'Create a buy order',params:['mill','product','price','volume','region','length','shipWeek','notes']},
+  {name:'create_sell',desc:'Create a sell order',params:['customer','destination','product','price','freight','volume','length','shipWeek','notes']},
+  {name:'add_quote_item',desc:'Add item to quote engine',params:['product','origin','fob','tls','shipWeek']},
+  {name:'clear_quote_items',desc:'Clear all items from quote engine',params:[]},
+  {name:'generate_quote',desc:'Generate quote for a customer',params:['customerName']},
+  {name:'get_inventory',desc:'Get current inventory/position by product',params:[]},
+  {name:'get_rl_prices',desc:'Get current Random Lengths prices',params:['region']},
+  {name:'get_customers',desc:'List all customers',params:[]},
+  {name:'get_mills',desc:'List all mills',params:[]},
+  {name:'add_customer',desc:'Add a new customer',params:['name','destination','email']},
+  {name:'add_mill',desc:'Add a new mill',params:['name','location','region']},
+  {name:'search_trades',desc:'Search buy/sell trades',params:['type','product','customer','mill']},
+  {name:'get_lanes',desc:'Get freight lanes and mileage',params:[]},
+  {name:'add_lane',desc:'Add a freight lane',params:['origin','dest','miles']},
+  {name:'get_analytics',desc:'Get trading analytics summary',params:[]},
+  {name:'set_freight_settings',desc:'Set freight calculator settings',params:['freightBase','stateRates','shortHaulFloor']}
+];
+
+function executeAITool(name,params){
+  console.log('Executing tool:',name,params);
+  try{
+    switch(name){
+      case 'create_buy':{
+        const buy={
+          id:genId(),
+          date:today(),
+          mill:params.mill||'',
+          product:params.product||'2x4#2',
+          price:parseFloat(params.price)||0,
+          volume:parseFloat(params.volume)||0,
+          region:params.region||'west',
+          length:params.length||'RL',
+          shipWeek:params.shipWeek||'',
+          notes:params.notes||'Created by AI',
+          shipped:false
+        };
+        S.buys.unshift(buy);
+        save('buys',S.buys);
+        return{success:true,message:`Created buy: ${buy.volume} MBF ${buy.product} from ${buy.mill} @ $${buy.price}`,data:buy};
+      }
+      case 'create_sell':{
+        const sell={
+          id:genId(),
+          date:today(),
+          customer:params.customer||'',
+          destination:params.destination||'',
+          product:params.product||'2x4#2',
+          price:parseFloat(params.price)||0,
+          freight:parseFloat(params.freight)||0,
+          volume:parseFloat(params.volume)||0,
+          length:params.length||'RL',
+          shipWeek:params.shipWeek||'',
+          notes:params.notes||'Created by AI',
+          delivered:false
+        };
+        S.sells.unshift(sell);
+        save('sells',S.sells);
+        return{success:true,message:`Created sell: ${sell.volume} MBF ${sell.product} to ${sell.customer} @ $${sell.price} DLVD`,data:sell};
+      }
+      case 'add_quote_item':{
+        const item={
+          id:Date.now(),
+          product:params.product||'2x4#2',
+          origin:params.origin||'',
+          fob:parseFloat(params.fob)||0,
+          tls:parseInt(params.tls)||1,
+          shipWeek:params.shipWeek||'Prompt',
+          selected:true
+        };
+        S.quoteItems.push(item);
+        save('quoteItems',S.quoteItems);
+        return{success:true,message:`Added to quote: ${item.tls} TL ${item.product} from ${item.origin} @ $${item.fob} FOB`,data:item};
+      }
+      case 'clear_quote_items':{
+        S.quoteItems=[];
+        save('quoteItems',S.quoteItems);
+        return{success:true,message:'Cleared all quote items'};
+      }
+      case 'generate_quote':{
+        const cust=S.customers.find(c=>c.name.toLowerCase().includes((params.customerName||'').toLowerCase()));
+        if(!cust)return{success:false,message:`Customer "${params.customerName}" not found`};
+        const items=S.quoteItems.filter(i=>i.selected!==false);
+        if(!items.length)return{success:false,message:'No items in quote engine'};
+        const dest=(cust.locations||[cust.destination].filter(Boolean))[0]||'TBD';
+        const quotes=items.map(item=>{
+          const miles=getLaneMiles(item.origin,dest);
+          const frt=calcFreightPerMBF(miles,item.origin,item.product?.includes('MSR'));
+          return{product:item.product,tls:item.tls,fob:item.fob,freight:frt,dlvd:item.fob+frt,ship:item.shipWeek};
+        });
+        return{success:true,message:`Quote for ${cust.name} (DLVD ${dest})`,data:quotes};
+      }
+      case 'get_inventory':{
+        const inv={};
+        S.buys.forEach(b=>{
+          const k=b.product;
+          if(!inv[k])inv[k]={bought:0,sold:0};
+          inv[k].bought+=b.volume||0;
+        });
+        S.sells.forEach(s=>{
+          const k=s.product;
+          if(!inv[k])inv[k]={bought:0,sold:0};
+          inv[k].sold+=s.volume||0;
+        });
+        const positions=Object.entries(inv).map(([p,v])=>({product:p,bought:v.bought,sold:v.sold,net:v.bought-v.sold,position:v.bought-v.sold>0?'LONG':v.bought-v.sold<0?'SHORT':'FLAT'}));
+        return{success:true,data:positions};
+      }
+      case 'get_rl_prices':{
+        const rl=S.rl.length?S.rl[S.rl.length-1]:null;
+        if(!rl)return{success:false,message:'No RL data available'};
+        const region=params.region||'west';
+        return{success:true,data:{date:rl.date,region,composites:rl[region],specified_lengths:rl.specified_lengths?.[region]}};
+      }
+      case 'get_customers':{
+        const custs=S.customers.filter(c=>c.type!=='mill').map(c=>({name:c.name,destination:c.destination,locations:c.locations,email:c.email}));
+        return{success:true,data:custs};
+      }
+      case 'get_mills':{
+        const mills=S.customers.filter(c=>c.type==='mill').concat(S.mills||[]).map(m=>({name:m.name,location:m.location||m.destination,region:m.region}));
+        return{success:true,data:mills};
+      }
+      case 'add_customer':{
+        const cust={id:genId(),name:params.name,destination:params.destination,email:params.email||'',type:'customer',quoteSelected:true,locations:[params.destination].filter(Boolean)};
+        S.customers.push(cust);
+        save('customers',S.customers);
+        return{success:true,message:`Added customer: ${cust.name}`,data:cust};
+      }
+      case 'add_mill':{
+        const mill={id:genId(),name:params.name,location:params.location,region:params.region||'west',type:'mill'};
+        S.customers.push(mill);
+        save('customers',S.customers);
+        return{success:true,message:`Added mill: ${mill.name} (${mill.location})`,data:mill};
+      }
+      case 'search_trades':{
+        let results=[];
+        if(params.type==='buy'||!params.type){
+          results=results.concat(S.buys.filter(b=>{
+            if(params.product&&!b.product?.toLowerCase().includes(params.product.toLowerCase()))return false;
+            if(params.mill&&!b.mill?.toLowerCase().includes(params.mill.toLowerCase()))return false;
+            return true;
+          }).map(b=>({type:'buy',...b})));
+        }
+        if(params.type==='sell'||!params.type){
+          results=results.concat(S.sells.filter(s=>{
+            if(params.product&&!s.product?.toLowerCase().includes(params.product.toLowerCase()))return false;
+            if(params.customer&&!s.customer?.toLowerCase().includes(params.customer.toLowerCase()))return false;
+            return true;
+          }).map(s=>({type:'sell',...s})));
+        }
+        return{success:true,data:results.slice(0,20)};
+      }
+      case 'get_lanes':{
+        return{success:true,data:S.lanes};
+      }
+      case 'add_lane':{
+        const lane={origin:params.origin,dest:params.dest,miles:parseInt(params.miles)||0};
+        const existing=S.lanes.findIndex(l=>l.origin===lane.origin&&l.dest===lane.dest);
+        if(existing>=0)S.lanes[existing]=lane;
+        else S.lanes.push(lane);
+        save('lanes',S.lanes);
+        return{success:true,message:`Added lane: ${lane.origin} → ${lane.dest} (${lane.miles} mi)`,data:lane};
+      }
+      case 'get_analytics':{
+        const a=analytics();
+        return{success:true,data:{buyVolume:a.bVol,sellVolume:a.sVol,inventory:a.inv,margin:a.margin,marginPct:a.marginPct,profit:a.profit,avgBuy:a.avgB,avgSell:a.avgS,avgFreight:a.avgFr}};
+      }
+      case 'set_freight_settings':{
+        if(params.freightBase!==undefined){S.freightBase=parseFloat(params.freightBase);save('freightBase',S.freightBase)}
+        if(params.shortHaulFloor!==undefined){S.shortHaulFloor=parseFloat(params.shortHaulFloor);save('shortHaulFloor',S.shortHaulFloor)}
+        if(params.stateRates){
+          Object.entries(params.stateRates).forEach(([st,rate])=>{
+            S.stateRates[st]=parseFloat(rate);
+          });
+          save('stateRates',S.stateRates);
+        }
+        return{success:true,message:'Freight settings updated',data:{freightBase:S.freightBase,shortHaulFloor:S.shortHaulFloor,stateRates:S.stateRates}};
+      }
+      default:
+        return{success:false,message:`Unknown tool: ${name}`};
+    }
+  }catch(e){
+    return{success:false,message:`Error: ${e.message}`};
+  }
+}
+
 async function sendAI(){
   if(!S.apiKey){alert('Add API key in Settings');return}
   const inp=document.getElementById('ai-in');
   const msg=inp.value.trim();if(!msg)return;
   S.aiMsgs.push({role:'user',content:msg});inp.value='';render();
+  
   const a=analytics();
-  // Build RL summary for AI
   const latestRL=S.rl.length?S.rl[S.rl.length-1]:null;
+  
+  // Build context
   let rlSummary='No RL data available.';
   if(latestRL){
-    const region='west';
-    const sl=latestRL.specified_lengths?.[region]||{};
     const prices=[];
-    ['2x4#2','2x6#2','2x8#2','2x10#2','2x12#2'].forEach(p=>{
-      if(latestRL[region]?.[p])prices.push(`${p}: $${latestRL[region][p]}`);
-    });
-    // Calculate some spreads
-    const spreads=[];
-    if(sl['2x4#2']?.['16']&&sl['2x6#2']?.['16'])spreads.push(`2x4/2x6 spread: $${sl['2x6#2']['16']-sl['2x4#2']['16']}`);
-    if(sl['2x4#2']?.['16']&&sl['2x4#2']?.['20'])spreads.push(`16'/20' spread (2x4): $${sl['2x4#2']['20']-sl['2x4#2']['16']}`);
-    if(latestRL[region]?.['2x4#1']&&latestRL[region]?.['2x4#2'])spreads.push(`#1/#2 spread (2x4): $${latestRL[region]['2x4#1']-latestRL[region]['2x4#2']}`);
-    
-    rlSummary=`Latest RL (${latestRL.date}) West composites: ${prices.join(', ')}. Key spreads: ${spreads.join(', ')}.`;
-    
-    // Add week-over-week if available
-    if(S.rl.length>1){
-      const prevRL=S.rl[S.rl.length-2];
-      const changes=[];
-      ['2x4#2','2x6#2'].forEach(p=>{
-        if(latestRL[region]?.[p]&&prevRL[region]?.[p]){
-          const chg=latestRL[region][p]-prevRL[region][p];
-          if(chg!==0)changes.push(`${p}: ${chg>0?'+':''}$${chg}`);
-        }
+    ['west','central','east'].forEach(r=>{
+      ['2x4#2','2x6#2','2x8#2'].forEach(p=>{
+        if(latestRL[r]?.[p])prices.push(`${r} ${p}: $${latestRL[r][p]}`);
       });
-      if(changes.length)rlSummary+=` WoW changes: ${changes.join(', ')}.`;
-    }
+    });
+    rlSummary=`Latest RL (${latestRL.date}): ${prices.slice(0,6).join(', ')}`;
   }
   
-  // Build position summary
+  // Position summary
   const positions={};
-  S.buys.forEach(b=>{
-    const key=b.product;
-    if(!positions[key])positions[key]={bought:0,sold:0,avgBuy:0,buyVal:0};
-    positions[key].bought+=b.volume||0;
-    positions[key].buyVal+=(b.price||0)*(b.volume||0);
-  });
-  S.sells.forEach(s=>{
-    const key=s.product;
-    if(!positions[key])positions[key]={bought:0,sold:0,avgBuy:0,buyVal:0};
-    positions[key].sold+=s.volume||0;
-  });
-  const positionSummary=Object.entries(positions).filter(([k,v])=>v.bought!==v.sold).map(([k,v])=>{
-    const net=v.bought-v.sold;
-    return `${k}: ${net>0?'LONG':'SHORT'} ${Math.abs(net)} MBF`;
-  }).join(', ')||'Flat';
+  S.buys.forEach(b=>{const k=b.product;if(!positions[k])positions[k]={b:0,s:0};positions[k].b+=b.volume||0});
+  S.sells.forEach(s=>{const k=s.product;if(!positions[k])positions[k]={b:0,s:0};positions[k].s+=s.volume||0});
+  const posSummary=Object.entries(positions).filter(([k,v])=>v.b!==v.s).map(([k,v])=>`${k}: ${v.b-v.s>0?'LONG':'SHORT'} ${Math.abs(v.b-v.s)} MBF`).join(', ')||'Flat';
   
-  // Shorts that need covering
-  const shorts=S.sells.filter(s=>!s.linkedPO).map(s=>`${s.product} ${s.volume}MBF to ${s.customer}`);
+  // Customer list
+  const custList=S.customers.filter(c=>c.type!=='mill').map(c=>c.name).slice(0,10).join(', ');
   
-  const ctx=`You are an AI analyst for SYP (Southern Yellow Pine) lumber trading. You help with trade ideas, market analysis, and position management.
+  // Quote items
+  const quoteItems=S.quoteItems.map(i=>`${i.product} from ${i.origin} @ $${i.fob}`).join(', ')||'Empty';
 
-CURRENT MARKET DATA:
-${rlSummary}
+  const toolDefs=AI_TOOLS.map(t=>`- ${t.name}(${t.params.join(', ')}): ${t.desc}`).join('\n');
+  
+  const ctx=`You are an AI trading assistant for SYP (Southern Yellow Pine) lumber trading at Buckeye Pacific. You can EXECUTE ACTIONS in the app using tools.
 
-TRADING SUMMARY:
-- Buy Vol: ${a.bVol} MBF, Avg Buy: ${fmt(a.avgB)}
-- Sell Vol: ${a.sVol} MBF, Avg FOB: ${fmt(a.avgS)}
-- Margin: ${fmt(a.margin)}/MBF (${fmtPct(a.marginPct)})
-- Total Profit: ${fmt(a.profit)}, Inventory: ${a.inv} MBF
-- Position vs RL: ${fmt(a.avgVsRL)} (${a.avgVsRL<=0?'below':'above'} market)
+AVAILABLE TOOLS:
+${toolDefs}
 
-CURRENT POSITIONS:
-${positionSummary}
+TO USE A TOOL, respond with a JSON block like this:
+\`\`\`tool
+{"tool":"tool_name","params":{"param1":"value1","param2":"value2"}}
+\`\`\`
 
-${shorts.length?`SHORTS TO COVER: ${shorts.join('; ')}`:'No open shorts.'}
+You can use multiple tools in one response. After each tool block, I'll show you the result.
 
-RECENT ACTIVITY:
-Buys: ${a.buys.slice(0,5).map(b=>`${b.product} ${b.length||'RL'}' @${b.price} from ${b.mill} (${b.region})`).join('; ')||'None'}
-Sells: ${a.sells.slice(0,5).map(s=>`${s.product} @${s.price} DLVD to ${s.customer}`).join('; ')||'None'}
+CURRENT STATE:
+- ${rlSummary}
+- Positions: ${posSummary}
+- Inventory: ${a.inv} MBF, Margin: ${fmt(a.margin)}, Profit: ${fmt(a.profit)}
+- Customers: ${custList}
+- Quote Engine Items: ${quoteItems}
+- Freight: Base $${S.freightBase}/load, Floor $${S.shortHaulFloor}/MBF
 
-Provide actionable insights. When suggesting trades, reference specific RL prices and spreads. Be concise.`;
+When asked to create orders, quotes, or do anything - USE THE TOOLS. Don't just describe what you would do.
+Be proactive and actually execute the requested actions.`;
+
+  await runAIWithTools(ctx,msg);
+}
+
+async function runAIWithTools(systemCtx,userMsg,depth=0){
+  if(depth>5){S.aiMsgs.push({role:'assistant',content:'Max tool depth reached.'});render();return}
+  
+  const messages=S.aiMsgs.slice(-10).map(m=>({role:m.role,content:m.content}));
+  
   try{
-    const res=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'Content-Type':'application/json','x-api-key':S.apiKey,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:1024,system:ctx,messages:[{role:'user',content:msg}]})});
+    const res=await fetch('https://api.anthropic.com/v1/messages',{
+      method:'POST',
+      headers:{'Content-Type':'application/json','x-api-key':S.apiKey,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
+      body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:2048,system:systemCtx,messages})
+    });
     const data=await res.json();
-    const reply=data.content?.[0]?.text||data.error?.message||'Error';
-    S.aiMsgs.push({role:'assistant',content:reply});
-  }catch(e){S.aiMsgs.push({role:'assistant',content:'Error: '+e.message})}
-  SS('aiMsgs',S.aiMsgs);render();
+    let reply=data.content?.[0]?.text||data.error?.message||'Error';
+    
+    // Check for tool calls
+    const toolRegex=/```tool\s*\n?([\s\S]*?)\n?```/g;
+    const toolCalls=[];
+    let match;
+    while((match=toolRegex.exec(reply))!==null){
+      try{
+        const toolData=JSON.parse(match[1]);
+        toolCalls.push(toolData);
+      }catch(e){console.error('Tool parse error:',e)}
+    }
+    
+    if(toolCalls.length>0){
+      // Execute tools and show results
+      const results=[];
+      for(const tc of toolCalls){
+        const result=executeAITool(tc.tool,tc.params||{});
+        results.push({tool:tc.tool,result});
+        // Show tool execution in chat
+        reply=reply.replace(/```tool[\s\S]*?```/,'');
+      }
+      
+      // Clean up reply and add tool results
+      reply=reply.trim();
+      const toolResultsText=results.map(r=>`✅ ${r.tool}: ${r.result.message||JSON.stringify(r.result.data).slice(0,200)}`).join('\n');
+      
+      if(reply)S.aiMsgs.push({role:'assistant',content:reply});
+      S.aiMsgs.push({role:'assistant',content:toolResultsText});
+      
+      // Re-render to show updates
+      render();
+      
+      // Continue conversation if AI might want to do more
+      // (commented out to avoid loops - enable if needed)
+      // await runAIWithTools(systemCtx,'Tool results: '+JSON.stringify(results),depth+1);
+    }else{
+      S.aiMsgs.push({role:'assistant',content:reply});
+    }
+  }catch(e){
+    S.aiMsgs.push({role:'assistant',content:'Error: '+e.message});
+  }
+  
+  SS('aiMsgs',S.aiMsgs);
+  render();
 }
 
 // SETTINGS
