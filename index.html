@@ -208,11 +208,132 @@
     .quote-output-table .msr-row td:first-child{color:var(--warn)}
     .quote-footer{margin-top:8px;padding-top:6px;border-top:1px solid var(--border);font-size:9px;color:var(--muted);text-align:center}
     .quote-toolbar{display:flex;gap:8px;align-items:center;margin-bottom:12px;padding:10px;background:var(--panel);border:1px solid var(--border);border-radius:4px;flex-wrap:wrap}
+    
+    /* Mobile Header (hidden on desktop) */
+    .mobile-header{display:none;position:fixed;top:0;left:0;right:0;height:56px;background:var(--panel);border-bottom:1px solid var(--border);z-index:100;padding:0 16px;align-items:center;justify-content:space-between}
+    .mobile-header .logo{background:linear-gradient(135deg,var(--accent),#00a080);padding:6px 12px;font-weight:700;font-size:12px;color:var(--bg)}
+    .hamburger{background:none;border:none;color:var(--text);font-size:24px;cursor:pointer;padding:8px}
+    
+    /* Mobile Bottom Nav (hidden on desktop) */
+    .mobile-nav{display:none;position:fixed;bottom:0;left:0;right:0;height:64px;background:var(--panel);border-top:1px solid var(--border);z-index:100}
+    .mobile-nav-items{display:flex;height:100%}
+    .mobile-nav-item{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;color:var(--muted);font-size:9px;cursor:pointer;border:none;background:none}
+    .mobile-nav-item.active{color:var(--accent)}
+    .mobile-nav-item svg,.mobile-nav-item .nav-icon{font-size:20px}
+    
+    /* Mobile Sidebar Overlay */
+    .sidebar-overlay{display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.7);z-index:199}
+    .sidebar-overlay.open{display:block}
+    
+    /* Mobile Responsive */
+    @media(max-width:768px){
+      body{overflow:auto;height:auto;min-height:100vh}
+      #app{flex-direction:column;height:auto;min-height:100vh;padding-top:56px;padding-bottom:64px}
+      
+      /* Show mobile elements */
+      .mobile-header{display:flex}
+      .mobile-nav{display:block}
+      
+      /* Hide desktop sidebar, show as slide-out */
+      .sidebar{position:fixed;left:-260px;top:0;bottom:0;width:260px;z-index:200;transition:left 0.3s ease}
+      .sidebar.open{left:0}
+      
+      /* Main content */
+      .main{width:100%;overflow:visible}
+      .header{display:none}
+      .content{padding:12px;overflow:visible}
+      
+      /* Grids stack on mobile */
+      .grid-2,.grid-3,.grid-2-1,.form-grid,.quote-grid{grid-template-columns:1fr}
+      .form-group.full{grid-column:span 1}
+      
+      /* KPI cards */
+      .kpi-grid{grid-template-columns:1fr 1fr;gap:8px}
+      .kpi{padding:12px}
+      .kpi-value{font-size:16px}
+      
+      /* Tables scroll horizontally */
+      .table-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
+      table{min-width:600px}
+      th,td{padding:8px 10px;font-size:11px}
+      
+      /* Cards */
+      .card{margin-bottom:12px}
+      .card-header{padding:10px 12px;flex-wrap:wrap;gap:8px}
+      .card-body{padding:12px;overflow-x:auto}
+      
+      /* Buttons larger for touch */
+      .btn{padding:12px 16px;font-size:12px;min-height:44px}
+      .btn-sm{padding:8px 12px;min-height:36px}
+      select,input[type="text"],input[type="number"],input[type="date"],input[type="password"],textarea{padding:12px;font-size:14px;min-height:44px}
+      
+      /* Modal full screen on mobile */
+      .modal{width:100%;height:100%;max-height:100%;border-radius:0}
+      .modal.wide{width:100%}
+      .modal-body{padding:16px}
+      
+      /* Quote engine */
+      .quote-grid{display:flex;flex-direction:column}
+      .freight-panel{padding:12px}
+      .output-preview{max-height:300px}
+      
+      /* AI Chat */
+      .ai-chat{height:calc(100vh - 180px)}
+      .ai-input-area{padding:12px}
+      .ai-input-area textarea{min-height:50px}
+      
+      /* Action buttons wrap */
+      .action-buttons{flex-wrap:wrap}
+      .header-right{flex-wrap:wrap;width:100%;justify-content:flex-start}
+    }
+    
+    /* Small phones */
+    @media(max-width:400px){
+      .kpi-grid{grid-template-columns:1fr}
+      .mobile-nav-item{font-size:8px}
+      .content{padding:8px}
+    }
   </style>
 </head>
 <body>
+<!-- Mobile Header -->
+<div class="mobile-header">
+  <button class="hamburger" onclick="toggleMobileSidebar()">☰</button>
+  <div class="logo">SYP ANALYTICS</div>
+  <button class="hamburger" onclick="S.view='settings';closeMobileSidebar();render()">⚙️</button>
+</div>
+
+<!-- Sidebar Overlay -->
+<div class="sidebar-overlay" id="sidebar-overlay" onclick="closeMobileSidebar()"></div>
+
+<!-- Mobile Bottom Nav -->
+<div class="mobile-nav">
+  <div class="mobile-nav-items">
+    <button class="mobile-nav-item" onclick="S.view='dashboard';closeMobileSidebar();render()" id="mnav-dashboard">
+      <span>📊</span>
+      <span>Dashboard</span>
+    </button>
+    <button class="mobile-nav-item" onclick="S.view='buys';closeMobileSidebar();render()" id="mnav-buys">
+      <span>📥</span>
+      <span>Buys</span>
+    </button>
+    <button class="mobile-nav-item" onclick="S.view='sells';closeMobileSidebar();render()" id="mnav-sells">
+      <span>📤</span>
+      <span>Sells</span>
+    </button>
+    <button class="mobile-nav-item" onclick="S.view='quotes';closeMobileSidebar();render()" id="mnav-quotes">
+      <span>📋</span>
+      <span>Quotes</span>
+    </button>
+    <button class="mobile-nav-item" onclick="S.view='crm';closeMobileSidebar();render()" id="mnav-crm">
+      <span>👥</span>
+      <span>CRM</span>
+    </button>
+  </div>
+</div>
+
 <div id="app">
-  <aside class="sidebar">
+  <aside class="sidebar" id="sidebar">
     <div class="sidebar-header">
       <div class="logo">SYP ANALYTICS</div>
       <div class="company">Buckeye Pacific</div>
@@ -319,6 +440,7 @@ async function cloudSync(action='push'){
   if(!supabase)return{success:false,error:'Supabase not configured'};
   
   const userId=LS('supabaseUserId','')||'default';
+  console.log('Cloud sync:',action,'user:',userId,'url:',supabase.url);
   
   try{
     if(action==='push'){
@@ -331,9 +453,19 @@ async function cloudSync(action='push'){
         mills:S.mills,
         nextId:S.nextId,
         flatRate:S.flatRate,
+        // Quote engine data
+        lanes:S.lanes,
+        quoteItems:S.quoteItems,
+        quoteProfiles:S.quoteProfiles,
+        quoteProfile:S.quoteProfile,
+        marketBlurb:S.marketBlurb,
+        stateRates:S.stateRates,
+        freightBase:S.freightBase,
+        shortHaulFloor:S.shortHaulFloor,
         updated_at:new Date().toISOString()
       };
       
+      console.log('Checking for existing record...');
       const res=await fetch(`${supabase.url}/rest/v1/syp_data?user_id=eq.${userId}`,{
         method:'GET',
         headers:{
@@ -341,11 +473,21 @@ async function cloudSync(action='push'){
           'Authorization':`Bearer ${supabase.key}`
         }
       });
-      const existing=await res.json();
       
+      if(!res.ok){
+        const errText=await res.text();
+        console.error('GET failed:',res.status,errText);
+        return{success:false,error:`GET failed: ${res.status} ${errText}`};
+      }
+      
+      const existing=await res.json();
+      console.log('Existing records:',existing.length);
+      
+      let saveRes;
       if(existing&&existing.length>0){
         // Update existing record
-        await fetch(`${supabase.url}/rest/v1/syp_data?user_id=eq.${userId}`,{
+        console.log('Updating existing record...');
+        saveRes=await fetch(`${supabase.url}/rest/v1/syp_data?user_id=eq.${userId}`,{
           method:'PATCH',
           headers:{
             'apikey':supabase.key,
@@ -357,7 +499,8 @@ async function cloudSync(action='push'){
         });
       }else{
         // Insert new record
-        await fetch(`${supabase.url}/rest/v1/syp_data`,{
+        console.log('Inserting new record...');
+        saveRes=await fetch(`${supabase.url}/rest/v1/syp_data`,{
           method:'POST',
           headers:{
             'apikey':supabase.key,
@@ -368,6 +511,14 @@ async function cloudSync(action='push'){
           body:JSON.stringify({user_id:userId,data,updated_at:new Date().toISOString()})
         });
       }
+      
+      if(!saveRes.ok){
+        const errText=await saveRes.text();
+        console.error('Save failed:',saveRes.status,errText);
+        return{success:false,error:`Save failed: ${saveRes.status} ${errText}`};
+      }
+      
+      console.log('Push successful!');
       return{success:true,action:'pushed'};
     }else if(action==='pull'){
       // Download cloud data to local
@@ -387,6 +538,15 @@ async function cloudSync(action='push'){
         S.mills=d.mills||[];
         S.nextId=d.nextId||1;
         S.flatRate=d.flatRate||3.50;
+        // Quote engine data
+        S.lanes=d.lanes||[];
+        S.quoteItems=d.quoteItems||[];
+        S.quoteProfiles=d.quoteProfiles||{default:{name:'Default',customers:[]}};
+        S.quoteProfile=d.quoteProfile||'default';
+        S.marketBlurb=d.marketBlurb||'';
+        S.stateRates=d.stateRates||{AR:2.25,LA:2.25,TX:2.50,MS:2.25,AL:2.50,FL:2.75,GA:2.50,SC:2.50,NC:2.50};
+        S.freightBase=d.freightBase||450;
+        S.shortHaulFloor=d.shortHaulFloor||0;
         // Save to local storage too
         await saveAllLocal();
         return{success:true,action:'pulled',updated:rows[0].updated_at};
@@ -411,6 +571,11 @@ async function saveAllLocal(){
   await dbSet('lanes',S.lanes);
   await dbSet('quoteItems',S.quoteItems);
   await dbSet('stateRates',S.stateRates);
+  await dbSet('quoteProfiles',S.quoteProfiles);
+  await dbSet('quoteProfile',S.quoteProfile);
+  await dbSet('marketBlurb',S.marketBlurb);
+  await dbSet('freightBase',S.freightBase);
+  await dbSet('shortHaulFloor',S.shortHaulFloor);
   // localStorage (backup for small data)
   SS('buys',S.buys);
   SS('sells',S.sells);
@@ -422,6 +587,11 @@ async function saveAllLocal(){
   SS('lanes',S.lanes);
   SS('quoteItems',S.quoteItems);
   SS('stateRates',S.stateRates);
+  SS('quoteProfiles',S.quoteProfiles);
+  SS('quoteProfile',S.quoteProfile);
+  SS('marketBlurb',S.marketBlurb);
+  SS('freightBase',S.freightBase);
+  SS('shortHaulFloor',S.shortHaulFloor);
 }
 
 // Load from IndexedDB first, fall back to localStorage
@@ -651,10 +821,11 @@ function renderMkt(){
   document.getElementById('mkt-d').textContent=rl?.date||'';
 }
 
-function go(v){S.view=v;render()}
+function go(v){S.view=v;closeMobileSidebar();render()}
 
 function render(){
   renderNav();renderMkt();
+  updateMobileNav();
   const a=analytics();
   const nav=NAV.find(n=>n.id===S.view);
   document.getElementById('title').textContent=(nav?.icon||'')+' '+(nav?.label||'');
@@ -4953,7 +5124,25 @@ function expCSV(t){
   const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));a.download=`syp-${t}-${today()}.csv`;a.click();
 }
 function expAll(){
-  const d={buys:S.buys,sells:S.sells,rl:S.rl,customers:S.customers,mills:S.mills,nextId:S.nextId,flatRate:S.flatRate,exportedAt:new Date().toISOString()};
+  const d={
+    buys:S.buys,
+    sells:S.sells,
+    rl:S.rl,
+    customers:S.customers,
+    mills:S.mills,
+    nextId:S.nextId,
+    flatRate:S.flatRate,
+    // Quote engine data
+    lanes:S.lanes,
+    quoteItems:S.quoteItems,
+    quoteProfiles:S.quoteProfiles,
+    quoteProfile:S.quoteProfile,
+    marketBlurb:S.marketBlurb,
+    stateRates:S.stateRates,
+    freightBase:S.freightBase,
+    shortHaulFloor:S.shortHaulFloor,
+    exportedAt:new Date().toISOString()
+  };
   const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([JSON.stringify(d,null,2)],{type:'application/json'}));a.download=`syp-backup-${today()}.json`;a.click();
 }
 async function impData(e){
@@ -4969,8 +5158,17 @@ async function impData(e){
       if(d.mills){S.mills=d.mills}
       if(d.nextId){S.nextId=d.nextId}
       if(d.flatRate){S.flatRate=d.flatRate}
+      // Quote engine data
+      if(d.lanes){S.lanes=d.lanes}
+      if(d.quoteItems){S.quoteItems=d.quoteItems}
+      if(d.quoteProfiles){S.quoteProfiles=d.quoteProfiles}
+      if(d.quoteProfile){S.quoteProfile=d.quoteProfile}
+      if(d.marketBlurb!==undefined){S.marketBlurb=d.marketBlurb}
+      if(d.stateRates){S.stateRates=d.stateRates}
+      if(d.freightBase!==undefined){S.freightBase=d.freightBase}
+      if(d.shortHaulFloor!==undefined){S.shortHaulFloor=d.shortHaulFloor}
       await saveAllLocal();
-      alert('Imported!');
+      alert('Imported! All data including quote engine settings restored.');
       render();
     }catch(err){alert('Error: '+err.message)}
   };
@@ -4980,6 +5178,7 @@ async function clearAll(){
   if(!confirm('Delete ALL data?'))return;
   if(!confirm('Really?'))return;
   S.buys=[];S.sells=[];S.rl=[];S.customers=[];S.mills=[];S.aiMsgs=[];
+  S.lanes=[];S.quoteItems=[];S.quoteProfiles={default:{name:'Default',customers:[]}};
   await saveAllLocal();
   SS('aiMsgs',[]);
   render();
@@ -5068,9 +5267,35 @@ function setAppPassword(pwd){
   }
 }
 
+// Mobile navigation functions
+function toggleMobileSidebar(){
+  const sidebar=document.getElementById('sidebar');
+  const overlay=document.getElementById('sidebar-overlay');
+  sidebar.classList.toggle('open');
+  overlay.classList.toggle('open');
+}
+
+function closeMobileSidebar(){
+  const sidebar=document.getElementById('sidebar');
+  const overlay=document.getElementById('sidebar-overlay');
+  sidebar.classList.remove('open');
+  overlay.classList.remove('open');
+}
+
+function updateMobileNav(){
+  // Update active state on mobile nav
+  const views=['dashboard','buys','sells','quotes','crm'];
+  views.forEach(v=>{
+    const el=document.getElementById('mnav-'+v);
+    if(el){
+      el.classList.toggle('active',S.view===v||(v==='quotes'&&S.view==='quotes'));
+    }
+  });
+}
+
 function showToast(msg,type='info'){
   const toast=document.createElement('div');
-  toast.style.cssText=`position:fixed;top:20px;right:20px;padding:12px 20px;background:var(--${type==='positive'?'positive':type==='warn'?'warn':'info'});color:${type==='warn'?'var(--bg)':'#fff'};font-size:11px;z-index:9999;border-radius:4px;animation:fadeIn 0.3s`;
+  toast.style.cssText=`position:fixed;top:70px;right:20px;padding:12px 20px;background:var(--${type==='positive'?'positive':type==='warn'?'warn':'info'});color:${type==='warn'?'var(--bg)':'#fff'};font-size:11px;z-index:9999;border-radius:4px;animation:fadeIn 0.3s`;
   toast.textContent=msg;
   document.body.appendChild(toast);
   setTimeout(()=>toast.remove(),3000);
