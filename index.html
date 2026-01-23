@@ -337,6 +337,9 @@
     <div class="sidebar-header">
       <div class="logo">SYP ANALYTICS</div>
       <div class="company">Buckeye Pacific</div>
+      <div style="margin-top:12px">
+        <select id="trader-select" onchange="setTrader(this.value)" style="width:100%;padding:8px;background:var(--panel);border:1px solid var(--accent);color:var(--accent);font-weight:600;border-radius:4px;font-size:12px"></select>
+      </div>
     </div>
     <nav class="nav" id="nav"></nav>
     <div class="sidebar-footer">
@@ -352,6 +355,13 @@
       <div class="header-left">
         <h1 id="title">📊 Dashboard</h1>
         <div class="filters">
+          <select id="f-view" style="border-color:var(--accent);color:var(--accent);font-weight:600">
+            <option value="mine">My Trades</option>
+            <option value="dept">Department</option>
+          </select>
+          <select id="f-trader" style="display:none">
+            <option value="all">All Traders</option>
+          </select>
           <select id="f-date"><option value="7d">7 Days</option><option value="14d">14 Days</option><option value="30d" selected>30 Days</option><option value="90d">90 Days</option><option value="all">All Time</option></select>
           <select id="f-prod"><option value="all">All Products</option></select>
           <select id="f-reg"><option value="all">All Regions</option><option value="west">West</option><option value="central">Central</option><option value="east">East</option></select>
@@ -372,7 +382,7 @@ const REGIONS=['west','central','east'];
 const DESTS=['Atlanta','Charlotte','Dallas','Memphis','Birmingham','Chicago','Houston','Nashville','Jacksonville','New Orleans'];
 const MILLS=['Canfor - DeQuincy','Canfor - Urbana','West Fraser - Huttig','West Fraser - Leola','Interfor - Monticello','Interfor - Georgetown','GP - Clarendon','GP - Camden','Rex Lumber - Bristol','Rex Lumber - Graceville','Weyerhaeuser - Dierks','Tolko - Leland'];
 const FREIGHT={west:{Atlanta:96,Charlotte:104,Dallas:40,Memphis:60,Birmingham:85,Chicago:110,Houston:55,Nashville:78},central:{Atlanta:83,Charlotte:91,Dallas:70,Memphis:50,Birmingham:60,Chicago:90,Houston:75,Nashville:55},east:{Atlanta:60,Charlotte:55,Dallas:120,Memphis:80,Birmingham:65,Chicago:84,Houston:115,Nashville:65}};
-const NAV=[{id:'dashboard',icon:'📊',label:'Dashboard'},{id:'insights',icon:'🎯',label:'Daily Briefing'},{id:'charts',icon:'📈',label:'RL Charts'},{id:'blotter',icon:'📋',label:'Trade Blotter'},{id:'benchmark',icon:'🎯',label:'vs Market'},{id:'risk',icon:'⚠️',label:'Risk'},{id:'quotes',icon:'💰',label:'Quote Engine'},{id:'products',icon:'📦',label:'By Product'},{id:'crm',icon:'🏢',label:'CRM'},{id:'rldata',icon:'📰',label:'RL Data'},{id:'ai',icon:'🤖',label:'AI Analyst'},{id:'settings',icon:'⚙️',label:'Settings'}];
+const NAV=[{id:'dashboard',icon:'📊',label:'Dashboard'},{id:'leaderboard',icon:'🏆',label:'Leaderboard'},{id:'insights',icon:'🎯',label:'Daily Briefing'},{id:'charts',icon:'📈',label:'RL Charts'},{id:'blotter',icon:'📋',label:'Trade Blotter'},{id:'benchmark',icon:'🎯',label:'vs Market'},{id:'risk',icon:'⚠️',label:'Risk'},{id:'quotes',icon:'💰',label:'Quote Engine'},{id:'products',icon:'📦',label:'By Product'},{id:'crm',icon:'🏢',label:'CRM'},{id:'rldata',icon:'📰',label:'RL Data'},{id:'ai',icon:'🤖',label:'AI Analyst'},{id:'settings',icon:'⚙️',label:'Settings'}];
 
 const LS=(k,d)=>{try{const v=localStorage.getItem('syp_'+k);return v?JSON.parse(v):d}catch{return d}};
 const SS=(k,v)=>{try{localStorage.setItem('syp_'+k,JSON.stringify(v))}catch{}};
@@ -424,8 +434,11 @@ async function dbSet(key,value){
 
 // Supabase Cloud Sync
 let supabase=null;
-const SUPABASE_URL=LS('supabaseUrl','');
-const SUPABASE_KEY=LS('supabaseKey','');
+// Pre-configured Supabase (auto-connect on any device)
+const DEFAULT_SUPABASE_URL='https://miydcdlywbcemcmqqocv.supabase.co';
+const DEFAULT_SUPABASE_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1peWRjZGx5d2JjZW1jbXFxb2N2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjkxMDA0NjIsImV4cCI6MjA4NDY3NjQ2Mn0.LDe7owtdqhGUyE5O5DE8krJI7OdCPCv7I4l7RVl0CqI';
+const SUPABASE_URL=LS('supabaseUrl','')||DEFAULT_SUPABASE_URL;
+const SUPABASE_KEY=LS('supabaseKey','')||DEFAULT_SUPABASE_KEY;
 
 function initSupabase(url,key){
   if(url&&key){
@@ -632,6 +645,9 @@ async function save(key,value){
   }
 }
 
+// Traders in department
+const TRADERS=['Ian','Aubrey','Hunter','Sawyer','Jackson','John'];
+
 let S={
   view:'dashboard',
   filters:{date:'30d',prod:'all',reg:'all'},
@@ -657,7 +673,10 @@ let S={
   shortHaulFloor:LS('shortHaulFloor',0),
   freightBase:LS('freightBase',450),
   singleQuoteCustomer:'',
-  chartProduct:'2x4#2'
+  chartProduct:'2x4#2',
+  trader:LS('trader','Ian'),
+  traderView:LS('traderView','mine'),
+  traderFilter:'all'
 };
 
 const fmt=(v,d=0)=>v!=null&&!isNaN(v)?`$${Number(v).toLocaleString(undefined,{minimumFractionDigits:d,maximumFractionDigits:d})}`:'—';
@@ -672,6 +691,25 @@ function getRange(){
 }
 
 function filtered(){
+  const r=getRange(),inR=d=>new Date(d)>=r.start&&new Date(d)<=r.end;
+  const mP=p=>S.filters.prod==='all'||p===S.filters.prod;
+  const mR=rg=>S.filters.reg==='all'||rg===S.filters.reg;
+  
+  // Trader filtering
+  const mT=t=>{
+    if(S.traderView==='mine')return t===S.trader||!t; // My trades (or legacy untagged)
+    if(S.traderFilter!=='all')return t===S.traderFilter;
+    return true; // Department view, all traders
+  };
+  
+  return{
+    buys:S.buys.filter(b=>inR(b.date)&&mP(b.product)&&mR(b.region)&&mT(b.trader)),
+    sells:S.sells.filter(s=>inR(s.date)&&mP(s.product)&&mT(s.trader))
+  };
+}
+
+// Get all data (ignores trader filter) for cross-linking
+function allData(){
   const r=getRange(),inR=d=>new Date(d)>=r.start&&new Date(d)<=r.end;
   const mP=p=>S.filters.prod==='all'||p===S.filters.prod;
   const mR=rg=>S.filters.reg==='all'||rg===S.filters.reg;
@@ -828,6 +866,29 @@ function renderMkt(){
 
 function go(v){S.view=v;closeMobileSidebar();render()}
 
+function setTrader(t){
+  S.trader=t;
+  SS('trader',t);
+  showToast('Switched to '+t,'info');
+  render();
+}
+
+// Check if current user can edit a trade
+function canEdit(trade){
+  return trade.trader===S.trader||!trade.trader; // Can edit own trades or legacy untagged
+}
+
+// Get trader color for display
+function traderColor(t){
+  const colors={'Ian':'var(--accent)','Aubrey':'#f5a623','Hunter':'#4a9eff','Sawyer':'#a855f7','Jackson':'#ec4899','John':'#14b8a6'};
+  return colors[t]||'var(--muted)';
+}
+
+// Get trader initials for badges
+function traderInitial(t){
+  return t?t.charAt(0).toUpperCase():'?';
+}
+
 function render(){
   renderNav();renderMkt();
   updateMobileNav();
@@ -878,6 +939,196 @@ function render(){
         </div>
         <div class="card"><div class="card-header"><span class="card-title">RECENT SELLS</span></div>
           ${a.sells.length?a.sells.slice(0,5).map(x=>`<div class="activity-item"><div><div class="activity-main">${x.product} @ ${fmt(x.price)} DLVD</div><div class="activity-sub">${x.customer} • ${x.destination}</div></div><div class="activity-right"><div class="activity-value accent">${x.volume} MBF</div><span class="badge ${x.delivered?'badge-success':'badge-pending'}">${x.delivered?'Delivered':'Pending'}</span></div></div>`).join(''):'<div class="empty-state">No sells yet</div>'}
+        </div>
+      </div>`;
+  }
+  else if(S.view==='leaderboard'){
+    // Department Leaderboard - uses ALL data regardless of filter
+    const r=getRange(),inR=d=>new Date(d)>=r.start&&new Date(d)<=r.end;
+    const allBuys=S.buys.filter(b=>inR(b.date));
+    const allSells=S.sells.filter(s=>inR(s.date));
+    
+    // Calculate stats per trader
+    const traderStats=TRADERS.map(t=>{
+      const buys=allBuys.filter(b=>b.trader===t||(!b.trader&&t==='Ian'));
+      const sells=allSells.filter(s=>s.trader===t||(!s.trader&&t==='Ian'));
+      
+      const buyVol=buys.reduce((s,b)=>s+(b.volume||0),0);
+      const buyVal=buys.reduce((s,b)=>s+(b.price||0)*(b.volume||0),0);
+      const sellVol=sells.reduce((s,x)=>s+(x.volume||0),0);
+      const sellVal=sells.reduce((s,x)=>s+(x.price||0)*(x.volume||0),0);
+      
+      // Calculate margin (sell FOB - buy cost)
+      const sellFOB=sells.reduce((s,x)=>{
+        const freightPerMBF=x.volume>0?(x.freight||0)/x.volume:0;
+        return s+((x.price||0)-freightPerMBF)*(x.volume||0);
+      },0);
+      const avgSellFOB=sellVol>0?sellFOB/sellVol:0;
+      const avgBuy=buyVol>0?buyVal/buyVol:0;
+      const margin=avgSellFOB-avgBuy;
+      const profit=sellFOB-buyVal;
+      
+      const openBuys=buys.filter(b=>!b.shipped).length;
+      const openSells=sells.filter(s=>!s.delivered).length;
+      
+      return{
+        name:t,
+        buyVol,sellVol,
+        totalVol:buyVol+sellVol,
+        margin:isNaN(margin)?0:margin,
+        profit:isNaN(profit)?0:profit,
+        trades:buys.length+sells.length,
+        openBuys,openSells
+      };
+    });
+    
+    // Sort by different metrics
+    const byVolume=[...traderStats].sort((a,b)=>b.totalVol-a.totalVol);
+    const byMargin=[...traderStats].sort((a,b)=>b.margin-a.margin);
+    const byTrades=[...traderStats].sort((a,b)=>b.trades-a.trades);
+    
+    // Department totals
+    const deptBuyVol=allBuys.reduce((s,b)=>s+(b.volume||0),0);
+    const deptSellVol=allSells.reduce((s,s2)=>s+(s2.volume||0),0);
+    const deptTrades=allBuys.length+allSells.length;
+    
+    c.innerHTML=`
+      <div class="kpi-grid" style="margin-bottom:16px">
+        <div class="kpi"><div class="kpi-value">${deptBuyVol+deptSellVol}</div><div class="kpi-label">DEPT VOLUME (MBF)</div></div>
+        <div class="kpi"><div class="kpi-value">${deptTrades}</div><div class="kpi-label">TOTAL TRADES</div></div>
+        <div class="kpi"><div class="kpi-value">${TRADERS.length}</div><div class="kpi-label">TRADERS</div></div>
+        <div class="kpi"><div class="kpi-value">${Math.round((deptBuyVol+deptSellVol)/TRADERS.length)}</div><div class="kpi-label">AVG VOL/TRADER</div></div>
+      </div>
+      
+      <div class="grid-3" style="margin-bottom:16px">
+        <div class="card">
+          <div class="card-header"><span class="card-title positive">🏆 VOLUME LEADERS</span></div>
+          <div class="card-body" style="padding:0">
+            ${byVolume.map((t,i)=>`
+              <div class="activity-item" style="border-left:3px solid ${traderColor(t.name)}">
+                <div style="display:flex;align-items:center;gap:12px">
+                  <span style="font-size:16px;font-weight:700;color:${i===0?'gold':i===1?'silver':i===2?'#cd7f32':'var(--muted)'};width:24px">${i+1}</span>
+                  <div>
+                    <div style="font-weight:600">${t.name}</div>
+                    <div style="font-size:10px;color:var(--muted)">B:${t.buyVol} S:${t.sellVol}</div>
+                  </div>
+                </div>
+                <span style="font-weight:700;font-size:14px">${t.totalVol} MBF</span>
+              </div>`).join('')}
+          </div>
+        </div>
+        
+        <div class="card">
+          <div class="card-header"><span class="card-title accent">💰 MARGIN LEADERS</span></div>
+          <div class="card-body" style="padding:0">
+            ${byMargin.filter(t=>t.sellVol>0).map((t,i)=>`
+              <div class="activity-item" style="border-left:3px solid ${traderColor(t.name)}">
+                <div style="display:flex;align-items:center;gap:12px">
+                  <span style="font-size:16px;font-weight:700;color:${i===0?'gold':i===1?'silver':i===2?'#cd7f32':'var(--muted)'};width:24px">${i+1}</span>
+                  <div>
+                    <div style="font-weight:600">${t.name}</div>
+                    <div style="font-size:10px;color:var(--muted)">on ${t.sellVol} MBF sold</div>
+                  </div>
+                </div>
+                <span style="font-weight:700;font-size:14px;color:${t.margin>=0?'var(--positive)':'var(--negative)'}">${fmt(t.margin)}/M</span>
+              </div>`).join('')||'<div class="empty-state">No sells yet</div>'}
+          </div>
+        </div>
+        
+        <div class="card">
+          <div class="card-header"><span class="card-title info">📊 MOST ACTIVE</span></div>
+          <div class="card-body" style="padding:0">
+            ${byTrades.map((t,i)=>`
+              <div class="activity-item" style="border-left:3px solid ${traderColor(t.name)}">
+                <div style="display:flex;align-items:center;gap:12px">
+                  <span style="font-size:16px;font-weight:700;color:${i===0?'gold':i===1?'silver':i===2?'#cd7f32':'var(--muted)'};width:24px">${i+1}</span>
+                  <div>
+                    <div style="font-weight:600">${t.name}</div>
+                    <div style="font-size:10px;color:var(--muted)">${t.openBuys+t.openSells} open orders</div>
+                  </div>
+                </div>
+                <span style="font-weight:700;font-size:14px">${t.trades} trades</span>
+              </div>`).join('')}
+          </div>
+        </div>
+      </div>
+      
+      <div class="card">
+        <div class="card-header"><span class="card-title">📋 DETAILED BREAKDOWN</span></div>
+        <div class="card-body">
+          <table>
+            <thead>
+              <tr>
+                <th>Trader</th>
+                <th class="right">Buy Vol</th>
+                <th class="right">Sell Vol</th>
+                <th class="right">Total Vol</th>
+                <th class="right">Trades</th>
+                <th class="right">Margin</th>
+                <th class="right">Est. Profit</th>
+                <th class="right">Open</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${traderStats.map(t=>`
+                <tr style="border-left:3px solid ${traderColor(t.name)}">
+                  <td class="bold">${t.name}${t.name===S.trader?' (you)':''}</td>
+                  <td class="right">${t.buyVol}</td>
+                  <td class="right">${t.sellVol}</td>
+                  <td class="right bold">${t.totalVol}</td>
+                  <td class="right">${t.trades}</td>
+                  <td class="right ${t.margin>=0?'positive':'negative'}">${t.sellVol>0?fmt(t.margin)+'/M':'—'}</td>
+                  <td class="right ${t.profit>=0?'positive':'negative'}">${t.sellVol>0?fmt(t.profit,0):'—'}</td>
+                  <td class="right">${t.openBuys+t.openSells>0?`<span class="badge badge-pending">${t.openBuys+t.openSells}</span>`:'✓'}</td>
+                </tr>`).join('')}
+            </tbody>
+            <tfoot>
+              <tr style="font-weight:700;border-top:2px solid var(--border)">
+                <td>DEPARTMENT</td>
+                <td class="right">${traderStats.reduce((s,t)=>s+t.buyVol,0)}</td>
+                <td class="right">${traderStats.reduce((s,t)=>s+t.sellVol,0)}</td>
+                <td class="right">${traderStats.reduce((s,t)=>s+t.totalVol,0)}</td>
+                <td class="right">${traderStats.reduce((s,t)=>s+t.trades,0)}</td>
+                <td class="right">—</td>
+                <td class="right">${fmt(traderStats.reduce((s,t)=>s+t.profit,0),0)}</td>
+                <td class="right">${traderStats.reduce((s,t)=>s+t.openBuys+t.openSells,0)}</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      </div>
+      
+      <div class="card" style="margin-top:16px">
+        <div class="card-header"><span class="card-title warn">🔗 CROSS-TRADER ORDERS</span></div>
+        <div class="card-body">
+          <div style="font-size:11px;color:var(--muted);margin-bottom:12px">Orders where one trader bought and another sold</div>
+          <table>
+            <thead><tr><th>Order #</th><th>Product</th><th>Buyer</th><th>Mill</th><th>Seller</th><th>Customer</th><th>Volume</th></tr></thead>
+            <tbody>
+              ${(()=>{
+                // Find orders where buy trader != sell trader
+                const crossOrders=[];
+                allSells.forEach(s=>{
+                  const orderNum=String(s.orderNum||s.linkedPO||s.oc||'').trim();
+                  if(!orderNum)return;
+                  const matchingBuy=allBuys.find(b=>String(b.orderNum||b.po||'').trim()===orderNum);
+                  if(matchingBuy&&matchingBuy.trader!==s.trader){
+                    crossOrders.push({orderNum,product:s.product,buyer:matchingBuy.trader||'Ian',mill:matchingBuy.mill,seller:s.trader||'Ian',customer:s.customer,volume:s.volume});
+                  }
+                });
+                return crossOrders.length?crossOrders.map(o=>`
+                  <tr>
+                    <td class="bold">${o.orderNum}</td>
+                    <td>${o.product}</td>
+                    <td style="color:${traderColor(o.buyer)}">${o.buyer}</td>
+                    <td>${o.mill}</td>
+                    <td style="color:${traderColor(o.seller)}">${o.seller}</td>
+                    <td>${o.customer}</td>
+                    <td class="right">${o.volume} MBF</td>
+                  </tr>`).join(''):'<tr><td colspan="7" class="center" style="color:var(--muted)">No cross-trader orders yet. When someone sells from another trader\'s buy, it will appear here.</td></tr>';
+              })()}
+            </tbody>
+          </table>
         </div>
       </div>`;
   }
@@ -1327,11 +1578,11 @@ function render(){
         </div>
       </div>
       <div class="card"><div class="card-header"><span class="card-title positive">BUYS</span><span style="color:var(--muted);font-size:10px;margin-left:8px">${filteredBuys.length} trades</span><button class="btn btn-default btn-sm" onclick="expCSV('buys')">Export CSV</button></div>
-        <div style="overflow-x:auto"><table><thead><tr><th ${sortClick('orderNum')}>Order # ${sortIcon('orderNum')}</th><th ${sortClick('date')}>Date ${sortIcon('date')}</th><th ${sortClick('mill')}>Mill ${sortIcon('mill')}</th><th>Origin</th><th>Reg</th><th ${sortClick('product')}>Product ${sortIcon('product')}</th><th>Len</th><th class="right" ${sortClick('price')}>Price ${sortIcon('price')}</th><th class="right">Frt</th><th class="right" ${sortClick('volume')}>Vol ${sortIcon('volume')}</th><th class="right">Sold</th><th class="right">Avail</th><th></th></tr></thead><tbody>
-          ${filteredBuys.length?filteredBuys.map(b=>{const ord=String(b.orderNum||b.po||'').trim();const sold=orderSold[ord]||0;const avail=(b.volume||0)-sold;const buyFrtMBF=b.volume>0?(b.freight||0)/b.volume:0;return`<tr><td class="bold accent">${ord||'—'}</td><td>${fmtD(b.date)}</td><td>${b.mill||'—'}</td><td>${b.origin||'—'}</td><td style="text-transform:capitalize">${b.region}</td><td class="bold">${b.product}${b.msrPremium?' <span style="color:var(--accent);font-size:9px">+'+b.msrPremium+'</span>':''}</td><td>${b.length||'RL'}${b.tally?' <span style="color:var(--warn);font-size:9px">T</span>':''}</td><td class="right positive">${fmt(b.price)}${b.freight?' <span style="color:var(--muted);font-size:9px">FOB</span>':''}</td><td class="right ${b.freight?'warn':''}">${b.freight?fmt(b.freight):'—'}</td><td class="right">${b.volume}</td><td class="right ${sold>0?'warn':''}">${sold}</td><td class="right ${avail>0?'positive':''}">${avail}</td><td><div class="action-buttons"><button class="btn btn-default btn-sm" onclick="editBuy(${b.id})">Edit</button><button class="btn btn-default btn-sm" onclick="dupBuy(${b.id})">⧉</button><button class="btn btn-danger btn-sm" onclick="delBuy(${b.id})">×</button></div></td></tr>`}).join(''):'<tr><td colspan="13" class="empty-state">No buys</td></tr>'}
+        <div style="overflow-x:auto"><table><thead><tr><th>👤</th><th ${sortClick('orderNum')}>Order # ${sortIcon('orderNum')}</th><th ${sortClick('date')}>Date ${sortIcon('date')}</th><th ${sortClick('mill')}>Mill ${sortIcon('mill')}</th><th>Origin</th><th>Reg</th><th ${sortClick('product')}>Product ${sortIcon('product')}</th><th>Len</th><th class="right" ${sortClick('price')}>Price ${sortIcon('price')}</th><th class="right">Frt</th><th class="right" ${sortClick('volume')}>Vol ${sortIcon('volume')}</th><th class="right">Sold</th><th class="right">Avail</th><th></th></tr></thead><tbody>
+          ${filteredBuys.length?filteredBuys.map(b=>{const ord=String(b.orderNum||b.po||'').trim();const sold=orderSold[ord]||0;const avail=(b.volume||0)-sold;const buyFrtMBF=b.volume>0?(b.freight||0)/b.volume:0;const canMod=canEdit(b);return`<tr><td><span style="display:inline-block;width:20px;height:20px;border-radius:50%;background:${traderColor(b.trader||'Ian')};color:var(--bg);font-size:10px;font-weight:700;text-align:center;line-height:20px" title="${b.trader||'Ian'}">${traderInitial(b.trader||'Ian')}</span></td><td class="bold accent">${ord||'—'}</td><td>${fmtD(b.date)}</td><td>${b.mill||'—'}</td><td>${b.origin||'—'}</td><td style="text-transform:capitalize">${b.region}</td><td class="bold">${b.product}${b.msrPremium?' <span style="color:var(--accent);font-size:9px">+'+b.msrPremium+'</span>':''}</td><td>${b.length||'RL'}${b.tally?' <span style="color:var(--warn);font-size:9px">T</span>':''}</td><td class="right positive">${fmt(b.price)}${b.freight?' <span style="color:var(--muted);font-size:9px">FOB</span>':''}</td><td class="right ${b.freight?'warn':''}">${b.freight?fmt(b.freight):'—'}</td><td class="right">${b.volume}</td><td class="right ${sold>0?'warn':''}">${sold}</td><td class="right ${avail>0?'positive':''}">${avail}</td><td><div class="action-buttons">${canMod?`<button class="btn btn-default btn-sm" onclick="editBuy(${b.id})">Edit</button><button class="btn btn-default btn-sm" onclick="dupBuy(${b.id})">⧉</button><button class="btn btn-danger btn-sm" onclick="delBuy(${b.id})">×</button>`:`<span style="color:var(--muted);font-size:9px">${b.trader||'Ian'}'s</span>`}</div></td></tr>`}).join(''):'<tr><td colspan="14" class="empty-state">No buys</td></tr>'}
         </tbody></table></div></div>
       <div class="card"><div class="card-header"><span class="card-title">SELLS</span><span style="color:var(--muted);font-size:10px;margin-left:8px">${filteredSells.length} trades</span><button class="btn btn-default btn-sm" onclick="expCSV('sells')">Export CSV</button></div>
-        <div style="overflow-x:auto"><table><thead><tr><th ${sortClick('orderNum')}>Order # ${sortIcon('orderNum')}</th><th ${sortClick('date')}>Date ${sortIcon('date')}</th><th ${sortClick('customer')}>Customer ${sortIcon('customer')}</th><th>Dest</th><th ${sortClick('product')}>Product ${sortIcon('product')}</th><th>Len</th><th class="right" ${sortClick('price')}>DLVD ${sortIcon('price')}</th><th class="right">Frt</th><th class="right">Frt/MBF</th><th class="right">Margin</th><th class="right" ${sortClick('volume')}>Vol ${sortIcon('volume')}</th><th class="right">Profit</th><th></th></tr></thead><tbody>
+        <div style="overflow-x:auto"><table><thead><tr><th>👤</th><th ${sortClick('orderNum')}>Order # ${sortIcon('orderNum')}</th><th ${sortClick('date')}>Date ${sortIcon('date')}</th><th ${sortClick('customer')}>Customer ${sortIcon('customer')}</th><th>Dest</th><th ${sortClick('product')}>Product ${sortIcon('product')}</th><th>Len</th><th class="right" ${sortClick('price')}>DLVD ${sortIcon('price')}</th><th class="right">Frt</th><th class="right">Frt/MBF</th><th class="right">Margin</th><th class="right" ${sortClick('volume')}>Vol ${sortIcon('volume')}</th><th class="right">Profit</th><th></th></tr></thead><tbody>
           ${filteredSells.length?filteredSells.map(x=>{
             const ord=String(x.orderNum||x.linkedPO||x.oc||'').trim();
             const buy=ord?buyByOrder[ord]:null;
@@ -1343,7 +1594,9 @@ function render(){
             const margin=buy?fob-totalCost:null;
             const profit=margin!==null?margin*(x.volume||0):null;
             const isShort=!buy;
-            return`<tr><td class="bold ${isShort?'negative':'accent'}">${ord||'—'}${isShort?' <span style="font-size:9px">(SHORT)</span>':''}</td><td>${fmtD(x.date)}</td><td>${x.customer||'—'}</td><td>${x.destination||'—'}</td><td class="bold">${x.product}${x.msrPremium?' <span style="color:var(--accent);font-size:9px">+'+x.msrPremium+'</span>':''}</td><td>${x.length||'RL'}${x.tally?' <span style="color:var(--warn);font-size:9px">T</span>':''}</td><td class="right accent">${fmt(x.price)}</td><td class="right warn">${fmt(x.freight)}</td><td class="right" style="color:var(--muted)">${fmt(Math.round(sellFrtPerMBF))}</td><td class="right ${margin===null?'':margin>=0?'positive':'negative'} bold">${margin!==null?fmt(Math.round(margin)):'—'}</td><td class="right">${x.volume}</td><td class="right ${profit===null?'':profit>=0?'positive':'negative'} bold">${profit!==null?fmt(Math.round(profit)):'—'}</td><td><div class="action-buttons"><button class="btn btn-default btn-sm" onclick="editSell(${x.id})">Edit</button><button class="btn btn-default btn-sm" onclick="dupSell(${x.id})">⧉</button><button class="btn btn-danger btn-sm" onclick="delSell(${x.id})">×</button></div></td></tr>`}).join(''):'<tr><td colspan="13" class="empty-state">No sells</td></tr>'}
+            const canMod=canEdit(x);
+            const crossTrader=buy&&buy.trader!==x.trader;
+            return`<tr><td><span style="display:inline-block;width:20px;height:20px;border-radius:50%;background:${traderColor(x.trader||'Ian')};color:var(--bg);font-size:10px;font-weight:700;text-align:center;line-height:20px" title="${x.trader||'Ian'}">${traderInitial(x.trader||'Ian')}</span></td><td class="bold ${isShort?'negative':'accent'}">${ord||'—'}${isShort?' <span style="font-size:9px">(SHORT)</span>':''}${crossTrader?` <span style="font-size:9px;color:${traderColor(buy.trader)}" title="Sourced from ${buy.trader}">←${traderInitial(buy.trader)}</span>`:''}</td><td>${fmtD(x.date)}</td><td>${x.customer||'—'}</td><td>${x.destination||'—'}</td><td class="bold">${x.product}${x.msrPremium?' <span style="color:var(--accent);font-size:9px">+'+x.msrPremium+'</span>':''}</td><td>${x.length||'RL'}${x.tally?' <span style="color:var(--warn);font-size:9px">T</span>':''}</td><td class="right accent">${fmt(x.price)}</td><td class="right warn">${fmt(x.freight)}</td><td class="right" style="color:var(--muted)">${fmt(Math.round(sellFrtPerMBF))}</td><td class="right ${margin===null?'':margin>=0?'positive':'negative'} bold">${margin!==null?fmt(Math.round(margin)):'—'}</td><td class="right">${x.volume}</td><td class="right ${profit===null?'':profit>=0?'positive':'negative'} bold">${profit!==null?fmt(Math.round(profit)):'—'}</td><td><div class="action-buttons">${canMod?`<button class="btn btn-default btn-sm" onclick="editSell(${x.id})">Edit</button><button class="btn btn-default btn-sm" onclick="dupSell(${x.id})">⧉</button><button class="btn btn-danger btn-sm" onclick="delSell(${x.id})">×</button>`:`<span style="color:var(--muted);font-size:9px">${x.trader||'Ian'}'s</span>`}</div></td></tr>`}).join(''):'<tr><td colspan="14" class="empty-state">No sells</td></tr>'}
         </tbody></table></div></div>`;
   }
   else if(S.view==='benchmark'){
@@ -1722,6 +1975,10 @@ function render(){
       </tbody></table></div></div>`;
   }
   else if(S.view==='crm'){
+    // Filter CRM by trader view
+    const myMills=S.traderView==='mine'?S.mills.filter(m=>m.trader===S.trader||!m.trader):S.mills;
+    const myCustomers=S.traderView==='mine'?S.customers.filter(c=>c.trader===S.trader||!c.trader):S.customers;
+    
     // Calculate margin by customer (need to match sells to buys by orderNum)
     const buyByOrder={};
     S.buys.forEach(b=>{
@@ -1730,7 +1987,8 @@ function render(){
     });
     
     const custMargins={};
-    S.sells.forEach(s=>{
+    const mySells=S.traderView==='mine'?S.sells.filter(s=>s.trader===S.trader||!s.trader):S.sells;
+    mySells.forEach(s=>{
       const ord=String(s.orderNum||s.linkedPO||s.oc||'').trim();
       const buy=ord?buyByOrder[ord]:null;
       const buyCost=buy?.price||0;
@@ -1748,23 +2006,25 @@ function render(){
     
     c.innerHTML=`
       <div class="grid-2">
-        <div class="card"><div class="card-header"><span class="card-title positive">MILLS</span><button class="btn btn-default btn-sm" onclick="showMillModal()">+ Add</button></div>
-          <div style="overflow-x:auto"><table><thead><tr><th>Mill</th><th>Locations</th><th>Trades</th><th>Volume</th><th></th></tr></thead><tbody>
-            ${S.mills.length?S.mills.map(m=>{
+        <div class="card"><div class="card-header"><span class="card-title positive">MILLS ${S.traderView==='mine'?'(My Book)':'(Department)'}</span><button class="btn btn-default btn-sm" onclick="showMillModal()">+ Add</button></div>
+          <div style="overflow-x:auto"><table><thead><tr><th>👤</th><th>Mill</th><th>Locations</th><th>Trades</th><th>Volume</th><th></th></tr></thead><tbody>
+            ${myMills.length?myMills.map(m=>{
               const locs=m.locations||[m.origin].filter(Boolean);
-              const trades=S.buys.filter(b=>b.mill===m.name);
+              const trades=S.buys.filter(b=>b.mill===m.name&&(S.traderView==='dept'||(b.trader===S.trader||!b.trader)));
               const vol=trades.reduce((s,b)=>s+(b.volume||0),0);
-              return`<tr><td class="bold">${m.name}</td><td style="font-size:10px">${locs.length?locs.join(', '):'—'}</td><td class="right">${trades.length}</td><td class="right">${vol} MBF</td><td style="white-space:nowrap"><button class="btn btn-default btn-sm" onclick="editMill('${m.name}')">Edit</button> <button class="btn btn-default btn-sm" onclick="deleteMill('${m.name}')" style="color:var(--negative)">×</button></td></tr>`;
-            }).join(''):'<tr><td colspan="5" class="empty-state">No mills saved. Add mills when creating buys.</td></tr>'}
+              const canMod=m.trader===S.trader||!m.trader;
+              return`<tr><td><span style="display:inline-block;width:18px;height:18px;border-radius:50%;background:${traderColor(m.trader||'Ian')};color:var(--bg);font-size:9px;font-weight:700;text-align:center;line-height:18px" title="${m.trader||'Ian'}">${traderInitial(m.trader||'Ian')}</span></td><td class="bold">${m.name}</td><td style="font-size:10px">${locs.length?locs.join(', '):'—'}</td><td class="right">${trades.length}</td><td class="right">${vol} MBF</td><td style="white-space:nowrap">${canMod?`<button class="btn btn-default btn-sm" onclick="editMill('${m.name}')">Edit</button> <button class="btn btn-default btn-sm" onclick="deleteMill('${m.name}')" style="color:var(--negative)">×</button>`:''}</td></tr>`;
+            }).join(''):'<tr><td colspan="6" class="empty-state">No mills saved. Add mills when creating buys.</td></tr>'}
           </tbody></table></div></div>
-        <div class="card"><div class="card-header"><span class="card-title">CUSTOMERS</span><button class="btn btn-default btn-sm" onclick="showCustModal()">+ Add</button></div>
-          <div style="overflow-x:auto"><table><thead><tr><th>Customer</th><th>Locations</th><th>Trades</th><th>Volume</th><th></th></tr></thead><tbody>
-            ${S.customers.length?S.customers.map(c=>{
+        <div class="card"><div class="card-header"><span class="card-title">CUSTOMERS ${S.traderView==='mine'?'(My Book)':'(Department)'}</span><button class="btn btn-default btn-sm" onclick="showCustModal()">+ Add</button></div>
+          <div style="overflow-x:auto"><table><thead><tr><th>👤</th><th>Customer</th><th>Locations</th><th>Trades</th><th>Volume</th><th></th></tr></thead><tbody>
+            ${myCustomers.length?myCustomers.map(c=>{
               const locs=c.locations||[c.destination].filter(Boolean);
-              const trades=S.sells.filter(s=>s.customer===c.name);
+              const trades=S.sells.filter(s=>s.customer===c.name&&(S.traderView==='dept'||(s.trader===S.trader||!s.trader)));
               const vol=trades.reduce((s,x)=>s+(x.volume||0),0);
-              return`<tr><td class="bold">${c.name}</td><td style="font-size:10px">${locs.length?locs.join(', '):'—'}</td><td class="right">${trades.length}</td><td class="right">${vol} MBF</td><td style="white-space:nowrap"><button class="btn btn-default btn-sm" onclick="editCust('${c.name}')">Edit</button> <button class="btn btn-default btn-sm" onclick="deleteCust('${c.name}')" style="color:var(--negative)">×</button></td></tr>`;
-            }).join(''):'<tr><td colspan="5" class="empty-state">No customers saved. Add customers when creating sells.</td></tr>'}
+              const canMod=c.trader===S.trader||!c.trader;
+              return`<tr><td><span style="display:inline-block;width:18px;height:18px;border-radius:50%;background:${traderColor(c.trader||'Ian')};color:var(--bg);font-size:9px;font-weight:700;text-align:center;line-height:18px" title="${c.trader||'Ian'}">${traderInitial(c.trader||'Ian')}</span></td><td class="bold">${c.name}</td><td style="font-size:10px">${locs.length?locs.join(', '):'—'}</td><td class="right">${trades.length}</td><td class="right">${vol} MBF</td><td style="white-space:nowrap">${canMod?`<button class="btn btn-default btn-sm" onclick="editCust('${c.name}')">Edit</button> <button class="btn btn-default btn-sm" onclick="deleteCust('${c.name}')" style="color:var(--negative)">×</button>`:''}</td></tr>`;
+            }).join(''):'<tr><td colspan="6" class="empty-state">No customers saved. Add customers when creating sells.</td></tr>'}
           </tbody></table></div></div>
       </div>
       <div class="card"><div class="card-header"><span class="card-title warn">CUSTOMER PROFITABILITY (Avg Margin/MBF Net Freight)</span></div>
@@ -2026,9 +2286,9 @@ function render(){
     const msgs=document.getElementById('ai-msgs');if(msgs)msgs.scrollTop=msgs.scrollHeight;
   }
   else if(S.view==='settings'){
-    const sbUrl=LS('supabaseUrl','');
-    const sbKey=LS('supabaseKey','');
-    const sbUser=LS('supabaseUserId','');
+    const sbUrl=LS('supabaseUrl','')||DEFAULT_SUPABASE_URL;
+    const sbKey=LS('supabaseKey','')||DEFAULT_SUPABASE_KEY;
+    const sbUser=LS('supabaseUserId','')||'default';
     const isConnected=sbUrl&&sbKey;
     
     c.innerHTML=`
@@ -2036,7 +2296,7 @@ function render(){
         <div class="form-group" style="margin-bottom:16px">
           <label class="form-label">Claude API Key</label>
           <input type="password" id="api-key" value="${S.apiKey}" placeholder="sk-ant-..." style="width:100%;max-width:500px">
-          <div style="color:var(--muted);font-size:10px;margin-top:4px">Get your key at console.anthropic.com</div>
+          <div style="color:var(--muted);font-size:10px;margin-top:4px">Get your key at console.anthropic.com • Required for AI features</div>
         </div>
         <button class="btn btn-primary" onclick="saveKey()">Save API Key</button>
       </div></div>
@@ -2055,51 +2315,27 @@ function render(){
         </div>
       </div></div>
       
-      <div class="card"><div class="card-header"><span class="card-title info">☁️ CLOUD SYNC (Supabase)</span></div><div class="card-body">
-        <div style="margin-bottom:16px;padding:12px;background:${isConnected?'rgba(34,197,94,0.1)':'rgba(239,68,68,0.1)'};border:1px solid ${isConnected?'var(--positive)':'var(--negative)'};border-radius:4px">
-          <span style="color:${isConnected?'var(--positive)':'var(--negative)'}">${isConnected?'✓ Connected to Supabase':'✗ Not connected'}</span>
-          ${isConnected?`<span style="color:var(--muted);margin-left:12px">User: ${sbUser||'default'}</span>`:''}
+      <div class="card"><div class="card-header"><span class="card-title info">☁️ CLOUD SYNC</span></div><div class="card-body">
+        <div style="margin-bottom:16px;padding:12px;background:rgba(34,197,94,0.1);border:1px solid var(--positive);border-radius:4px">
+          <span style="color:var(--positive)">✓ Cloud sync pre-configured</span>
+          <span style="color:var(--muted);margin-left:12px">User: ${sbUser}</span>
         </div>
-        <div class="form-grid" style="margin-bottom:16px">
-          <div class="form-group">
-            <label class="form-label">Supabase URL</label>
-            <input type="text" id="sb-url" value="${sbUrl}" placeholder="https://xxxxx.supabase.co" style="width:100%">
-          </div>
-          <div class="form-group">
-            <label class="form-label">Supabase Anon Key</label>
-            <input type="password" id="sb-key" value="${sbKey}" placeholder="eyJ..." style="width:100%">
-          </div>
-          <div class="form-group">
-            <label class="form-label">User ID (for multi-user)</label>
-            <input type="text" id="sb-user" value="${sbUser}" placeholder="your-name or email" style="width:100%">
-          </div>
+        
+        <div class="form-group" style="margin-bottom:16px">
+          <label class="form-label">User ID</label>
+          <input type="text" id="sb-user" value="${sbUser}" placeholder="your-name" style="width:200px">
+          <div style="color:var(--muted);font-size:10px;margin-top:4px">Use same ID on all your devices to sync data</div>
         </div>
+        
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">
-          <button class="btn btn-primary" onclick="saveSupabaseConfig()">Save Config</button>
-          <button class="btn btn-success" onclick="doCloudSync('push')" ${!isConnected?'disabled':''}>⬆️ Push to Cloud</button>
-          <button class="btn btn-warn" onclick="doCloudSync('pull')" ${!isConnected?'disabled':''}>⬇️ Pull from Cloud</button>
+          <button class="btn btn-primary" onclick="saveUserIdOnly()">Save User ID</button>
+          <button class="btn btn-success" onclick="doCloudSync('push')">⬆️ Push to Cloud</button>
+          <button class="btn btn-warn" onclick="doCloudSync('pull')">⬇️ Pull from Cloud</button>
         </div>
         <div style="margin-top:12px">
           <label><input type="checkbox" id="auto-sync" ${S.autoSync?'checked':''} onchange="toggleAutoSync()"> Auto-sync on changes</label>
         </div>
         <div id="sync-status" style="margin-top:12px;font-size:11px;color:var(--muted)"></div>
-        <div style="margin-top:16px;padding:12px;background:var(--bg);border:1px solid var(--border);font-size:10px;color:var(--muted)">
-          <strong>Setup Instructions:</strong><br>
-          1. Create free account at <a href="https://supabase.com" target="_blank" style="color:var(--accent)">supabase.com</a><br>
-          2. Create new project → Go to Settings → API<br>
-          3. Copy Project URL and anon/public key<br>
-          4. Run this SQL in SQL Editor:<br>
-          <code style="display:block;margin-top:8px;padding:8px;background:var(--panel);font-size:9px">
-CREATE TABLE syp_data (<br>
-&nbsp;&nbsp;id SERIAL PRIMARY KEY,<br>
-&nbsp;&nbsp;user_id TEXT UNIQUE NOT NULL,<br>
-&nbsp;&nbsp;data JSONB,<br>
-&nbsp;&nbsp;updated_at TIMESTAMPTZ DEFAULT NOW()<br>
-);<br>
-ALTER TABLE syp_data ENABLE ROW LEVEL SECURITY;<br>
-CREATE POLICY "Allow all" ON syp_data FOR ALL USING (true);
-          </code>
-        </div>
       </div></div>
       
       <div class="card"><div class="card-header"><span class="card-title warn">FREIGHT SETTINGS</span></div><div class="card-body">
@@ -5602,6 +5838,7 @@ function saveBuy(id){
     price:price,
     volume:volume, // Use calculated volume
     notes:document.getElementById('m-notes').value,
+    trader:S.trader, // Tag with current trader
     // Freight fields (for DLVD buys)
     miles:parseFloat(document.getElementById('m-miles')?.value)||0,
     rate:parseFloat(document.getElementById('m-rate')?.value)||S.flatRate||3.50,
@@ -5614,7 +5851,15 @@ function saveBuy(id){
   };
   
   if(!b.product||!b.price||!b.volume){alert('Fill required fields (product, price, volume)');return}
-  if(id){const i=S.buys.findIndex(x=>x.id===id);if(i>=0)S.buys[i]={...b,id}}else{b.id=genId();S.buys.unshift(b)}
+  if(id){
+    const existing=S.buys.find(x=>x.id===id);
+    if(existing&&!canEdit(existing)){alert('You can only edit your own trades');return}
+    const i=S.buys.findIndex(x=>x.id===id);
+    if(i>=0)S.buys[i]={...b,id,trader:existing?.trader||S.trader}
+  }else{
+    b.id=genId();
+    S.buys.unshift(b)
+  }
   
   saveAllLocal();closeModal();render();
 }
@@ -5694,6 +5939,7 @@ function saveSell(id){
     volume:volume, // Use calculated volume (from tally or field)
     notes:document.getElementById('m-notes').value,
     delivered:document.getElementById('m-delivered')?.checked||false,
+    trader:S.trader, // Tag with current trader
     // MSR fields
     basePrice:isMSR?parseFloat(document.getElementById('m-basePrice').value)||0:null,
     msrPremium:isMSR?parseFloat(document.getElementById('m-msrPremium').value)||0:null,
@@ -5704,7 +5950,15 @@ function saveSell(id){
   if(!s.product||!s.price||!s.volume){alert('Fill required fields (product, price, volume)');return}
   // Save rate as default
   S.flatRate=s.rate;
-  if(id){const i=S.sells.findIndex(x=>x.id===id);if(i>=0)S.sells[i]={...s,id}}else{s.id=genId();S.sells.unshift(s)}
+  if(id){
+    const existing=S.sells.find(x=>x.id===id);
+    if(existing&&!canEdit(existing)){alert('You can only edit your own trades');return}
+    const i=S.sells.findIndex(x=>x.id===id);
+    if(i>=0)S.sells[i]={...s,id,trader:existing?.trader||S.trader}
+  }else{
+    s.id=genId();
+    S.sells.unshift(s)
+  }
   saveAllLocal();closeModal();render();
 }
 
@@ -5720,10 +5974,16 @@ function saveRL(){
 
 function saveCust(name){
   const locations=[...document.querySelectorAll('.cust-loc')].map(el=>el.value.trim()).filter(Boolean);
-  const c={name:document.getElementById('m-name').value,contact:document.getElementById('m-contact')?.value||'',phone:document.getElementById('m-phone')?.value||'',email:document.getElementById('m-email')?.value||'',locations:locations,destination:locations[0]||'',terms:document.getElementById('m-terms')?.value||''};
+  const c={name:document.getElementById('m-name').value,contact:document.getElementById('m-contact')?.value||'',phone:document.getElementById('m-phone')?.value||'',email:document.getElementById('m-email')?.value||'',locations:locations,destination:locations[0]||'',terms:document.getElementById('m-terms')?.value||'',trader:S.trader};
   if(!c.name){alert('Enter name');return}
   const existing=S.customers.findIndex(x=>x.name===name);
-  if(existing>=0){S.customers[existing]={...S.customers[existing],...c}}else{S.customers.push(c)}
+  if(existing>=0){
+    // Keep original trader when editing
+    c.trader=S.customers[existing].trader||S.trader;
+    S.customers[existing]={...S.customers[existing],...c};
+  }else{
+    S.customers.push(c);
+  }
   saveAllLocal();closeModal();render();
 }
 
@@ -5760,10 +6020,16 @@ function addMillLocation(){
 
 function saveMill(oldName){
   const locations=[...document.querySelectorAll('.mill-loc')].map(el=>el.value.trim()).filter(Boolean);
-  const m={name:document.getElementById('m-name').value,locations:locations,origin:locations[0]||'',region:document.getElementById('m-region').value,contact:document.getElementById('m-contact').value,phone:document.getElementById('m-phone').value,notes:document.getElementById('m-notes').value};
+  const m={name:document.getElementById('m-name').value,locations:locations,origin:locations[0]||'',region:document.getElementById('m-region').value,contact:document.getElementById('m-contact').value,phone:document.getElementById('m-phone').value,notes:document.getElementById('m-notes').value,trader:S.trader};
   if(!m.name){alert('Enter name');return}
   const existing=S.mills.findIndex(x=>x.name===oldName);
-  if(existing>=0){S.mills[existing]={...S.mills[existing],...m}}else{S.mills.push(m)}
+  if(existing>=0){
+    // Keep original trader when editing
+    m.trader=S.mills[existing].trader||S.trader;
+    S.mills[existing]={...S.mills[existing],...m};
+  }else{
+    S.mills.push(m);
+  }
   saveAllLocal();closeModal();render();
 }
 
@@ -6179,9 +6445,9 @@ function saveFlatRate(){S.flatRate=parseFloat(document.getElementById('flat-rate
 
 // Supabase functions
 function saveSupabaseConfig(){
-  const url=document.getElementById('sb-url').value.trim();
-  const key=document.getElementById('sb-key').value.trim();
-  const user=document.getElementById('sb-user').value.trim()||'default';
+  const url=document.getElementById('sb-url')?.value.trim()||DEFAULT_SUPABASE_URL;
+  const key=document.getElementById('sb-key')?.value.trim()||DEFAULT_SUPABASE_KEY;
+  const user=document.getElementById('sb-user')?.value.trim()||'default';
   
   SS('supabaseUrl',url);
   SS('supabaseKey',key);
@@ -6193,6 +6459,16 @@ function saveSupabaseConfig(){
   }else{
     alert('Supabase disabled (URL or key missing)');
   }
+  render();
+}
+
+function saveUserIdOnly(){
+  const user=document.getElementById('sb-user')?.value.trim()||'default';
+  SS('supabaseUserId',user);
+  
+  // Re-init with defaults + new user ID
+  initSupabase(DEFAULT_SUPABASE_URL,DEFAULT_SUPABASE_KEY);
+  showToast('User ID saved: '+user,'positive');
   render();
 }
 
@@ -6297,9 +6573,9 @@ async function init(){
   await initDB();
   await loadAllLocal();
   
-  // Init Supabase if configured
-  const sbUrl=LS('supabaseUrl','');
-  const sbKey=LS('supabaseKey','');
+  // Init Supabase (uses hardcoded defaults if not overridden)
+  const sbUrl=LS('supabaseUrl','')||DEFAULT_SUPABASE_URL;
+  const sbKey=LS('supabaseKey','')||DEFAULT_SUPABASE_KEY;
   if(sbUrl&&sbKey){
     initSupabase(sbUrl,sbKey);
     // Auto-pull on load
@@ -6314,6 +6590,33 @@ async function init(){
     }
   }
   
+  // Setup trader selector
+  const traderSelect=document.getElementById('trader-select');
+  if(traderSelect){
+    traderSelect.innerHTML=TRADERS.map(t=>`<option value="${t}" ${t===S.trader?'selected':''}>${t}</option>`).join('');
+  }
+  
+  // Setup view toggle (My Trades / Department)
+  const viewSelect=document.getElementById('f-view');
+  if(viewSelect){
+    viewSelect.value=S.traderView;
+    viewSelect.onchange=e=>{
+      S.traderView=e.target.value;
+      SS('traderView',S.traderView);
+      // Show/hide trader filter when in dept view
+      document.getElementById('f-trader').style.display=S.traderView==='dept'?'inline-block':'none';
+      render();
+    };
+  }
+  
+  // Setup trader filter (when viewing department)
+  const traderFilter=document.getElementById('f-trader');
+  if(traderFilter){
+    traderFilter.innerHTML='<option value="all">All Traders</option>'+TRADERS.map(t=>`<option value="${t}">${t}</option>`).join('');
+    traderFilter.style.display=S.traderView==='dept'?'inline-block':'none';
+    traderFilter.onchange=e=>{S.traderFilter=e.target.value;render()};
+  }
+  
   document.getElementById('f-date').onchange=e=>{S.filters.date=e.target.value;render()};
   document.getElementById('f-prod').onchange=e=>{S.filters.prod=e.target.value;render()};
   document.getElementById('f-reg').onchange=e=>{S.filters.reg=e.target.value;render()};
@@ -6322,7 +6625,7 @@ async function init(){
   
   // Show sync status
   if(sbUrl&&sbKey){
-    showToast('☁️ Cloud sync active','info');
+    showToast('☁️ Connected as '+S.trader,'info');
   }
 }
 
