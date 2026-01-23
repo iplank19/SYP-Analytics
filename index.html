@@ -462,6 +462,8 @@ async function cloudSync(action='push'){
         stateRates:S.stateRates,
         freightBase:S.freightBase,
         shortHaulFloor:S.shortHaulFloor,
+        // App settings
+        appPassword:LS('appPassword',''),
         updated_at:new Date().toISOString()
       };
       
@@ -547,6 +549,8 @@ async function cloudSync(action='push'){
         S.stateRates=d.stateRates||{AR:2.25,LA:2.25,TX:2.50,MS:2.25,AL:2.50,FL:2.75,GA:2.50,SC:2.50,NC:2.50};
         S.freightBase=d.freightBase||450;
         S.shortHaulFloor=d.shortHaulFloor||0;
+        // App settings (password syncs so you don't have to re-set on each device)
+        if(d.appPassword)SS('appPassword',d.appPassword);
         // Save to local storage too
         await saveAllLocal();
         return{success:true,action:'pulled',updated:rows[0].updated_at};
@@ -1120,6 +1124,7 @@ function render(){
             <button class="btn btn-info btn-sm" onclick="addQuoteItem(true)" title="Add short/spec position">+ Short</button>
             <button class="btn btn-default btn-sm" onclick="loadFromInventory()">📦 Inventory</button>
             <button class="btn btn-warn btn-sm" onclick="aiPriceSelected()" title="AI suggest prices based on RL">🤖 AI Price</button>
+            <button class="btn btn-default btn-sm" onclick="refreshFromRL()" title="Update FOB prices from latest RL print">🔄 Refresh RL</button>
             <button class="btn btn-default btn-sm" onclick="clearQuoteItems()">Clear</button>
           </div>
           
@@ -1162,8 +1167,7 @@ function render(){
                 </tbody>
               </table>
               <datalist id="origin-list">
-                ${origins.map(o=>`<option value="${o}">`).join('')}
-                ${S.lanes.map(l=>`<option value="${l.origin}">`).join('')}
+                ${[...new Set([...origins,...S.lanes.map(l=>l.origin)])].filter(Boolean).sort().map(o=>`<option value="${o}">`).join('')}
               </datalist>
           </div>
         </div>
@@ -1294,13 +1298,13 @@ function render(){
                 <option value="">Select customer...</option>
                 ${customers.map(c=>{
                   const locs=c.locations||[c.destination].filter(Boolean);
-                  return`<option value="${c.name}" ${S.singleQuoteCustomer===c.name?'selected':''}>${c.name}${locs.length?' - '+locs[0]:''}</option>`;
+                  return`<option value="${c.name}" ${S.singleQuoteCustomer===c.name?'selected':''}>${c.name} (${locs.length} location${locs.length!==1?'s':''})</option>`;
                 }).join('')}
               </select>
             </div>
             <div id="quote-status" style="padding:4px 10px;font-size:10px;color:var(--warn);min-height:16px"></div>
             <div style="padding:10px;padding-top:0">
-              <div class="output-preview" id="quote-output">${generateQuotePreview(selectedItems,S.singleQuoteCustomer?customers.find(c=>c.name===S.singleQuoteCustomer):customers[0])}</div>
+              <div class="output-preview" id="quote-output">${generateMultiLocationPreview(selectedItems,S.singleQuoteCustomer?customers.find(c=>c.name===S.singleQuoteCustomer):customers[0])}</div>
             </div>
           </div>
         </div>
@@ -2374,6 +2378,48 @@ function generateQuotePreview(items,customer,destOverride=null){
   return html;
 }
 
+// Generate preview for all locations of a single customer
+function generateMultiLocationPreview(items,customer){
+  if(!items.length)return '<div style="color:var(--muted)">No items selected</div>';
+  if(!customer)return '<div style="color:var(--muted)">Select a customer above</div>';
+  
+  const locs=customer.locations||[customer.destination].filter(Boolean);
+  if(!locs.length)return '<div style="color:var(--muted)">No locations for this customer</div>';
+  
+  // Generate a preview for each location
+  const previews=locs.map(dest=>{
+    const rows=items.map(item=>{
+      const isMSR=item.product?.toUpperCase().includes('MSR')||item.product?.toUpperCase().includes('2400');
+      const miles=getLaneMiles(item.origin,dest);
+      const frt=calcFreightPerMBF(miles,item.origin,isMSR);
+      const dlvd=(item.fob||0)+frt;
+      return{product:item.product||'',tls:item.tls||1,price:dlvd,ship:item.shipWeek||'Prompt',isMSR};
+    });
+    
+    return`
+      <div class="quote-table-output" style="margin-bottom:12px">
+        <div class="quote-header">
+          <div class="quote-title">SYP AVAILABILITY</div>
+          <div class="quote-dest">DLVD ${dest}</div>
+        </div>
+        <table class="quote-output-table">
+          <thead><tr><th>Product</th><th>Qty</th><th>Price</th><th>Ship</th></tr></thead>
+          <tbody>
+            ${rows.map(r=>`<tr class="${r.isMSR?'msr-row':''}">
+              <td>${r.product}</td>
+              <td class="qty">${r.tls} TL</td>
+              <td class="price">$${r.price}</td>
+              <td class="ship">${r.ship}</td>
+            </tr>`).join('')}
+          </tbody>
+        </table>
+        <div class="quote-footer">Subject to prior sale • Ian @ Buckeye</div>
+      </div>`;
+  });
+  
+  return`<div style="color:var(--muted);font-size:10px;margin-bottom:8px">${customer.name} • ${locs.length} location${locs.length!==1?'s':''}</div>${previews.join('')}`;
+}
+
 // Generate plain text version for clipboard
 // Generate quote for a specific city (one-off)
 function generateSpecificCityQuote(){
@@ -3189,6 +3235,51 @@ function saveCurrentProfileSelections(){
 const originalToggleQuoteCustomer=typeof toggleQuoteCustomer==='function'?toggleQuoteCustomer:null;
 
 // AI price selected items using Claude API for smart suggestions
+// Refresh quote item FOB prices from latest RL print (no AI)
+function refreshFromRL(){
+  const rl=S.rl.length?S.rl[S.rl.length-1]:null;
+  if(!rl){
+    alert('No RL data available. Import Random Lengths data first.');
+    return;
+  }
+  
+  const selected=S.quoteItems.filter(i=>i.selected!==false&&i.product);
+  if(!selected.length){
+    alert('No items to update');
+    return;
+  }
+  
+  let updated=0;
+  selected.forEach(item=>{
+    const parsed=parseProductString(item.product);
+    const region=getRegionFromOrigin(item.origin);
+    const rlPrice=getRLPrice(rl,parsed.base,parsed.length,region);
+    
+    if(rlPrice){
+      // Apply length adjustments
+      let adjustment=0;
+      const len=parseInt(parsed.length)||0;
+      if(len===8)adjustment=-5;
+      else if(len===10)adjustment=0;
+      else if(len===12)adjustment=5;
+      else if(len===14)adjustment=15;
+      else if(len===16)adjustment=25;
+      else if(len>=18)adjustment=35;
+      
+      // Short positions price closer to RL
+      if(item.isShort)adjustment=Math.min(adjustment,-10);
+      
+      item.fob=rlPrice+adjustment;
+      updated++;
+    }
+  });
+  
+  save('quoteItems',S.quoteItems);
+  render();
+  
+  alert(`Updated ${updated} items from RL print (${rl.date})`);
+}
+
 async function aiPriceSelected(){
   const rl=S.rl.length?S.rl[S.rl.length-1]:null;
   if(!rl){
