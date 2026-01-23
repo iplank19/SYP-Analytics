@@ -355,13 +355,6 @@
       <div class="header-left">
         <h1 id="title">📊 Dashboard</h1>
         <div class="filters">
-          <select id="f-view" style="border-color:var(--accent);color:var(--accent);font-weight:600">
-            <option value="mine">My Trades</option>
-            <option value="dept">Department</option>
-          </select>
-          <select id="f-trader" style="display:none">
-            <option value="all">All Traders</option>
-          </select>
           <select id="f-date"><option value="7d">7 Days</option><option value="14d">14 Days</option><option value="30d" selected>30 Days</option><option value="90d">90 Days</option><option value="all">All Time</option></select>
           <select id="f-prod"><option value="all">All Products</option></select>
           <select id="f-reg"><option value="all">All Regions</option><option value="west">West</option><option value="central">Central</option><option value="east">East</option></select>
@@ -647,6 +640,7 @@ async function save(key,value){
 
 // Traders in department
 const TRADERS=['Ian','Aubrey','Hunter','Sawyer','Jackson','John'];
+const ALL_TRADERS=['Department',...TRADERS]; // For selector dropdown
 
 let S={
   view:'dashboard',
@@ -674,9 +668,7 @@ let S={
   freightBase:LS('freightBase',450),
   singleQuoteCustomer:'',
   chartProduct:'2x4#2',
-  trader:LS('trader','Ian'),
-  traderView:LS('traderView','mine'),
-  traderFilter:'all'
+  trader:LS('trader','Ian')
 };
 
 const fmt=(v,d=0)=>v!=null&&!isNaN(v)?`$${Number(v).toLocaleString(undefined,{minimumFractionDigits:d,maximumFractionDigits:d})}`:'—';
@@ -695,25 +687,26 @@ function filtered(){
   const mP=p=>S.filters.prod==='all'||p===S.filters.prod;
   const mR=rg=>S.filters.reg==='all'||rg===S.filters.reg;
   
-  // Trader filtering
-  const mT=t=>{
-    if(S.traderView==='mine')return t===S.trader||!t; // My trades (or legacy untagged)
-    if(S.traderFilter!=='all')return t===S.traderFilter;
-    return true; // Department view, all traders
-  };
+  // Filter to current trader's trades only
+  const isMyTrade=t=>t.trader===S.trader||!t.trader;
   
   return{
-    buys:S.buys.filter(b=>inR(b.date)&&mP(b.product)&&mR(b.region)&&mT(b.trader)),
-    sells:S.sells.filter(s=>inR(s.date)&&mP(s.product)&&mT(s.trader))
+    buys:S.buys.filter(b=>inR(b.date)&&mP(b.product)&&mR(b.region)&&isMyTrade(b)),
+    sells:S.sells.filter(s=>inR(s.date)&&mP(s.product)&&isMyTrade(s))
   };
 }
 
-// Get all data (ignores trader filter) for cross-linking
+// Get ALL department data (for leaderboard, cross-trader linking)
 function allData(){
-  const r=getRange(),inR=d=>new Date(d)>=r.start&&new Date(d)<=r.end;
-  const mP=p=>S.filters.prod==='all'||p===S.filters.prod;
-  const mR=rg=>S.filters.reg==='all'||rg===S.filters.reg;
-  return{buys:S.buys.filter(b=>inR(b.date)&&mP(b.product)&&mR(b.region)),sells:S.sells.filter(s=>inR(s.date)&&mP(s.product))};
+  return{buys:S.buys,sells:S.sells};
+}
+
+// Get current trader's CRM only
+function myMills(){
+  return S.mills.filter(m=>m.trader===S.trader||!m.trader);
+}
+function myCustomers(){
+  return S.customers.filter(c=>c.trader===S.trader||!c.trader);
 }
 
 function analytics(){
@@ -869,11 +862,11 @@ function go(v){S.view=v;closeMobileSidebar();render()}
 function setTrader(t){
   S.trader=t;
   SS('trader',t);
-  showToast('Switched to '+t,'info');
+  showToast('Viewing: '+t,'info');
   render();
 }
 
-// Check if current user can edit a trade
+// Check if current user can edit a trade (only individual traders can edit, not when viewing Department)
 function canEdit(trade){
   return trade.trader===S.trader||!trade.trader; // Can edit own trades or legacy untagged
 }
@@ -898,8 +891,8 @@ function render(){
   const c=document.getElementById('content');
 
   if(S.view==='dashboard'){
-    if(!S.buys.length&&!S.sells.length){
-      c.innerHTML=`<div class="empty-state" style="padding:80px"><div style="font-size:48px;margin-bottom:20px">📊</div><h2 style="margin-bottom:12px;color:var(--text)">Welcome to SYP Analytics</h2><p style="margin-bottom:24px">Start by adding trades or importing Random Lengths data.</p><div style="display:flex;gap:12px;justify-content:center"><button class="btn btn-success" onclick="showBuyModal()">+ Add Buy</button><button class="btn btn-primary" onclick="showSellModal()">+ Add Sell</button><button class="btn btn-warn" onclick="go('rldata')">Import RL Data</button></div></div>`;
+    if(!a.buys.length&&!a.sells.length){
+      c.innerHTML=`<div class="empty-state" style="padding:80px"><div style="font-size:48px;margin-bottom:20px">📊</div><h2 style="margin-bottom:12px;color:var(--text)">Welcome, ${S.trader}!</h2><p style="margin-bottom:24px">Start by adding your trades or importing Random Lengths data.</p><div style="display:flex;gap:12px;justify-content:center"><button class="btn btn-success" onclick="showBuyModal()">+ Add Buy</button><button class="btn btn-primary" onclick="showSellModal()">+ Add Sell</button><button class="btn btn-warn" onclick="go('rldata')">Import RL Data</button></div></div>`;
       return;
     }
     c.innerHTML=`
@@ -1577,12 +1570,12 @@ function render(){
           <button class="btn btn-default btn-sm" onclick="clearBlotterFilters()">Clear</button>
         </div>
       </div>
-      <div class="card"><div class="card-header"><span class="card-title positive">BUYS</span><span style="color:var(--muted);font-size:10px;margin-left:8px">${filteredBuys.length} trades</span><button class="btn btn-default btn-sm" onclick="expCSV('buys')">Export CSV</button></div>
-        <div style="overflow-x:auto"><table><thead><tr><th>👤</th><th ${sortClick('orderNum')}>Order # ${sortIcon('orderNum')}</th><th ${sortClick('date')}>Date ${sortIcon('date')}</th><th ${sortClick('mill')}>Mill ${sortIcon('mill')}</th><th>Origin</th><th>Reg</th><th ${sortClick('product')}>Product ${sortIcon('product')}</th><th>Len</th><th class="right" ${sortClick('price')}>Price ${sortIcon('price')}</th><th class="right">Frt</th><th class="right" ${sortClick('volume')}>Vol ${sortIcon('volume')}</th><th class="right">Sold</th><th class="right">Avail</th><th></th></tr></thead><tbody>
-          ${filteredBuys.length?filteredBuys.map(b=>{const ord=String(b.orderNum||b.po||'').trim();const sold=orderSold[ord]||0;const avail=(b.volume||0)-sold;const buyFrtMBF=b.volume>0?(b.freight||0)/b.volume:0;const canMod=canEdit(b);return`<tr><td><span style="display:inline-block;width:20px;height:20px;border-radius:50%;background:${traderColor(b.trader||'Ian')};color:var(--bg);font-size:10px;font-weight:700;text-align:center;line-height:20px" title="${b.trader||'Ian'}">${traderInitial(b.trader||'Ian')}</span></td><td class="bold accent">${ord||'—'}</td><td>${fmtD(b.date)}</td><td>${b.mill||'—'}</td><td>${b.origin||'—'}</td><td style="text-transform:capitalize">${b.region}</td><td class="bold">${b.product}${b.msrPremium?' <span style="color:var(--accent);font-size:9px">+'+b.msrPremium+'</span>':''}</td><td>${b.length||'RL'}${b.tally?' <span style="color:var(--warn);font-size:9px">T</span>':''}</td><td class="right positive">${fmt(b.price)}${b.freight?' <span style="color:var(--muted);font-size:9px">FOB</span>':''}</td><td class="right ${b.freight?'warn':''}">${b.freight?fmt(b.freight):'—'}</td><td class="right">${b.volume}</td><td class="right ${sold>0?'warn':''}">${sold}</td><td class="right ${avail>0?'positive':''}">${avail}</td><td><div class="action-buttons">${canMod?`<button class="btn btn-default btn-sm" onclick="editBuy(${b.id})">Edit</button><button class="btn btn-default btn-sm" onclick="dupBuy(${b.id})">⧉</button><button class="btn btn-danger btn-sm" onclick="delBuy(${b.id})">×</button>`:`<span style="color:var(--muted);font-size:9px">${b.trader||'Ian'}'s</span>`}</div></td></tr>`}).join(''):'<tr><td colspan="14" class="empty-state">No buys</td></tr>'}
+      <div class="card"><div class="card-header"><span class="card-title positive">MY BUYS</span><span style="color:var(--muted);font-size:10px;margin-left:8px">${filteredBuys.length} trades</span><button class="btn btn-default btn-sm" onclick="expCSV('buys')">Export CSV</button></div>
+        <div style="overflow-x:auto"><table><thead><tr><th ${sortClick('orderNum')}>Order # ${sortIcon('orderNum')}</th><th ${sortClick('date')}>Date ${sortIcon('date')}</th><th ${sortClick('mill')}>Mill ${sortIcon('mill')}</th><th>Origin</th><th>Reg</th><th ${sortClick('product')}>Product ${sortIcon('product')}</th><th>Len</th><th class="right" ${sortClick('price')}>Price ${sortIcon('price')}</th><th class="right">Frt</th><th class="right" ${sortClick('volume')}>Vol ${sortIcon('volume')}</th><th class="right">Sold</th><th class="right">Avail</th><th></th></tr></thead><tbody>
+          ${filteredBuys.length?filteredBuys.map(b=>{const ord=String(b.orderNum||b.po||'').trim();const sold=orderSold[ord]||0;const avail=(b.volume||0)-sold;const buyFrtMBF=b.volume>0?(b.freight||0)/b.volume:0;return`<tr><td class="bold accent">${ord||'—'}</td><td>${fmtD(b.date)}</td><td>${b.mill||'—'}</td><td>${b.origin||'—'}</td><td style="text-transform:capitalize">${b.region}</td><td class="bold">${b.product}${b.msrPremium?' <span style="color:var(--accent);font-size:9px">+'+b.msrPremium+'</span>':''}</td><td>${b.length||'RL'}${b.tally?' <span style="color:var(--warn);font-size:9px">T</span>':''}</td><td class="right positive">${fmt(b.price)}${b.freight?' <span style="color:var(--muted);font-size:9px">FOB</span>':''}</td><td class="right ${b.freight?'warn':''}">${b.freight?fmt(b.freight):'—'}</td><td class="right">${b.volume}</td><td class="right ${sold>0?'warn':''}">${sold}</td><td class="right ${avail>0?'positive':''}">${avail}</td><td><div class="action-buttons"><button class="btn btn-default btn-sm" onclick="editBuy(${b.id})">Edit</button><button class="btn btn-default btn-sm" onclick="dupBuy(${b.id})">⧉</button><button class="btn btn-danger btn-sm" onclick="delBuy(${b.id})">×</button></div></td></tr>`}).join(''):'<tr><td colspan="13" class="empty-state">No buys</td></tr>'}
         </tbody></table></div></div>
-      <div class="card"><div class="card-header"><span class="card-title">SELLS</span><span style="color:var(--muted);font-size:10px;margin-left:8px">${filteredSells.length} trades</span><button class="btn btn-default btn-sm" onclick="expCSV('sells')">Export CSV</button></div>
-        <div style="overflow-x:auto"><table><thead><tr><th>👤</th><th ${sortClick('orderNum')}>Order # ${sortIcon('orderNum')}</th><th ${sortClick('date')}>Date ${sortIcon('date')}</th><th ${sortClick('customer')}>Customer ${sortIcon('customer')}</th><th>Dest</th><th ${sortClick('product')}>Product ${sortIcon('product')}</th><th>Len</th><th class="right" ${sortClick('price')}>DLVD ${sortIcon('price')}</th><th class="right">Frt</th><th class="right">Frt/MBF</th><th class="right">Margin</th><th class="right" ${sortClick('volume')}>Vol ${sortIcon('volume')}</th><th class="right">Profit</th><th></th></tr></thead><tbody>
+      <div class="card"><div class="card-header"><span class="card-title">MY SELLS</span><span style="color:var(--muted);font-size:10px;margin-left:8px">${filteredSells.length} trades</span><button class="btn btn-default btn-sm" onclick="expCSV('sells')">Export CSV</button></div>
+        <div style="overflow-x:auto"><table><thead><tr><th ${sortClick('orderNum')}>Order # ${sortIcon('orderNum')}</th><th ${sortClick('date')}>Date ${sortIcon('date')}</th><th ${sortClick('customer')}>Customer ${sortIcon('customer')}</th><th>Dest</th><th ${sortClick('product')}>Product ${sortIcon('product')}</th><th>Len</th><th class="right" ${sortClick('price')}>DLVD ${sortIcon('price')}</th><th class="right">Frt</th><th class="right">Frt/MBF</th><th class="right">Margin</th><th class="right" ${sortClick('volume')}>Vol ${sortIcon('volume')}</th><th class="right">Profit</th><th></th></tr></thead><tbody>
           ${filteredSells.length?filteredSells.map(x=>{
             const ord=String(x.orderNum||x.linkedPO||x.oc||'').trim();
             const buy=ord?buyByOrder[ord]:null;
@@ -1594,9 +1587,8 @@ function render(){
             const margin=buy?fob-totalCost:null;
             const profit=margin!==null?margin*(x.volume||0):null;
             const isShort=!buy;
-            const canMod=canEdit(x);
             const crossTrader=buy&&buy.trader!==x.trader;
-            return`<tr><td><span style="display:inline-block;width:20px;height:20px;border-radius:50%;background:${traderColor(x.trader||'Ian')};color:var(--bg);font-size:10px;font-weight:700;text-align:center;line-height:20px" title="${x.trader||'Ian'}">${traderInitial(x.trader||'Ian')}</span></td><td class="bold ${isShort?'negative':'accent'}">${ord||'—'}${isShort?' <span style="font-size:9px">(SHORT)</span>':''}${crossTrader?` <span style="font-size:9px;color:${traderColor(buy.trader)}" title="Sourced from ${buy.trader}">←${traderInitial(buy.trader)}</span>`:''}</td><td>${fmtD(x.date)}</td><td>${x.customer||'—'}</td><td>${x.destination||'—'}</td><td class="bold">${x.product}${x.msrPremium?' <span style="color:var(--accent);font-size:9px">+'+x.msrPremium+'</span>':''}</td><td>${x.length||'RL'}${x.tally?' <span style="color:var(--warn);font-size:9px">T</span>':''}</td><td class="right accent">${fmt(x.price)}</td><td class="right warn">${fmt(x.freight)}</td><td class="right" style="color:var(--muted)">${fmt(Math.round(sellFrtPerMBF))}</td><td class="right ${margin===null?'':margin>=0?'positive':'negative'} bold">${margin!==null?fmt(Math.round(margin)):'—'}</td><td class="right">${x.volume}</td><td class="right ${profit===null?'':profit>=0?'positive':'negative'} bold">${profit!==null?fmt(Math.round(profit)):'—'}</td><td><div class="action-buttons">${canMod?`<button class="btn btn-default btn-sm" onclick="editSell(${x.id})">Edit</button><button class="btn btn-default btn-sm" onclick="dupSell(${x.id})">⧉</button><button class="btn btn-danger btn-sm" onclick="delSell(${x.id})">×</button>`:`<span style="color:var(--muted);font-size:9px">${x.trader||'Ian'}'s</span>`}</div></td></tr>`}).join(''):'<tr><td colspan="14" class="empty-state">No sells</td></tr>'}
+            return`<tr><td class="bold ${isShort?'negative':'accent'}">${ord||'—'}${isShort?' <span style="font-size:9px">(SHORT)</span>':''}${crossTrader?` <span style="font-size:9px;color:${traderColor(buy.trader)}" title="Sourced from ${buy.trader}">←${traderInitial(buy.trader)}</span>`:''}</td><td>${fmtD(x.date)}</td><td>${x.customer||'—'}</td><td>${x.destination||'—'}</td><td class="bold">${x.product}${x.msrPremium?' <span style="color:var(--accent);font-size:9px">+'+x.msrPremium+'</span>':''}</td><td>${x.length||'RL'}${x.tally?' <span style="color:var(--warn);font-size:9px">T</span>':''}</td><td class="right accent">${fmt(x.price)}</td><td class="right warn">${fmt(x.freight)}</td><td class="right" style="color:var(--muted)">${fmt(Math.round(sellFrtPerMBF))}</td><td class="right ${margin===null?'':margin>=0?'positive':'negative'} bold">${margin!==null?fmt(Math.round(margin)):'—'}</td><td class="right">${x.volume}</td><td class="right ${profit===null?'':profit>=0?'positive':'negative'} bold">${profit!==null?fmt(Math.round(profit)):'—'}</td><td><div class="action-buttons"><button class="btn btn-default btn-sm" onclick="editSell(${x.id})">Edit</button><button class="btn btn-default btn-sm" onclick="dupSell(${x.id})">⧉</button><button class="btn btn-danger btn-sm" onclick="delSell(${x.id})">×</button></div></td></tr>`}).join(''):'<tr><td colspan="13" class="empty-state">No sells</td></tr>'}
         </tbody></table></div></div>`;
   }
   else if(S.view==='benchmark'){
@@ -1703,15 +1695,15 @@ function render(){
   else if(S.view==='quotes'){
     // Quote Engine View
     const latestRL=S.rl.length?S.rl[S.rl.length-1]:null;
-    const mills=S.mills.length?S.mills:MILLS.map(m=>({name:m,location:m.includes('DeQuincy')||m.includes('Urbana')?'DeQuincy, LA':m.includes('Huttig')?'Huttig, AR':m.includes('Leola')?'Leola, AR':m.includes('Monticello')?'Monticello, AR':m.includes('Georgetown')?'Georgetown, SC':m.includes('Clarendon')?'Clarendon, NC':m.includes('Camden')?'Camden, AR':m.includes('Bristol')?'Bristol, FL':m.includes('Graceville')?'Graceville, FL':m.includes('Dierks')?'Dierks, AR':m.includes('Leland')?'Leland, MS':'Warren, AR'}));
+    const mills=myMills().length?myMills():MILLS.map(m=>({name:m,location:m.includes('DeQuincy')||m.includes('Urbana')?'DeQuincy, LA':m.includes('Huttig')?'Huttig, AR':m.includes('Leola')?'Leola, AR':m.includes('Monticello')?'Monticello, AR':m.includes('Georgetown')?'Georgetown, SC':m.includes('Clarendon')?'Clarendon, NC':m.includes('Camden')?'Camden, AR':m.includes('Bristol')?'Bristol, FL':m.includes('Graceville')?'Graceville, FL':m.includes('Dierks')?'Dierks, AR':m.includes('Leland')?'Leland, MS':'Warren, AR'}));
     const defaultOrigins=['Warren, AR','Gurdon, AR','Camden, AR','Monticello, AR','Clarendon, NC','Huttig, AR','DeQuincy, LA'];
     const origins=[...new Set([...defaultOrigins,...mills.map(m=>m.location||m.city||'').filter(Boolean)])];
     
-    // Get customers for current profile
+    // Get customers for current profile (filtered to current trader)
     const currentProfile=S.quoteProfile||'default';
     const profiles=S.quoteProfiles||{default:{name:'Default',customers:[]}};
     const profileCustomerIds=profiles[currentProfile]?.customers||[];
-    const customers=S.customers.filter(c=>c.type!=='mill');
+    const customers=myCustomers().filter(c=>c.type!=='mill');
     
     // Calculate stats
     const items=S.quoteItems||[];
@@ -1975,11 +1967,11 @@ function render(){
       </tbody></table></div></div>`;
   }
   else if(S.view==='crm'){
-    // Filter CRM by trader view
-    const myMills=S.traderView==='mine'?S.mills.filter(m=>m.trader===S.trader||!m.trader):S.mills;
-    const myCustomers=S.traderView==='mine'?S.customers.filter(c=>c.trader===S.trader||!c.trader):S.customers;
+    // Get current trader's CRM only
+    const mills=myMills();
+    const customers=myCustomers();
     
-    // Calculate margin by customer (need to match sells to buys by orderNum)
+    // Calculate margin by customer for current trader only
     const buyByOrder={};
     S.buys.forEach(b=>{
       const ord=String(b.orderNum||b.po||'').trim();
@@ -1987,8 +1979,7 @@ function render(){
     });
     
     const custMargins={};
-    const mySells=S.traderView==='mine'?S.sells.filter(s=>s.trader===S.trader||!s.trader):S.sells;
-    mySells.forEach(s=>{
+    S.sells.filter(s=>s.trader===S.trader||!s.trader).forEach(s=>{
       const ord=String(s.orderNum||s.linkedPO||s.oc||'').trim();
       const buy=ord?buyByOrder[ord]:null;
       const buyCost=buy?.price||0;
@@ -2005,34 +1996,35 @@ function render(){
     });
     
     c.innerHTML=`
+      <div style="margin-bottom:12px;padding:8px 12px;background:var(--panel);border-left:3px solid ${traderColor(S.trader)};font-size:12px">
+        <strong>${S.trader}'s Book</strong> <span style="color:var(--muted)">— ${mills.length} mills, ${customers.length} customers</span>
+      </div>
       <div class="grid-2">
-        <div class="card"><div class="card-header"><span class="card-title positive">MILLS ${S.traderView==='mine'?'(My Book)':'(Department)'}</span><button class="btn btn-default btn-sm" onclick="showMillModal()">+ Add</button></div>
-          <div style="overflow-x:auto"><table><thead><tr><th>👤</th><th>Mill</th><th>Locations</th><th>Trades</th><th>Volume</th><th></th></tr></thead><tbody>
-            ${myMills.length?myMills.map(m=>{
+        <div class="card"><div class="card-header"><span class="card-title positive">MY MILLS</span><button class="btn btn-default btn-sm" onclick="showMillModal()">+ Add</button></div>
+          <div style="overflow-x:auto"><table><thead><tr><th>Mill</th><th>Locations</th><th>Trades</th><th>Volume</th><th></th></tr></thead><tbody>
+            ${mills.length?mills.map(m=>{
               const locs=m.locations||[m.origin].filter(Boolean);
-              const trades=S.buys.filter(b=>b.mill===m.name&&(S.traderView==='dept'||(b.trader===S.trader||!b.trader)));
+              const trades=S.buys.filter(b=>b.mill===m.name&&(b.trader===S.trader||!b.trader));
               const vol=trades.reduce((s,b)=>s+(b.volume||0),0);
-              const canMod=m.trader===S.trader||!m.trader;
-              return`<tr><td><span style="display:inline-block;width:18px;height:18px;border-radius:50%;background:${traderColor(m.trader||'Ian')};color:var(--bg);font-size:9px;font-weight:700;text-align:center;line-height:18px" title="${m.trader||'Ian'}">${traderInitial(m.trader||'Ian')}</span></td><td class="bold">${m.name}</td><td style="font-size:10px">${locs.length?locs.join(', '):'—'}</td><td class="right">${trades.length}</td><td class="right">${vol} MBF</td><td style="white-space:nowrap">${canMod?`<button class="btn btn-default btn-sm" onclick="editMill('${m.name}')">Edit</button> <button class="btn btn-default btn-sm" onclick="deleteMill('${m.name}')" style="color:var(--negative)">×</button>`:''}</td></tr>`;
-            }).join(''):'<tr><td colspan="6" class="empty-state">No mills saved. Add mills when creating buys.</td></tr>'}
+              return`<tr><td class="bold">${m.name}</td><td style="font-size:10px">${locs.length?locs.join(', '):'—'}</td><td class="right">${trades.length}</td><td class="right">${vol} MBF</td><td style="white-space:nowrap"><button class="btn btn-default btn-sm" onclick="editMill('${m.name}')">Edit</button> <button class="btn btn-default btn-sm" onclick="deleteMill('${m.name}')" style="color:var(--negative)">×</button></td></tr>`;
+            }).join(''):'<tr><td colspan="5" class="empty-state">No mills in your book yet</td></tr>'}
           </tbody></table></div></div>
-        <div class="card"><div class="card-header"><span class="card-title">CUSTOMERS ${S.traderView==='mine'?'(My Book)':'(Department)'}</span><button class="btn btn-default btn-sm" onclick="showCustModal()">+ Add</button></div>
-          <div style="overflow-x:auto"><table><thead><tr><th>👤</th><th>Customer</th><th>Locations</th><th>Trades</th><th>Volume</th><th></th></tr></thead><tbody>
-            ${myCustomers.length?myCustomers.map(c=>{
+        <div class="card"><div class="card-header"><span class="card-title">MY CUSTOMERS</span><button class="btn btn-default btn-sm" onclick="showCustModal()">+ Add</button></div>
+          <div style="overflow-x:auto"><table><thead><tr><th>Customer</th><th>Locations</th><th>Trades</th><th>Volume</th><th></th></tr></thead><tbody>
+            ${customers.length?customers.map(c=>{
               const locs=c.locations||[c.destination].filter(Boolean);
-              const trades=S.sells.filter(s=>s.customer===c.name&&(S.traderView==='dept'||(s.trader===S.trader||!s.trader)));
+              const trades=S.sells.filter(s=>s.customer===c.name&&(s.trader===S.trader||!s.trader));
               const vol=trades.reduce((s,x)=>s+(x.volume||0),0);
-              const canMod=c.trader===S.trader||!c.trader;
-              return`<tr><td><span style="display:inline-block;width:18px;height:18px;border-radius:50%;background:${traderColor(c.trader||'Ian')};color:var(--bg);font-size:9px;font-weight:700;text-align:center;line-height:18px" title="${c.trader||'Ian'}">${traderInitial(c.trader||'Ian')}</span></td><td class="bold">${c.name}</td><td style="font-size:10px">${locs.length?locs.join(', '):'—'}</td><td class="right">${trades.length}</td><td class="right">${vol} MBF</td><td style="white-space:nowrap">${canMod?`<button class="btn btn-default btn-sm" onclick="editCust('${c.name}')">Edit</button> <button class="btn btn-default btn-sm" onclick="deleteCust('${c.name}')" style="color:var(--negative)">×</button>`:''}</td></tr>`;
-            }).join(''):'<tr><td colspan="6" class="empty-state">No customers saved. Add customers when creating sells.</td></tr>'}
+              return`<tr><td class="bold">${c.name}</td><td style="font-size:10px">${locs.length?locs.join(', '):'—'}</td><td class="right">${trades.length}</td><td class="right">${vol} MBF</td><td style="white-space:nowrap"><button class="btn btn-default btn-sm" onclick="editCust('${c.name}')">Edit</button> <button class="btn btn-default btn-sm" onclick="deleteCust('${c.name}')" style="color:var(--negative)">×</button></td></tr>`;
+            }).join(''):'<tr><td colspan="5" class="empty-state">No customers in your book yet</td></tr>'}
           </tbody></table></div></div>
       </div>
-      <div class="card"><div class="card-header"><span class="card-title warn">CUSTOMER PROFITABILITY (Avg Margin/MBF Net Freight)</span></div>
+      <div class="card"><div class="card-header"><span class="card-title warn">MY CUSTOMER PROFITABILITY</span></div>
         <div style="overflow-x:auto"><table><thead><tr><th>Customer</th><th class="right">Trades</th><th class="right">Volume</th><th class="right">Avg Margin/MBF</th></tr></thead><tbody>
           ${Object.keys(custMargins).length?Object.entries(custMargins).filter(([c,d])=>d.vol>0).sort((x,y)=>(y[1].marginVal/y[1].vol)-(x[1].marginVal/x[1].vol)).map(([c,d])=>{
             const avgMargin=d.vol>0?d.marginVal/d.vol:0;
             return`<tr><td class="bold">${c}</td><td class="right">${d.n}</td><td class="right">${d.vol} MBF</td><td class="right ${avgMargin>=0?'positive':'negative'} bold">${fmt(Math.round(avgMargin))}</td></tr>`;
-          }).join(''):'<tr><td colspan="4" class="empty-state">No linked sales to calculate margin</td></tr>'}
+          }).join(''):'<tr><td colspan="4" class="empty-state">No linked sales yet</td></tr>'}
         </tbody></table></div></div>`;
   }
   else if(S.view==='rldata'){
@@ -5838,7 +5830,7 @@ function saveBuy(id){
     price:price,
     volume:volume, // Use calculated volume
     notes:document.getElementById('m-notes').value,
-    trader:S.trader, // Tag with current trader
+    trader:actingTrader(), // Tag with current trader (defaults to Ian if viewing Department)
     // Freight fields (for DLVD buys)
     miles:parseFloat(document.getElementById('m-miles')?.value)||0,
     rate:parseFloat(document.getElementById('m-rate')?.value)||S.flatRate||3.50,
@@ -5939,7 +5931,7 @@ function saveSell(id){
     volume:volume, // Use calculated volume (from tally or field)
     notes:document.getElementById('m-notes').value,
     delivered:document.getElementById('m-delivered')?.checked||false,
-    trader:S.trader, // Tag with current trader
+    trader:actingTrader(), // Tag with current trader (defaults to Ian if viewing Department)
     // MSR fields
     basePrice:isMSR?parseFloat(document.getElementById('m-basePrice').value)||0:null,
     msrPremium:isMSR?parseFloat(document.getElementById('m-msrPremium').value)||0:null,
@@ -5974,12 +5966,12 @@ function saveRL(){
 
 function saveCust(name){
   const locations=[...document.querySelectorAll('.cust-loc')].map(el=>el.value.trim()).filter(Boolean);
-  const c={name:document.getElementById('m-name').value,contact:document.getElementById('m-contact')?.value||'',phone:document.getElementById('m-phone')?.value||'',email:document.getElementById('m-email')?.value||'',locations:locations,destination:locations[0]||'',terms:document.getElementById('m-terms')?.value||'',trader:S.trader};
+  const c={name:document.getElementById('m-name').value,contact:document.getElementById('m-contact')?.value||'',phone:document.getElementById('m-phone')?.value||'',email:document.getElementById('m-email')?.value||'',locations:locations,destination:locations[0]||'',terms:document.getElementById('m-terms')?.value||'',trader:actingTrader()};
   if(!c.name){alert('Enter name');return}
   const existing=S.customers.findIndex(x=>x.name===name);
   if(existing>=0){
     // Keep original trader when editing
-    c.trader=S.customers[existing].trader||S.trader;
+    c.trader=S.customers[existing].trader||actingTrader();
     S.customers[existing]={...S.customers[existing],...c};
   }else{
     S.customers.push(c);
@@ -6020,12 +6012,12 @@ function addMillLocation(){
 
 function saveMill(oldName){
   const locations=[...document.querySelectorAll('.mill-loc')].map(el=>el.value.trim()).filter(Boolean);
-  const m={name:document.getElementById('m-name').value,locations:locations,origin:locations[0]||'',region:document.getElementById('m-region').value,contact:document.getElementById('m-contact').value,phone:document.getElementById('m-phone').value,notes:document.getElementById('m-notes').value,trader:S.trader};
+  const m={name:document.getElementById('m-name').value,locations:locations,origin:locations[0]||'',region:document.getElementById('m-region').value,contact:document.getElementById('m-contact').value,phone:document.getElementById('m-phone').value,notes:document.getElementById('m-notes').value,trader:actingTrader()};
   if(!m.name){alert('Enter name');return}
   const existing=S.mills.findIndex(x=>x.name===oldName);
   if(existing>=0){
     // Keep original trader when editing
-    m.trader=S.mills[existing].trader||S.trader;
+    m.trader=S.mills[existing].trader||actingTrader();
     S.mills[existing]={...S.mills[existing],...m};
   }else{
     S.mills.push(m);
@@ -6590,31 +6582,10 @@ async function init(){
     }
   }
   
-  // Setup trader selector
+  // Setup trader selector (includes Department view + individual traders)
   const traderSelect=document.getElementById('trader-select');
   if(traderSelect){
-    traderSelect.innerHTML=TRADERS.map(t=>`<option value="${t}" ${t===S.trader?'selected':''}>${t}</option>`).join('');
-  }
-  
-  // Setup view toggle (My Trades / Department)
-  const viewSelect=document.getElementById('f-view');
-  if(viewSelect){
-    viewSelect.value=S.traderView;
-    viewSelect.onchange=e=>{
-      S.traderView=e.target.value;
-      SS('traderView',S.traderView);
-      // Show/hide trader filter when in dept view
-      document.getElementById('f-trader').style.display=S.traderView==='dept'?'inline-block':'none';
-      render();
-    };
-  }
-  
-  // Setup trader filter (when viewing department)
-  const traderFilter=document.getElementById('f-trader');
-  if(traderFilter){
-    traderFilter.innerHTML='<option value="all">All Traders</option>'+TRADERS.map(t=>`<option value="${t}">${t}</option>`).join('');
-    traderFilter.style.display=S.traderView==='dept'?'inline-block':'none';
-    traderFilter.onchange=e=>{S.traderFilter=e.target.value;render()};
+    traderSelect.innerHTML=ALL_TRADERS.map(t=>`<option value="${t}" ${t===S.trader?'selected':''}>${t==='Department'?'📊 '+t:t}</option>`).join('');
   }
   
   document.getElementById('f-date').onchange=e=>{S.filters.date=e.target.value;render()};
