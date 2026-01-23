@@ -2438,6 +2438,10 @@ function showBuyModal(b=null){
   document.getElementById('modal').innerHTML=`<div class="modal-overlay" onclick="closeModal()"><div class="modal wide" onclick="event.stopPropagation()">
     <div class="modal-header"><span class="modal-title positive">${b?'EDIT':'NEW'} BUY</span><button class="modal-close" onclick="closeModal()">×</button></div>
     <div class="modal-body">
+      ${S.trader==='Admin'?`<div style="margin-bottom:16px;padding:12px;background:rgba(245,166,35,0.1);border:1px solid #f5a623;border-radius:4px">
+        <div class="form-group" style="margin:0"><label class="form-label" style="color:#f5a623;font-weight:600">🔑 Assign to Trader</label>
+        <select id="m-trader" style="width:200px">${TRADERS.map(t=>`<option value="${t}" ${(b?.trader||'Ian')===t?'selected':''}>${t}</option>`).join('')}</select></div>
+      </div>`:''}
       <div class="form-grid">
         <div class="form-group"><label class="form-label">Order #</label>
           <input type="text" id="m-orderNum" value="${b?.orderNum||b?.po||''}" placeholder="e.g. 70123" list="order-list-buy" onchange="onBuyOrderChange()">
@@ -5069,6 +5073,10 @@ function showSellModal(s=null){
   document.getElementById('modal').innerHTML=`<div class="modal-overlay" onclick="closeModal()"><div class="modal wide" onclick="event.stopPropagation()">
     <div class="modal-header"><span class="modal-title">${s?'EDIT':'NEW'} SELL</span><button class="modal-close" onclick="closeModal()">×</button></div>
     <div class="modal-body">
+      ${S.trader==='Admin'?`<div style="margin-bottom:16px;padding:12px;background:rgba(245,166,35,0.1);border:1px solid #f5a623;border-radius:4px">
+        <div class="form-group" style="margin:0"><label class="form-label" style="color:#f5a623;font-weight:600">🔑 Assign to Trader</label>
+        <select id="m-trader" style="width:200px">${TRADERS.map(t=>`<option value="${t}" ${(s?.trader||'Ian')===t?'selected':''}>${t}</option>`).join('')}</select></div>
+      </div>`:''}
       <div class="form-grid">
         <div class="form-group"><label class="form-label">Order #</label>
           <input type="text" id="m-orderNum" value="${s?.orderNum||s?.linkedPO||s?.oc||''}" placeholder="e.g. 70123" list="order-list-sell" onchange="onSellOrderChange();updateSellCalc()">
@@ -5778,6 +5786,10 @@ function showCustModal(c=null){
   document.getElementById('modal').innerHTML=`<div class="modal-overlay" onclick="closeModal()"><div class="modal" onclick="event.stopPropagation()">
     <div class="modal-header"><span class="modal-title">${c?'EDIT':'NEW'} CUSTOMER</span><button class="modal-close" onclick="closeModal()">×</button></div>
     <div class="modal-body">
+      ${S.trader==='Admin'?`<div style="margin-bottom:16px;padding:12px;background:rgba(245,166,35,0.1);border:1px solid #f5a623;border-radius:4px">
+        <div class="form-group" style="margin:0"><label class="form-label" style="color:#f5a623;font-weight:600">🔑 Assign to Trader</label>
+        <select id="m-trader" style="width:200px">${TRADERS.map(t=>`<option value="${t}" ${(c?.trader||'Ian')===t?'selected':''}>${t}</option>`).join('')}</select></div>
+      </div>`:''}
       <div class="form-grid">
         <div class="form-group full"><label class="form-label">Company Name</label><input type="text" id="m-name" value="${c?.name||''}"></div>
         <div class="form-group"><label class="form-label">Contact</label><input type="text" id="m-contact" value="${c?.contact||''}"></div>
@@ -5874,7 +5886,7 @@ function saveBuy(id){
     price:price,
     volume:volume, // Use calculated volume
     notes:document.getElementById('m-notes').value,
-    trader:actingTrader(), // Tag with current trader (defaults to Ian if viewing Department)
+    trader:S.trader==='Admin'?(document.getElementById('m-trader')?.value||'Ian'):S.trader, // Admin assigns to trader, otherwise current trader
     // Freight fields (for DLVD buys)
     miles:parseFloat(document.getElementById('m-miles')?.value)||0,
     rate:parseFloat(document.getElementById('m-rate')?.value)||S.flatRate||3.50,
@@ -5891,7 +5903,9 @@ function saveBuy(id){
     const existing=S.buys.find(x=>x.id===id);
     if(existing&&!canEdit(existing)){alert('You can only edit your own trades');return}
     const i=S.buys.findIndex(x=>x.id===id);
-    if(i>=0)S.buys[i]={...b,id,trader:existing?.trader||S.trader}
+    // Admin can reassign trader, otherwise preserve original trader
+    const assignedTrader=S.trader==='Admin'?(document.getElementById('m-trader')?.value||existing?.trader||'Ian'):(existing?.trader||S.trader);
+    if(i>=0)S.buys[i]={...b,id,trader:assignedTrader}
   }else{
     b.id=genId();
     S.buys.unshift(b)
@@ -5975,7 +5989,7 @@ function saveSell(id){
     volume:volume, // Use calculated volume (from tally or field)
     notes:document.getElementById('m-notes').value,
     delivered:document.getElementById('m-delivered')?.checked||false,
-    trader:actingTrader(), // Tag with current trader (defaults to Ian if viewing Department)
+    trader:S.trader==='Admin'?(document.getElementById('m-trader')?.value||'Ian'):S.trader, // Admin assigns to trader, otherwise current trader
     // MSR fields
     basePrice:isMSR?parseFloat(document.getElementById('m-basePrice').value)||0:null,
     msrPremium:isMSR?parseFloat(document.getElementById('m-msrPremium').value)||0:null,
@@ -5990,7 +6004,9 @@ function saveSell(id){
     const existing=S.sells.find(x=>x.id===id);
     if(existing&&!canEdit(existing)){alert('You can only edit your own trades');return}
     const i=S.sells.findIndex(x=>x.id===id);
-    if(i>=0)S.sells[i]={...s,id,trader:existing?.trader||S.trader}
+    // Admin can reassign trader, otherwise preserve original trader
+    const assignedTrader=S.trader==='Admin'?(document.getElementById('m-trader')?.value||existing?.trader||'Ian'):(existing?.trader||S.trader);
+    if(i>=0)S.sells[i]={...s,id,trader:assignedTrader}
   }else{
     s.id=genId();
     S.sells.unshift(s)
@@ -6010,12 +6026,13 @@ function saveRL(){
 
 function saveCust(name){
   const locations=[...document.querySelectorAll('.cust-loc')].map(el=>el.value.trim()).filter(Boolean);
-  const c={name:document.getElementById('m-name').value,contact:document.getElementById('m-contact')?.value||'',phone:document.getElementById('m-phone')?.value||'',email:document.getElementById('m-email')?.value||'',locations:locations,destination:locations[0]||'',terms:document.getElementById('m-terms')?.value||'',trader:actingTrader()};
+  const assignedTrader=S.trader==='Admin'?(document.getElementById('m-trader')?.value||'Ian'):S.trader;
+  const c={name:document.getElementById('m-name').value,contact:document.getElementById('m-contact')?.value||'',phone:document.getElementById('m-phone')?.value||'',email:document.getElementById('m-email')?.value||'',locations:locations,destination:locations[0]||'',terms:document.getElementById('m-terms')?.value||'',trader:assignedTrader};
   if(!c.name){alert('Enter name');return}
   const existing=S.customers.findIndex(x=>x.name===name);
   if(existing>=0){
-    // Keep original trader when editing
-    c.trader=S.customers[existing].trader||actingTrader();
+    // Admin can reassign trader, otherwise keep original
+    c.trader=S.trader==='Admin'?assignedTrader:(S.customers[existing].trader||S.trader);
     S.customers[existing]={...S.customers[existing],...c};
   }else{
     S.customers.push(c);
@@ -6029,6 +6046,10 @@ function showMillModal(m=null){
   document.getElementById('modal').innerHTML=`<div class="modal-overlay" onclick="closeModal()"><div class="modal" onclick="event.stopPropagation()">
     <div class="modal-header"><span class="modal-title positive">${mill?'EDIT':'NEW'} MILL</span><button class="modal-close" onclick="closeModal()">×</button></div>
     <div class="modal-body">
+      ${S.trader==='Admin'?`<div style="margin-bottom:16px;padding:12px;background:rgba(245,166,35,0.1);border:1px solid #f5a623;border-radius:4px">
+        <div class="form-group" style="margin:0"><label class="form-label" style="color:#f5a623;font-weight:600">🔑 Assign to Trader</label>
+        <select id="m-trader" style="width:200px">${TRADERS.map(t=>`<option value="${t}" ${(mill?.trader||'Ian')===t?'selected':''}>${t}</option>`).join('')}</select></div>
+      </div>`:''}
       <div class="form-group"><label class="form-label">Mill Name</label><input type="text" id="m-name" value="${mill?.name||''}"></div>
       <div class="form-group">
         <label class="form-label">Locations (City, ST)</label>
@@ -6056,12 +6077,13 @@ function addMillLocation(){
 
 function saveMill(oldName){
   const locations=[...document.querySelectorAll('.mill-loc')].map(el=>el.value.trim()).filter(Boolean);
-  const m={name:document.getElementById('m-name').value,locations:locations,origin:locations[0]||'',region:document.getElementById('m-region').value,contact:document.getElementById('m-contact').value,phone:document.getElementById('m-phone').value,notes:document.getElementById('m-notes').value,trader:actingTrader()};
+  const assignedTrader=S.trader==='Admin'?(document.getElementById('m-trader')?.value||'Ian'):S.trader;
+  const m={name:document.getElementById('m-name').value,locations:locations,origin:locations[0]||'',region:document.getElementById('m-region').value,contact:document.getElementById('m-contact').value,phone:document.getElementById('m-phone').value,notes:document.getElementById('m-notes').value,trader:assignedTrader};
   if(!m.name){alert('Enter name');return}
   const existing=S.mills.findIndex(x=>x.name===oldName);
   if(existing>=0){
-    // Keep original trader when editing
-    m.trader=S.mills[existing].trader||actingTrader();
+    // Admin can reassign trader, otherwise keep original
+    m.trader=S.trader==='Admin'?assignedTrader:(S.mills[existing].trader||S.trader);
     S.mills[existing]={...S.mills[existing],...m};
   }else{
     S.mills.push(m);
