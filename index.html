@@ -673,6 +673,7 @@ async function save(key,value){
 
 // Traders in department
 const TRADERS=['Ian','Aubrey','Hunter','Sawyer','Jackson','John'];
+const ALL_LOGINS=['Admin',...TRADERS]; // Admin + all traders for login
 
 let S={
   view:'dashboard',
@@ -719,12 +720,13 @@ function filtered(){
   const mP=p=>S.filters.prod==='all'||p===S.filters.prod;
   const mR=rg=>S.filters.reg==='all'||rg===S.filters.reg;
   
-  // Filter to current trader's trades only
-  const isMyTrade=t=>t.trader===S.trader||!t.trader;
+  // Admin sees all, traders see only their own
+  const isAdmin=S.trader==='Admin';
+  const isMyTrade=t=>isAdmin||t===S.trader||!t;
   
   return{
-    buys:S.buys.filter(b=>inR(b.date)&&mP(b.product)&&mR(b.region)&&isMyTrade(b)),
-    sells:S.sells.filter(s=>inR(s.date)&&mP(s.product)&&isMyTrade(s))
+    buys:S.buys.filter(b=>inR(b.date)&&mP(b.product)&&mR(b.region)&&isMyTrade(b.trader)),
+    sells:S.sells.filter(s=>inR(s.date)&&mP(s.product)&&isMyTrade(s.trader))
   };
 }
 
@@ -733,12 +735,19 @@ function allData(){
   return{buys:S.buys,sells:S.sells};
 }
 
-// Get current trader's CRM only
+// Get current trader's CRM only (Admin sees all)
 function myMills(){
+  if(S.trader==='Admin')return S.mills;
   return S.mills.filter(m=>m.trader===S.trader||!m.trader);
 }
 function myCustomers(){
+  if(S.trader==='Admin')return S.customers;
   return S.customers.filter(c=>c.trader===S.trader||!c.trader);
+}
+
+// Check if current user is admin
+function isAdmin(){
+  return S.trader==='Admin';
 }
 
 function analytics(){
@@ -900,17 +909,19 @@ function setTrader(t){
 
 // Check if current user can edit a trade (only individual traders can edit, not when viewing Department)
 function canEdit(trade){
+  if(S.trader==='Admin')return true; // Admin can edit all
   return trade.trader===S.trader||!trade.trader; // Can edit own trades or legacy untagged
 }
 
 // Get trader color for display
 function traderColor(t){
-  const colors={'Ian':'var(--accent)','Aubrey':'#f5a623','Hunter':'#4a9eff','Sawyer':'#a855f7','Jackson':'#ec4899','John':'#14b8a6'};
+  const colors={'Admin':'#f5a623','Ian':'var(--accent)','Aubrey':'#f5a623','Hunter':'#4a9eff','Sawyer':'#a855f7','Jackson':'#ec4899','John':'#14b8a6'};
   return colors[t]||'var(--muted)';
 }
 
 // Get trader initials for badges
 function traderInitial(t){
+  if(t==='Admin')return '★';
   return t?t.charAt(0).toUpperCase():'?';
 }
 
@@ -924,7 +935,7 @@ function render(){
 
   if(S.view==='dashboard'){
     if(!a.buys.length&&!a.sells.length){
-      c.innerHTML=`<div class="empty-state" style="padding:80px"><div style="font-size:48px;margin-bottom:20px">📊</div><h2 style="margin-bottom:12px;color:var(--text)">Welcome, ${S.trader}!</h2><p style="margin-bottom:24px">Start by adding your trades or importing Random Lengths data.</p><div style="display:flex;gap:12px;justify-content:center"><button class="btn btn-success" onclick="showBuyModal()">+ Add Buy</button><button class="btn btn-primary" onclick="showSellModal()">+ Add Sell</button><button class="btn btn-warn" onclick="go('rldata')">Import RL Data</button></div></div>`;
+      c.innerHTML=`<div class="empty-state" style="padding:80px"><div style="font-size:48px;margin-bottom:20px">${S.trader==='Admin'?'🔑':'📊'}</div><h2 style="margin-bottom:12px;color:var(--text)">Welcome, ${S.trader}!</h2><p style="margin-bottom:24px">${S.trader==='Admin'?'No department trades yet. Traders can add trades from their accounts.':'Start by adding your trades or importing Random Lengths data.'}</p><div style="display:flex;gap:12px;justify-content:center"><button class="btn btn-success" onclick="showBuyModal()">+ Add Buy</button><button class="btn btn-primary" onclick="showSellModal()">+ Add Sell</button><button class="btn btn-warn" onclick="go('rldata')">Import RL Data</button></div></div>`;
       return;
     }
     c.innerHTML=`
@@ -1602,12 +1613,12 @@ function render(){
           <button class="btn btn-default btn-sm" onclick="clearBlotterFilters()">Clear</button>
         </div>
       </div>
-      <div class="card"><div class="card-header"><span class="card-title positive">MY BUYS</span><span style="color:var(--muted);font-size:10px;margin-left:8px">${filteredBuys.length} trades</span><button class="btn btn-default btn-sm" onclick="expCSV('buys')">Export CSV</button></div>
-        <div style="overflow-x:auto"><table><thead><tr><th ${sortClick('orderNum')}>Order # ${sortIcon('orderNum')}</th><th ${sortClick('date')}>Date ${sortIcon('date')}</th><th ${sortClick('mill')}>Mill ${sortIcon('mill')}</th><th>Origin</th><th>Reg</th><th ${sortClick('product')}>Product ${sortIcon('product')}</th><th>Len</th><th class="right" ${sortClick('price')}>Price ${sortIcon('price')}</th><th class="right">Frt</th><th class="right" ${sortClick('volume')}>Vol ${sortIcon('volume')}</th><th class="right">Sold</th><th class="right">Avail</th><th></th></tr></thead><tbody>
-          ${filteredBuys.length?filteredBuys.map(b=>{const ord=String(b.orderNum||b.po||'').trim();const sold=orderSold[ord]||0;const avail=(b.volume||0)-sold;const buyFrtMBF=b.volume>0?(b.freight||0)/b.volume:0;return`<tr><td class="bold accent">${ord||'—'}</td><td>${fmtD(b.date)}</td><td>${b.mill||'—'}</td><td>${b.origin||'—'}</td><td style="text-transform:capitalize">${b.region}</td><td class="bold">${b.product}${b.msrPremium?' <span style="color:var(--accent);font-size:9px">+'+b.msrPremium+'</span>':''}</td><td>${b.length||'RL'}${b.tally?' <span style="color:var(--warn);font-size:9px">T</span>':''}</td><td class="right positive">${fmt(b.price)}${b.freight?' <span style="color:var(--muted);font-size:9px">FOB</span>':''}</td><td class="right ${b.freight?'warn':''}">${b.freight?fmt(b.freight):'—'}</td><td class="right">${b.volume}</td><td class="right ${sold>0?'warn':''}">${sold}</td><td class="right ${avail>0?'positive':''}">${avail}</td><td><div class="action-buttons"><button class="btn btn-default btn-sm" onclick="editBuy(${b.id})">Edit</button><button class="btn btn-default btn-sm" onclick="dupBuy(${b.id})">⧉</button><button class="btn btn-danger btn-sm" onclick="delBuy(${b.id})">×</button></div></td></tr>`}).join(''):'<tr><td colspan="13" class="empty-state">No buys</td></tr>'}
+      <div class="card"><div class="card-header"><span class="card-title positive">${S.trader==='Admin'?'ALL BUYS':'MY BUYS'}</span><span style="color:var(--muted);font-size:10px;margin-left:8px">${filteredBuys.length} trades</span><button class="btn btn-default btn-sm" onclick="expCSV('buys')">Export CSV</button></div>
+        <div style="overflow-x:auto"><table><thead><tr>${S.trader==='Admin'?'<th>👤</th>':''}<th ${sortClick('orderNum')}>Order # ${sortIcon('orderNum')}</th><th ${sortClick('date')}>Date ${sortIcon('date')}</th><th ${sortClick('mill')}>Mill ${sortIcon('mill')}</th><th>Origin</th><th>Reg</th><th ${sortClick('product')}>Product ${sortIcon('product')}</th><th>Len</th><th class="right" ${sortClick('price')}>Price ${sortIcon('price')}</th><th class="right">Frt</th><th class="right" ${sortClick('volume')}>Vol ${sortIcon('volume')}</th><th class="right">Sold</th><th class="right">Avail</th><th></th></tr></thead><tbody>
+          ${filteredBuys.length?filteredBuys.map(b=>{const ord=String(b.orderNum||b.po||'').trim();const sold=orderSold[ord]||0;const avail=(b.volume||0)-sold;const buyFrtMBF=b.volume>0?(b.freight||0)/b.volume:0;return`<tr>${S.trader==='Admin'?`<td><span style="display:inline-block;width:20px;height:20px;border-radius:50%;background:${traderColor(b.trader||'Ian')};color:var(--bg);font-size:10px;font-weight:700;text-align:center;line-height:20px" title="${b.trader||'Ian'}">${traderInitial(b.trader||'Ian')}</span></td>`:''}<td class="bold accent">${ord||'—'}</td><td>${fmtD(b.date)}</td><td>${b.mill||'—'}</td><td>${b.origin||'—'}</td><td style="text-transform:capitalize">${b.region}</td><td class="bold">${b.product}${b.msrPremium?' <span style="color:var(--accent);font-size:9px">+'+b.msrPremium+'</span>':''}</td><td>${b.length||'RL'}${b.tally?' <span style="color:var(--warn);font-size:9px">T</span>':''}</td><td class="right positive">${fmt(b.price)}${b.freight?' <span style="color:var(--muted);font-size:9px">FOB</span>':''}</td><td class="right ${b.freight?'warn':''}">${b.freight?fmt(b.freight):'—'}</td><td class="right">${b.volume}</td><td class="right ${sold>0?'warn':''}">${sold}</td><td class="right ${avail>0?'positive':''}">${avail}</td><td><div class="action-buttons"><button class="btn btn-default btn-sm" onclick="editBuy(${b.id})">Edit</button><button class="btn btn-default btn-sm" onclick="dupBuy(${b.id})">⧉</button><button class="btn btn-danger btn-sm" onclick="delBuy(${b.id})">×</button></div></td></tr>`}).join(''):`<tr><td colspan="${S.trader==='Admin'?14:13}" class="empty-state">No buys</td></tr>`}
         </tbody></table></div></div>
-      <div class="card"><div class="card-header"><span class="card-title">MY SELLS</span><span style="color:var(--muted);font-size:10px;margin-left:8px">${filteredSells.length} trades</span><button class="btn btn-default btn-sm" onclick="expCSV('sells')">Export CSV</button></div>
-        <div style="overflow-x:auto"><table><thead><tr><th ${sortClick('orderNum')}>Order # ${sortIcon('orderNum')}</th><th ${sortClick('date')}>Date ${sortIcon('date')}</th><th ${sortClick('customer')}>Customer ${sortIcon('customer')}</th><th>Dest</th><th ${sortClick('product')}>Product ${sortIcon('product')}</th><th>Len</th><th class="right" ${sortClick('price')}>DLVD ${sortIcon('price')}</th><th class="right">Frt</th><th class="right">Frt/MBF</th><th class="right">Margin</th><th class="right" ${sortClick('volume')}>Vol ${sortIcon('volume')}</th><th class="right">Profit</th><th></th></tr></thead><tbody>
+      <div class="card"><div class="card-header"><span class="card-title">${S.trader==='Admin'?'ALL SELLS':'MY SELLS'}</span><span style="color:var(--muted);font-size:10px;margin-left:8px">${filteredSells.length} trades</span><button class="btn btn-default btn-sm" onclick="expCSV('sells')">Export CSV</button></div>
+        <div style="overflow-x:auto"><table><thead><tr>${S.trader==='Admin'?'<th>👤</th>':''}<th ${sortClick('orderNum')}>Order # ${sortIcon('orderNum')}</th><th ${sortClick('date')}>Date ${sortIcon('date')}</th><th ${sortClick('customer')}>Customer ${sortIcon('customer')}</th><th>Dest</th><th ${sortClick('product')}>Product ${sortIcon('product')}</th><th>Len</th><th class="right" ${sortClick('price')}>DLVD ${sortIcon('price')}</th><th class="right">Frt</th><th class="right">Frt/MBF</th><th class="right">Margin</th><th class="right" ${sortClick('volume')}>Vol ${sortIcon('volume')}</th><th class="right">Profit</th><th></th></tr></thead><tbody>
           ${filteredSells.length?filteredSells.map(x=>{
             const ord=String(x.orderNum||x.linkedPO||x.oc||'').trim();
             const buy=ord?buyByOrder[ord]:null;
@@ -1620,7 +1631,7 @@ function render(){
             const profit=margin!==null?margin*(x.volume||0):null;
             const isShort=!buy;
             const crossTrader=buy&&buy.trader!==x.trader;
-            return`<tr><td class="bold ${isShort?'negative':'accent'}">${ord||'—'}${isShort?' <span style="font-size:9px">(SHORT)</span>':''}${crossTrader?` <span style="font-size:9px;color:${traderColor(buy.trader)}" title="Sourced from ${buy.trader}">←${traderInitial(buy.trader)}</span>`:''}</td><td>${fmtD(x.date)}</td><td>${x.customer||'—'}</td><td>${x.destination||'—'}</td><td class="bold">${x.product}${x.msrPremium?' <span style="color:var(--accent);font-size:9px">+'+x.msrPremium+'</span>':''}</td><td>${x.length||'RL'}${x.tally?' <span style="color:var(--warn);font-size:9px">T</span>':''}</td><td class="right accent">${fmt(x.price)}</td><td class="right warn">${fmt(x.freight)}</td><td class="right" style="color:var(--muted)">${fmt(Math.round(sellFrtPerMBF))}</td><td class="right ${margin===null?'':margin>=0?'positive':'negative'} bold">${margin!==null?fmt(Math.round(margin)):'—'}</td><td class="right">${x.volume}</td><td class="right ${profit===null?'':profit>=0?'positive':'negative'} bold">${profit!==null?fmt(Math.round(profit)):'—'}</td><td><div class="action-buttons"><button class="btn btn-default btn-sm" onclick="editSell(${x.id})">Edit</button><button class="btn btn-default btn-sm" onclick="dupSell(${x.id})">⧉</button><button class="btn btn-danger btn-sm" onclick="delSell(${x.id})">×</button></div></td></tr>`}).join(''):'<tr><td colspan="13" class="empty-state">No sells</td></tr>'}
+            return`<tr>${S.trader==='Admin'?`<td><span style="display:inline-block;width:20px;height:20px;border-radius:50%;background:${traderColor(x.trader||'Ian')};color:var(--bg);font-size:10px;font-weight:700;text-align:center;line-height:20px" title="${x.trader||'Ian'}">${traderInitial(x.trader||'Ian')}</span></td>`:''}<td class="bold ${isShort?'negative':'accent'}">${ord||'—'}${isShort?' <span style="font-size:9px">(SHORT)</span>':''}${crossTrader?` <span style="font-size:9px;color:${traderColor(buy.trader)}" title="Sourced from ${buy.trader}">←${traderInitial(buy.trader)}</span>`:''}</td><td>${fmtD(x.date)}</td><td>${x.customer||'—'}</td><td>${x.destination||'—'}</td><td class="bold">${x.product}${x.msrPremium?' <span style="color:var(--accent);font-size:9px">+'+x.msrPremium+'</span>':''}</td><td>${x.length||'RL'}${x.tally?' <span style="color:var(--warn);font-size:9px">T</span>':''}</td><td class="right accent">${fmt(x.price)}</td><td class="right warn">${fmt(x.freight)}</td><td class="right" style="color:var(--muted)">${fmt(Math.round(sellFrtPerMBF))}</td><td class="right ${margin===null?'':margin>=0?'positive':'negative'} bold">${margin!==null?fmt(Math.round(margin)):'—'}</td><td class="right">${x.volume}</td><td class="right ${profit===null?'':profit>=0?'positive':'negative'} bold">${profit!==null?fmt(Math.round(profit)):'—'}</td><td><div class="action-buttons"><button class="btn btn-default btn-sm" onclick="editSell(${x.id})">Edit</button><button class="btn btn-default btn-sm" onclick="dupSell(${x.id})">⧉</button><button class="btn btn-danger btn-sm" onclick="delSell(${x.id})">×</button></div></td></tr>`}).join(''):`<tr><td colspan="${S.trader==='Admin'?14:13}" class="empty-state">No sells</td></tr>`}
         </tbody></table></div></div>`;
   }
   else if(S.view==='benchmark'){
@@ -1746,6 +1757,7 @@ function render(){
     const avgMargin=selectedItems.length?selectedItems.reduce((s,i)=>s+((i.fob||0)-(i.cost||0)),0)/selectedItems.length:0;
     
     c.innerHTML=`
+      ${S.trader==='Admin'?`<div style="margin-bottom:12px;padding:8px 12px;background:rgba(245,166,35,0.1);border:1px solid #f5a623;border-radius:4px;font-size:11px;color:#f5a623">🔑 <strong>Admin View</strong> — This is the Admin quote engine. Each trader has their own separate quote items and profiles.</div>`:''}
       <!-- Profile Selector -->
       <div class="card" style="margin-bottom:12px;padding:10px">
         <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
@@ -2029,29 +2041,29 @@ function render(){
     
     c.innerHTML=`
       <div style="margin-bottom:12px;padding:8px 12px;background:var(--panel);border-left:3px solid ${traderColor(S.trader)};font-size:12px">
-        <strong>${S.trader}'s Book</strong> <span style="color:var(--muted)">— ${mills.length} mills, ${customers.length} customers</span>
+        <strong>${S.trader==='Admin'?'🔑 All Traders':S.trader+"'s Book"}</strong> <span style="color:var(--muted)">— ${mills.length} mills, ${customers.length} customers</span>
       </div>
       <div class="grid-2">
-        <div class="card"><div class="card-header"><span class="card-title positive">MY MILLS</span><button class="btn btn-default btn-sm" onclick="showMillModal()">+ Add</button></div>
-          <div style="overflow-x:auto"><table><thead><tr><th>Mill</th><th>Locations</th><th>Trades</th><th>Volume</th><th></th></tr></thead><tbody>
+        <div class="card"><div class="card-header"><span class="card-title positive">${S.trader==='Admin'?'ALL MILLS':'MY MILLS'}</span><button class="btn btn-default btn-sm" onclick="showMillModal()">+ Add</button></div>
+          <div style="overflow-x:auto"><table><thead><tr>${S.trader==='Admin'?'<th>👤</th>':''}<th>Mill</th><th>Locations</th><th>Trades</th><th>Volume</th><th></th></tr></thead><tbody>
             ${mills.length?mills.map(m=>{
               const locs=m.locations||[m.origin].filter(Boolean);
-              const trades=S.buys.filter(b=>b.mill===m.name&&(b.trader===S.trader||!b.trader));
+              const trades=S.trader==='Admin'?S.buys.filter(b=>b.mill===m.name):S.buys.filter(b=>b.mill===m.name&&(b.trader===S.trader||!b.trader));
               const vol=trades.reduce((s,b)=>s+(b.volume||0),0);
-              return`<tr><td class="bold">${m.name}</td><td style="font-size:10px">${locs.length?locs.join(', '):'—'}</td><td class="right">${trades.length}</td><td class="right">${vol} MBF</td><td style="white-space:nowrap"><button class="btn btn-default btn-sm" onclick="editMill('${m.name}')">Edit</button> <button class="btn btn-default btn-sm" onclick="deleteMill('${m.name}')" style="color:var(--negative)">×</button></td></tr>`;
-            }).join(''):'<tr><td colspan="5" class="empty-state">No mills in your book yet</td></tr>'}
+              return`<tr>${S.trader==='Admin'?`<td><span style="display:inline-block;width:18px;height:18px;border-radius:50%;background:${traderColor(m.trader||'Ian')};color:var(--bg);font-size:9px;font-weight:700;text-align:center;line-height:18px" title="${m.trader||'Ian'}">${traderInitial(m.trader||'Ian')}</span></td>`:''}<td class="bold">${m.name}</td><td style="font-size:10px">${locs.length?locs.join(', '):'—'}</td><td class="right">${trades.length}</td><td class="right">${vol} MBF</td><td style="white-space:nowrap"><button class="btn btn-default btn-sm" onclick="editMill('${m.name}')">Edit</button> <button class="btn btn-default btn-sm" onclick="deleteMill('${m.name}')" style="color:var(--negative)">×</button></td></tr>`;
+            }).join(''):`<tr><td colspan="${S.trader==='Admin'?6:5}" class="empty-state">No mills yet</td></tr>`}
           </tbody></table></div></div>
-        <div class="card"><div class="card-header"><span class="card-title">MY CUSTOMERS</span><button class="btn btn-default btn-sm" onclick="showCustModal()">+ Add</button></div>
-          <div style="overflow-x:auto"><table><thead><tr><th>Customer</th><th>Locations</th><th>Trades</th><th>Volume</th><th></th></tr></thead><tbody>
+        <div class="card"><div class="card-header"><span class="card-title">${S.trader==='Admin'?'ALL CUSTOMERS':'MY CUSTOMERS'}</span><button class="btn btn-default btn-sm" onclick="showCustModal()">+ Add</button></div>
+          <div style="overflow-x:auto"><table><thead><tr>${S.trader==='Admin'?'<th>👤</th>':''}<th>Customer</th><th>Locations</th><th>Trades</th><th>Volume</th><th></th></tr></thead><tbody>
             ${customers.length?customers.map(c=>{
               const locs=c.locations||[c.destination].filter(Boolean);
-              const trades=S.sells.filter(s=>s.customer===c.name&&(s.trader===S.trader||!s.trader));
+              const trades=S.trader==='Admin'?S.sells.filter(s=>s.customer===c.name):S.sells.filter(s=>s.customer===c.name&&(s.trader===S.trader||!s.trader));
               const vol=trades.reduce((s,x)=>s+(x.volume||0),0);
-              return`<tr><td class="bold">${c.name}</td><td style="font-size:10px">${locs.length?locs.join(', '):'—'}</td><td class="right">${trades.length}</td><td class="right">${vol} MBF</td><td style="white-space:nowrap"><button class="btn btn-default btn-sm" onclick="editCust('${c.name}')">Edit</button> <button class="btn btn-default btn-sm" onclick="deleteCust('${c.name}')" style="color:var(--negative)">×</button></td></tr>`;
-            }).join(''):'<tr><td colspan="5" class="empty-state">No customers in your book yet</td></tr>'}
+              return`<tr>${S.trader==='Admin'?`<td><span style="display:inline-block;width:18px;height:18px;border-radius:50%;background:${traderColor(c.trader||'Ian')};color:var(--bg);font-size:9px;font-weight:700;text-align:center;line-height:18px" title="${c.trader||'Ian'}">${traderInitial(c.trader||'Ian')}</span></td>`:''}<td class="bold">${c.name}</td><td style="font-size:10px">${locs.length?locs.join(', '):'—'}</td><td class="right">${trades.length}</td><td class="right">${vol} MBF</td><td style="white-space:nowrap"><button class="btn btn-default btn-sm" onclick="editCust('${c.name}')">Edit</button> <button class="btn btn-default btn-sm" onclick="deleteCust('${c.name}')" style="color:var(--negative)">×</button></td></tr>`;
+            }).join(''):`<tr><td colspan="${S.trader==='Admin'?6:5}" class="empty-state">No customers yet</td></tr>`}
           </tbody></table></div></div>
       </div>
-      <div class="card"><div class="card-header"><span class="card-title warn">MY CUSTOMER PROFITABILITY</span></div>
+      <div class="card"><div class="card-header"><span class="card-title warn">${S.trader==='Admin'?'ALL':'MY'} CUSTOMER PROFITABILITY</span></div>
         <div style="overflow-x:auto"><table><thead><tr><th>Customer</th><th class="right">Trades</th><th class="right">Volume</th><th class="right">Avg Margin/MBF</th></tr></thead><tbody>
           ${Object.keys(custMargins).length?Object.entries(custMargins).filter(([c,d])=>d.vol>0).sort((x,y)=>(y[1].marginVal/y[1].vol)-(x[1].marginVal/x[1].vol)).map(([c,d])=>{
             const avgMargin=d.vol>0?d.marginVal/d.vol:0;
@@ -6620,7 +6632,7 @@ async function init(){
   // Update trader display in sidebar (read-only, shows who's logged in)
   const traderSelect=document.getElementById('trader-select');
   if(traderSelect){
-    traderSelect.outerHTML=`<div style="padding:8px 12px;background:var(--card);border:1px solid ${traderColor(S.trader)};border-radius:4px;font-weight:600;color:${traderColor(S.trader)};text-align:center">${S.trader}</div>`;
+    traderSelect.outerHTML=`<div style="padding:8px 12px;background:var(--card);border:1px solid ${traderColor(S.trader)};border-radius:4px;font-weight:600;color:${traderColor(S.trader)};text-align:center">${S.trader==='Admin'?'🔑 Admin':S.trader}</div>`;
   }
   
   document.getElementById('f-date').onchange=e=>{S.filters.date=e.target.value;render()};
@@ -6642,7 +6654,7 @@ function showLoginScreen(){
         <div style="background:linear-gradient(135deg,var(--accent),#00a080);padding:12px;font-weight:700;font-size:16px;color:var(--bg);margin-bottom:24px">SYP ANALYTICS</div>
         <div style="color:var(--muted);font-size:11px;margin-bottom:20px">Buckeye Pacific</div>
         <select id="login-trader" style="width:100%;padding:12px;margin-bottom:12px;text-align:center;font-size:14px">
-          ${TRADERS.map(t=>`<option value="${t}">${t}</option>`).join('')}
+          ${ALL_LOGINS.map(t=>`<option value="${t}"${t==='Admin'?' style="font-weight:bold;color:#f5a623"':''}>${t==='Admin'?'🔑 Admin':t}</option>`).join('')}
         </select>
         <input type="password" id="login-password" placeholder="Enter your password" style="width:100%;padding:12px;margin-bottom:16px;text-align:center" onkeydown="if(event.key==='Enter')doLogin()">
         <button class="btn btn-primary" style="width:100%" onclick="doLogin()">Login</button>
