@@ -1127,6 +1127,9 @@ function render(){
     const maxPrice=allPrices.length?Math.ceil(Math.max(...allPrices)/10)*10+10:500;
     const range=maxPrice-minPrice||100;
     
+    // Store chart data for drawing after render
+    window._chartData={westData,centralData,eastData,minPrice,range,spread2x4_2x6,spreadWestCentral};
+    
     c.innerHTML=`
       <div class="card" style="margin-bottom:16px">
         <div class="card-header">
@@ -1168,49 +1171,6 @@ function render(){
               <span><span style="display:inline-block;width:16px;height:3px;background:#f5a623;margin-right:6px;border-radius:2px"></span>Central</span>
               <span><span style="display:inline-block;width:16px;height:3px;background:#4a9eff;margin-right:6px;border-radius:2px"></span>East</span>
             </div>
-            <script>
-              (function(){
-                const canvas=document.getElementById('price-canvas');
-                if(!canvas)return;
-                const ctx=canvas.getContext('2d');
-                const rect=canvas.getBoundingClientRect();
-                canvas.width=rect.width*2;
-                canvas.height=rect.height*2;
-                ctx.scale(2,2);
-                const w=rect.width,h=rect.height;
-                const data={west:${JSON.stringify(westData)},central:${JSON.stringify(centralData)},east:${JSON.stringify(eastData)}};
-                const min=${minPrice},range=${range};
-                
-                function drawLine(vals,color){
-                  const valid=vals.map((v,i)=>({v,i})).filter(p=>p.v>0);
-                  if(valid.length<2)return;
-                  ctx.beginPath();
-                  ctx.strokeStyle=color;
-                  ctx.lineWidth=2.5;
-                  ctx.lineJoin='round';
-                  ctx.lineCap='round';
-                  valid.forEach((p,idx)=>{
-                    const x=(p.i/(vals.length-1))*w;
-                    const y=h-((p.v-min)/range)*h;
-                    if(idx===0)ctx.moveTo(x,y);
-                    else ctx.lineTo(x,y);
-                  });
-                  ctx.stroke();
-                  // Draw dots
-                  valid.forEach(p=>{
-                    const x=(p.i/(vals.length-1))*w;
-                    const y=h-((p.v-min)/range)*h;
-                    ctx.beginPath();
-                    ctx.arc(x,y,3,0,Math.PI*2);
-                    ctx.fillStyle=color;
-                    ctx.fill();
-                  });
-                }
-                drawLine(data.west,'#00c896');
-                drawLine(data.central,'#f5a623');
-                drawLine(data.east,'#4a9eff');
-              })();
-            </script>
           `:'<div class="empty-state">Need at least 2 weeks of RL data for charts</div>'}
         </div>
       </div>
@@ -1222,29 +1182,6 @@ function render(){
             ${rlData.length>1?`
               <div style="height:120px;position:relative;margin-bottom:8px">
                 <canvas id="spread-canvas" style="width:100%;height:100%"></canvas>
-                <script>
-                  (function(){
-                    const canvas=document.getElementById('spread-canvas');
-                    if(!canvas)return;
-                    const ctx=canvas.getContext('2d');
-                    const rect=canvas.getBoundingClientRect();
-                    canvas.width=rect.width*2;canvas.height=rect.height*2;
-                    ctx.scale(2,2);
-                    const w=rect.width,h=rect.height;
-                    const data=${JSON.stringify(spread2x4_2x6)};
-                    const maxVal=Math.max(...data.map(Math.abs),1);
-                    const barW=w/data.length*0.7;
-                    data.forEach((v,i)=>{
-                      const barH=Math.abs(v)/maxVal*(h/2-5);
-                      const x=i*(w/data.length)+(w/data.length-barW)/2;
-                      const y=v>=0?h/2-barH:h/2;
-                      ctx.fillStyle=v>=0?'#f5a623':'#ff6b6b';
-                      ctx.fillRect(x,y,barW,barH);
-                    });
-                    ctx.strokeStyle='rgba(255,255,255,0.2)';
-                    ctx.beginPath();ctx.moveTo(0,h/2);ctx.lineTo(w,h/2);ctx.stroke();
-                  })();
-                </script>
               </div>
               <div style="display:flex;justify-content:space-between;font-size:9px;color:var(--muted)">
                 ${chartLabels.filter((l,i)=>i%3===0).map(l=>`<span>${l}</span>`).join('')}
@@ -1263,29 +1200,6 @@ function render(){
             ${rlData.length>1?`
               <div style="height:120px;position:relative;margin-bottom:8px">
                 <canvas id="regional-canvas" style="width:100%;height:100%"></canvas>
-                <script>
-                  (function(){
-                    const canvas=document.getElementById('regional-canvas');
-                    if(!canvas)return;
-                    const ctx=canvas.getContext('2d');
-                    const rect=canvas.getBoundingClientRect();
-                    canvas.width=rect.width*2;canvas.height=rect.height*2;
-                    ctx.scale(2,2);
-                    const w=rect.width,h=rect.height;
-                    const data=${JSON.stringify(spreadWestCentral)};
-                    const maxVal=Math.max(...data.map(Math.abs),1);
-                    const barW=w/data.length*0.7;
-                    data.forEach((v,i)=>{
-                      const barH=Math.abs(v)/maxVal*(h/2-5);
-                      const x=i*(w/data.length)+(w/data.length-barW)/2;
-                      const y=v>=0?h/2-barH:h/2;
-                      ctx.fillStyle=v>=0?'#4a9eff':'#ff6b6b';
-                      ctx.fillRect(x,y,barW,barH);
-                    });
-                    ctx.strokeStyle='rgba(255,255,255,0.2)';
-                    ctx.beginPath();ctx.moveTo(0,h/2);ctx.lineTo(w,h/2);ctx.stroke();
-                  })();
-                </script>
               </div>
               <div style="display:flex;justify-content:space-between;font-size:9px;color:var(--muted)">
                 ${chartLabels.filter((l,i)=>i%3===0).map(l=>`<span>${l}</span>`).join('')}
@@ -2211,6 +2125,9 @@ CREATE POLICY "Allow all" ON syp_data FOR ALL USING (true);
         </div>
       </div></div>`;
   }
+  
+  // Draw charts after DOM update
+  if(S.view==='charts')setTimeout(drawCharts,10);
 }
 
 // MODALS
@@ -3692,6 +3609,98 @@ const originalToggleQuoteCustomer=typeof toggleQuoteCustomer==='function'?toggle
 // AI price selected items using Claude API for smart suggestions
 // Refresh quote item FOB prices from latest RL print (no AI)
 // Chart helper functions
+// Draw canvas charts (called after render for charts view)
+function drawCharts(){
+  const data=window._chartData;
+  if(!data)return;
+  
+  // Main price chart
+  const priceCanvas=document.getElementById('price-canvas');
+  if(priceCanvas){
+    const ctx=priceCanvas.getContext('2d');
+    const rect=priceCanvas.getBoundingClientRect();
+    priceCanvas.width=rect.width*2;
+    priceCanvas.height=rect.height*2;
+    ctx.scale(2,2);
+    const w=rect.width,h=rect.height;
+    
+    function drawLine(vals,color){
+      const valid=vals.map((v,i)=>({v,i})).filter(p=>p.v>0);
+      if(valid.length<2)return;
+      ctx.beginPath();
+      ctx.strokeStyle=color;
+      ctx.lineWidth=2.5;
+      ctx.lineJoin='round';
+      ctx.lineCap='round';
+      valid.forEach((p,idx)=>{
+        const x=(p.i/(vals.length-1))*w;
+        const y=h-((p.v-data.minPrice)/data.range)*h;
+        if(idx===0)ctx.moveTo(x,y);
+        else ctx.lineTo(x,y);
+      });
+      ctx.stroke();
+      // Draw dots
+      valid.forEach(p=>{
+        const x=(p.i/(vals.length-1))*w;
+        const y=h-((p.v-data.minPrice)/data.range)*h;
+        ctx.beginPath();
+        ctx.arc(x,y,4,0,Math.PI*2);
+        ctx.fillStyle=color;
+        ctx.fill();
+      });
+    }
+    drawLine(data.westData,'#00c896');
+    drawLine(data.centralData,'#f5a623');
+    drawLine(data.eastData,'#4a9eff');
+  }
+  
+  // Spread chart
+  const spreadCanvas=document.getElementById('spread-canvas');
+  if(spreadCanvas&&data.spread2x4_2x6){
+    const ctx=spreadCanvas.getContext('2d');
+    const rect=spreadCanvas.getBoundingClientRect();
+    spreadCanvas.width=rect.width*2;
+    spreadCanvas.height=rect.height*2;
+    ctx.scale(2,2);
+    const w=rect.width,h=rect.height;
+    const vals=data.spread2x4_2x6;
+    const maxVal=Math.max(...vals.map(Math.abs),1);
+    const barW=w/vals.length*0.7;
+    vals.forEach((v,i)=>{
+      const barH=Math.abs(v)/maxVal*(h/2-5);
+      const x=i*(w/vals.length)+(w/vals.length-barW)/2;
+      const y=v>=0?h/2-barH:h/2;
+      ctx.fillStyle=v>=0?'#f5a623':'#ff6b6b';
+      ctx.fillRect(x,y,barW,barH);
+    });
+    ctx.strokeStyle='rgba(255,255,255,0.2)';
+    ctx.beginPath();ctx.moveTo(0,h/2);ctx.lineTo(w,h/2);ctx.stroke();
+  }
+  
+  // Regional spread chart
+  const regionalCanvas=document.getElementById('regional-canvas');
+  if(regionalCanvas&&data.spreadWestCentral){
+    const ctx=regionalCanvas.getContext('2d');
+    const rect=regionalCanvas.getBoundingClientRect();
+    regionalCanvas.width=rect.width*2;
+    regionalCanvas.height=rect.height*2;
+    ctx.scale(2,2);
+    const w=rect.width,h=rect.height;
+    const vals=data.spreadWestCentral;
+    const maxVal=Math.max(...vals.map(Math.abs),1);
+    const barW=w/vals.length*0.7;
+    vals.forEach((v,i)=>{
+      const barH=Math.abs(v)/maxVal*(h/2-5);
+      const x=i*(w/vals.length)+(w/vals.length-barW)/2;
+      const y=v>=0?h/2-barH:h/2;
+      ctx.fillStyle=v>=0?'#4a9eff':'#ff6b6b';
+      ctx.fillRect(x,y,barW,barH);
+    });
+    ctx.strokeStyle='rgba(255,255,255,0.2)';
+    ctx.beginPath();ctx.moveTo(0,h/2);ctx.lineTo(w,h/2);ctx.stroke();
+  }
+}
+
 function generateChartLine(data,min,range,color){
   if(!data.length)return '';
   const n=data.length;
