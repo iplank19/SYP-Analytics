@@ -938,14 +938,35 @@ function render(){
         
         <div>
           <div class="card">
-            <div class="card-header"><span class="card-title warn">⚡ ACTION ITEMS</span></div>
-            <div class="card-body" style="padding:0">
-              ${openBuys>0?`<div class="activity-item"><span>📥 ${openBuys} buy order${openBuys>1?'s':''} awaiting shipment</span></div>`:''}
-              ${openSells>0?`<div class="activity-item"><span>📤 ${openSells} sell order${openSells>1?'s':''} to deliver</span></div>`:''}
-              ${shortPositions.length>0?`<div class="activity-item" style="color:var(--negative)"><span>⚠️ ${shortPositions.length} short position${shortPositions.length>1?'s':''} need coverage</span></div>`:''}
-              ${a.inv>100?`<div class="activity-item" style="color:var(--warn)"><span>📦 Long ${a.inv} MBF - consider selling</span></div>`:''}
-              ${a.inv<-50?`<div class="activity-item" style="color:var(--negative)"><span>📦 Short ${Math.abs(a.inv)} MBF - need to buy</span></div>`:''}
-              ${!openBuys&&!openSells&&!shortPositions.length&&Math.abs(a.inv)<50?'<div class="activity-item" style="color:var(--positive)">✓ All clear! No urgent items.</div>':''}
+            <div class="card-header"><span class="card-title info">🎯 MARKET MOMENTUM</span></div>
+            <div class="card-body">
+              ${latestRL&&prevRL?`
+                ${(()=>{
+                  const westChg=(latestRL.west?.['2x4#2']||0)-(prevRL.west?.['2x4#2']||0);
+                  const centralChg=(latestRL.central?.['2x4#2']||0)-(prevRL.central?.['2x4#2']||0);
+                  const eastChg=(latestRL.east?.['2x4#2']||0)-(prevRL.east?.['2x4#2']||0);
+                  const avgChg=(westChg+centralChg+eastChg)/3;
+                  const trend=avgChg>3?'UP':avgChg<-3?'DOWN':'FLAT';
+                  const trendColor=trend==='UP'?'var(--positive)':trend==='DOWN'?'var(--negative)':'var(--warn)';
+                  const trendIcon=trend==='UP'?'📈':trend==='DOWN'?'📉':'➡️';
+                  
+                  // 4-week trend if available
+                  let trend4wk='';
+                  if(S.rl.length>=4){
+                    const oldest=S.rl[S.rl.length-4];
+                    const chg4=(latestRL.west?.['2x4#2']||0)-(oldest.west?.['2x4#2']||0);
+                    trend4wk=chg4>0?'+$'+chg4:'$'+chg4;
+                  }
+                  
+                  return`
+                    <div style="text-align:center;padding:12px">
+                      <div style="font-size:48px;margin-bottom:8px">${trendIcon}</div>
+                      <div style="font-size:24px;font-weight:700;color:${trendColor}">${trend}</div>
+                      <div style="font-size:11px;color:var(--muted);margin-top:4px">Avg WoW: ${avgChg>=0?'+':''}$${Math.round(avgChg)}</div>
+                      ${trend4wk?`<div style="font-size:10px;color:var(--muted);margin-top:2px">4-Week: ${trend4wk}</div>`:''}
+                    </div>`;
+                })()}
+              `:'<div style="padding:16px;text-align:center;color:var(--muted)">Need 2+ weeks of RL data</div>'}
             </div>
           </div>
           
@@ -978,23 +999,93 @@ function render(){
       
       <div class="grid-3">
         <div class="card">
+          <div class="card-header"><span class="card-title accent">🗺️ REGIONAL VALUE</span></div>
+          <div class="card-body">
+            ${latestRL?`
+              ${(()=>{
+                const regions=[
+                  {name:'West',price:latestRL.west?.['2x4#2']||0,color:'var(--accent)'},
+                  {name:'Central',price:latestRL.central?.['2x4#2']||0,color:'var(--warn)'},
+                  {name:'East',price:latestRL.east?.['2x4#2']||0,color:'var(--info)'}
+                ].filter(r=>r.price>0).sort((a,b)=>a.price-b.price);
+                
+                if(!regions.length)return'<div class="empty-state">No price data</div>';
+                
+                const best=regions[0];
+                const worst=regions[regions.length-1];
+                const savings=worst.price-best.price;
+                
+                return`
+                  <div style="text-align:center;margin-bottom:12px">
+                    <div style="font-size:10px;color:var(--muted)">BEST VALUE</div>
+                    <div style="font-size:24px;font-weight:700;color:${best.color}">${best.name}</div>
+                    <div style="font-size:14px;color:var(--positive)">$${savings} cheaper than ${worst.name}</div>
+                  </div>
+                  <div style="font-size:11px">
+                    ${regions.map((r,i)=>`<div style="display:flex;justify-content:space-between;padding:6px 0;${i<regions.length-1?'border-bottom:1px solid var(--border)':''}">
+                      <span style="color:${r.color}">${i+1}. ${r.name}</span>
+                      <span style="font-weight:600">$${r.price}</span>
+                    </div>`).join('')}
+                  </div>`;
+              })()}
+            `:'<div class="empty-state">Need RL data</div>'}
+          </div>
+        </div>
+        
+        <div class="card">
+          <div class="card-header"><span class="card-title warn">📏 VOLUME PACE</span></div>
+          <div class="card-body">
+            ${(()=>{
+              // Calculate this week's volume
+              const today=new Date();
+              const weekStart=new Date(today);
+              weekStart.setDate(today.getDate()-today.getDay());
+              const weekStartStr=weekStart.toISOString().split('T')[0];
+              
+              const thisWeekBuys=S.buys.filter(b=>b.date>=weekStartStr).reduce((s,b)=>s+(b.volume||0),0);
+              const thisWeekSells=S.sells.filter(s=>s.date>=weekStartStr).reduce((s,s2)=>s+(s2.volume||0),0);
+              const thisWeekTotal=thisWeekBuys+thisWeekSells;
+              
+              // Calculate average weekly volume (last 4 weeks)
+              const fourWeeksAgo=new Date(today);
+              fourWeeksAgo.setDate(today.getDate()-28);
+              const fourWeeksStr=fourWeeksAgo.toISOString().split('T')[0];
+              
+              const last4wkBuys=S.buys.filter(b=>b.date>=fourWeeksStr&&b.date<weekStartStr).reduce((s,b)=>s+(b.volume||0),0);
+              const last4wkSells=S.sells.filter(s=>s.date>=fourWeeksStr&&s.date<weekStartStr).reduce((s,s2)=>s+(s2.volume||0),0);
+              const avgWeekly=Math.round((last4wkBuys+last4wkSells)/4);
+              
+              const pct=avgWeekly>0?Math.round((thisWeekTotal/avgWeekly)*100):0;
+              const status=pct>=100?'AHEAD':pct>=75?'ON PACE':'BEHIND';
+              const statusColor=pct>=100?'var(--positive)':pct>=75?'var(--warn)':'var(--negative)';
+              
+              return`
+                <div style="text-align:center;margin-bottom:12px">
+                  <div style="font-size:10px;color:var(--muted)">THIS WEEK</div>
+                  <div style="font-size:28px;font-weight:700">${thisWeekTotal} <span style="font-size:14px;color:var(--muted)">MBF</span></div>
+                  <div style="font-size:12px;color:${statusColor};font-weight:600">${status}</div>
+                </div>
+                <div style="margin-bottom:8px">
+                  <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--muted);margin-bottom:4px">
+                    <span>Progress</span>
+                    <span>${pct}%</span>
+                  </div>
+                  <div style="height:8px;background:var(--border);border-radius:4px;overflow:hidden">
+                    <div style="height:100%;width:${Math.min(pct,100)}%;background:${statusColor};border-radius:4px"></div>
+                  </div>
+                </div>
+                <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--muted)">
+                  <span>Avg Week: ${avgWeekly} MBF</span>
+                  <span>B:${thisWeekBuys} S:${thisWeekSells}</span>
+                </div>`;
+            })()}
+          </div>
+        </div>
+        
+        <div class="card">
           <div class="card-header"><span class="card-title">📐 KEY SPREADS</span></div>
           <div class="card-body" style="padding:0">
             ${spreads.length?spreads.map(s=>`<div class="activity-item"><span style="text-transform:capitalize">${s.region} ${s.spread}</span><span style="font-weight:600">$${s.val}</span></div>`).join(''):'<div class="empty-state">No spread data</div>'}
-          </div>
-        </div>
-        
-        <div class="card">
-          <div class="card-header"><span class="card-title">📥 PENDING RECEIPTS</span></div>
-          <div class="card-body" style="padding:0">
-            ${pendingBuys.length?pendingBuys.map(b=>`<div class="activity-item"><div><div style="font-weight:500">${b.product}</div><div style="font-size:10px;color:var(--muted)">${b.mill}</div></div><span>${b.volume} MBF</span></div>`).join(''):'<div class="empty-state">All received</div>'}
-          </div>
-        </div>
-        
-        <div class="card">
-          <div class="card-header"><span class="card-title">📤 PENDING SHIPMENTS</span></div>
-          <div class="card-body" style="padding:0">
-            ${pendingSells.length?pendingSells.map(s=>`<div class="activity-item"><div><div style="font-weight:500">${s.product}</div><div style="font-size:10px;color:var(--muted)">${s.customer}</div></div><span>${s.volume} MBF</span></div>`).join(''):'<div class="empty-state">All shipped</div>'}
           </div>
         </div>
       </div>
@@ -1052,7 +1143,7 @@ function render(){
                 <!-- Grid lines -->
                 <div style="position:absolute;left:0;right:0;top:50%;border-top:1px dashed var(--border)"></div>
                 <!-- SVG Chart -->
-                <svg width="100%" height="100%" style="overflow:visible" id="price-chart">
+                <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" style="overflow:visible" id="price-chart">
                   ${generateChartLine(west2x4,minPrice,range,'var(--accent)')}
                   ${generateChartLine(central2x4,minPrice,range,'var(--warn)')}
                   ${generateChartLine(east2x4,minPrice,range,'var(--info)')}
@@ -3508,16 +3599,29 @@ const originalToggleQuoteCustomer=typeof toggleQuoteCustomer==='function'?toggle
 // Refresh quote item FOB prices from latest RL print (no AI)
 // Chart helper functions
 function generateChartLine(data,min,range,color){
-  if(!data.length||data.every(d=>d===0))return '';
-  const width=100/(data.length-1||1);
-  const points=data.map((val,i)=>{
-    const x=(i*width)+'%';
-    const y=val>0?((1-(val-min)/range)*100)+'%':'100%';
-    return`${i*(100/(data.length-1))||0},${val>0?((1-(val-min)/range)*100):100}`;
+  if(!data.length)return '';
+  const n=data.length;
+  if(n<2)return '';
+  
+  // Filter to only valid data points with their indices
+  const validPoints=data.map((val,i)=>({val,i})).filter(p=>p.val>0);
+  if(validPoints.length<2)return '';
+  
+  // Build polyline points string
+  const pointsStr=validPoints.map(p=>{
+    const x=(p.i/(n-1))*100;
+    const y=((1-(p.val-min)/range)*100);
+    return`${x.toFixed(1)},${y.toFixed(1)}`;
   }).join(' ');
   
-  return`<polyline points="${points}" fill="none" stroke="${color}" stroke-width="2" vector-effect="non-scaling-stroke"/>
-    ${data.map((val,i)=>val>0?`<circle cx="${i*(100/(data.length-1))||0}%" cy="${((1-(val-min)/range)*100)}%" r="3" fill="${color}"/>`:'')}`;
+  // Generate dots at each valid point
+  const dots=validPoints.map(p=>{
+    const x=(p.i/(n-1))*100;
+    const y=((1-(p.val-min)/range)*100);
+    return`<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="2.5" fill="${color}"/>`;
+  }).join('');
+  
+  return`<polyline points="${pointsStr}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>${dots}`;
 }
 
 function generateBarChart(data,color){
