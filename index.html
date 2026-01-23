@@ -446,10 +446,37 @@ async function cloudSync(action='push'){
   if(!supabase)return{success:false,error:'Supabase not configured'};
   
   const userId=LS('supabaseUserId','')||'default';
-  console.log('Cloud sync:',action,'user:',userId,'url:',supabase.url);
+  console.log('Cloud sync:',action,'user:',userId,'trader:',S.trader,'url:',supabase.url);
   
   try{
     if(action==='push'){
+      // First pull existing data to preserve other traders' quote data
+      let existingTraderQuotes={};
+      let existingPasswords={};
+      try{
+        const pullRes=await fetch(`${supabase.url}/rest/v1/syp_data?user_id=eq.${userId}&select=data`,{
+          method:'GET',
+          headers:{'apikey':supabase.key,'Authorization':`Bearer ${supabase.key}`}
+        });
+        const pullRows=await pullRes.json();
+        if(pullRows&&pullRows.length>0&&pullRows[0].data){
+          existingTraderQuotes=pullRows[0].data.traderQuotes||{};
+          existingPasswords=pullRows[0].data.traderPasswords||{};
+        }
+      }catch(e){console.log('Could not pull existing:',e)}
+      
+      // Update current trader's quote data
+      existingTraderQuotes[S.trader]={
+        quoteItems:S.quoteItems,
+        quoteProfiles:S.quoteProfiles,
+        quoteProfile:S.quoteProfile,
+        stateRates:S.stateRates
+      };
+      
+      // Merge local passwords with cloud passwords
+      const localPasswords=JSON.parse(localStorage.getItem('traderPasswords')||'{}');
+      Object.assign(existingPasswords,localPasswords);
+      
       // Upload local data to cloud
       const data={
         buys:S.buys,
@@ -459,17 +486,15 @@ async function cloudSync(action='push'){
         mills:S.mills,
         nextId:S.nextId,
         flatRate:S.flatRate,
-        // Quote engine data
+        // Shared quote engine data
         lanes:S.lanes,
-        quoteItems:S.quoteItems,
-        quoteProfiles:S.quoteProfiles,
-        quoteProfile:S.quoteProfile,
         marketBlurb:S.marketBlurb,
-        stateRates:S.stateRates,
         freightBase:S.freightBase,
         shortHaulFloor:S.shortHaulFloor,
-        // App settings
-        appPassword:LS('appPassword',''),
+        // Trader-specific quote data (all traders)
+        traderQuotes:existingTraderQuotes,
+        // Trader passwords (all traders)
+        traderPasswords:existingPasswords,
         updated_at:new Date().toISOString()
       };
       
@@ -546,17 +571,22 @@ async function cloudSync(action='push'){
         S.mills=d.mills||[];
         S.nextId=d.nextId||1;
         S.flatRate=d.flatRate||3.50;
-        // Quote engine data
+        // Shared quote engine data
         S.lanes=d.lanes||[];
-        S.quoteItems=d.quoteItems||[];
-        S.quoteProfiles=d.quoteProfiles||{default:{name:'Default',customers:[]}};
-        S.quoteProfile=d.quoteProfile||'default';
         S.marketBlurb=d.marketBlurb||'';
-        S.stateRates=d.stateRates||{AR:2.25,LA:2.25,TX:2.50,MS:2.25,AL:2.50,FL:2.75,GA:2.50,SC:2.50,NC:2.50};
         S.freightBase=d.freightBase||450;
         S.shortHaulFloor=d.shortHaulFloor||0;
-        // App settings (password syncs so you don't have to re-set on each device)
-        if(d.appPassword)SS('appPassword',d.appPassword);
+        // Trader-specific quote data
+        const traderQuotes=d.traderQuotes||{};
+        const myQuotes=traderQuotes[S.trader]||{};
+        S.quoteItems=myQuotes.quoteItems||d.quoteItems||[];
+        S.quoteProfiles=myQuotes.quoteProfiles||d.quoteProfiles||{default:{name:'Default',customers:[]}};
+        S.quoteProfile=myQuotes.quoteProfile||d.quoteProfile||'default';
+        S.stateRates=myQuotes.stateRates||d.stateRates||{AR:2.25,LA:2.25,TX:2.50,MS:2.25,AL:2.50,FL:2.75,GA:2.50,SC:2.50,NC:2.50};
+        // Trader passwords (sync from cloud)
+        if(d.traderPasswords){
+          localStorage.setItem('traderPasswords',JSON.stringify(d.traderPasswords));
+        }
         // Save to local storage too
         await saveAllLocal();
         return{success:true,action:'pulled',updated:rows[0].updated_at};
@@ -579,10 +609,11 @@ async function saveAllLocal(){
   await dbSet('nextId',S.nextId);
   await dbSet('flatRate',S.flatRate);
   await dbSet('lanes',S.lanes);
-  await dbSet('quoteItems',S.quoteItems);
-  await dbSet('stateRates',S.stateRates);
-  await dbSet('quoteProfiles',S.quoteProfiles);
-  await dbSet('quoteProfile',S.quoteProfile);
+  // Trader-specific quote data
+  await dbSet('quoteItems_'+S.trader,S.quoteItems);
+  await dbSet('stateRates_'+S.trader,S.stateRates);
+  await dbSet('quoteProfiles_'+S.trader,S.quoteProfiles);
+  await dbSet('quoteProfile_'+S.trader,S.quoteProfile);
   await dbSet('marketBlurb',S.marketBlurb);
   await dbSet('freightBase',S.freightBase);
   await dbSet('shortHaulFloor',S.shortHaulFloor);
@@ -595,10 +626,11 @@ async function saveAllLocal(){
   SS('nextId',S.nextId);
   SS('flatRate',S.flatRate);
   SS('lanes',S.lanes);
-  SS('quoteItems',S.quoteItems);
-  SS('stateRates',S.stateRates);
-  SS('quoteProfiles',S.quoteProfiles);
-  SS('quoteProfile',S.quoteProfile);
+  // Trader-specific quote data (localStorage)
+  SS('quoteItems_'+S.trader,S.quoteItems);
+  SS('stateRates_'+S.trader,S.stateRates);
+  SS('quoteProfiles_'+S.trader,S.quoteProfiles);
+  SS('quoteProfile_'+S.trader,S.quoteProfile);
   SS('marketBlurb',S.marketBlurb);
   SS('freightBase',S.freightBase);
   SS('shortHaulFloor',S.shortHaulFloor);
@@ -615,10 +647,11 @@ async function loadAllLocal(){
   S.nextId=await dbGet('nextId',LS('nextId',1));
   S.flatRate=await dbGet('flatRate',LS('flatRate',3.50));
   S.lanes=await dbGet('lanes',LS('lanes',[]));
-  S.quoteItems=await dbGet('quoteItems',LS('quoteItems',[]));
-  S.stateRates=await dbGet('stateRates',LS('stateRates',{AR:2.25,LA:2.25,TX:2.50,MS:2.25,AL:2.50,FL:2.75,GA:2.50,SC:2.50,NC:2.50}));
-  S.quoteProfiles=await dbGet('quoteProfiles',LS('quoteProfiles',{default:{name:'Default',customers:[]}}));
-  S.quoteProfile=await dbGet('quoteProfile',LS('quoteProfile','default'));
+  // Trader-specific quote data
+  S.quoteItems=await dbGet('quoteItems_'+S.trader,LS('quoteItems_'+S.trader,[]));
+  S.stateRates=await dbGet('stateRates_'+S.trader,LS('stateRates_'+S.trader,{AR:2.25,LA:2.25,TX:2.50,MS:2.25,AL:2.50,FL:2.75,GA:2.50,SC:2.50,NC:2.50}));
+  S.quoteProfiles=await dbGet('quoteProfiles_'+S.trader,LS('quoteProfiles_'+S.trader,{default:{name:'Default',customers:[]}}));
+  S.quoteProfile=await dbGet('quoteProfile_'+S.trader,LS('quoteProfile_'+S.trader,'default'));
   S.marketBlurb=await dbGet('marketBlurb',LS('marketBlurb',''));
   S.shortHaulFloor=await dbGet('shortHaulFloor',LS('shortHaulFloor',0));
   S.freightBase=await dbGet('freightBase',LS('freightBase',450));
@@ -640,7 +673,6 @@ async function save(key,value){
 
 // Traders in department
 const TRADERS=['Ian','Aubrey','Hunter','Sawyer','Jackson','John'];
-const ALL_TRADERS=['Department',...TRADERS]; // For selector dropdown
 
 let S={
   view:'dashboard',
@@ -2293,34 +2325,34 @@ function render(){
         <button class="btn btn-primary" onclick="saveKey()">Save API Key</button>
       </div></div>
       
-      <div class="card"><div class="card-header"><span class="card-title warn">🔒 PASSWORD PROTECTION</span></div><div class="card-body">
-        <div style="margin-bottom:12px;font-size:11px;color:var(--muted)">
-          ${LS('appPassword','')?'✓ Password is set. App requires login.':'✗ No password set. Anyone with link can access.'}
+      <div class="card"><div class="card-header"><span class="card-title warn">🔒 YOUR PROFILE: ${S.trader}</span></div><div class="card-body">
+        <div style="margin-bottom:16px;padding:12px;background:rgba(0,200,150,0.1);border:1px solid ${traderColor(S.trader)};border-radius:4px">
+          <span style="color:${traderColor(S.trader)};font-weight:600">Logged in as ${S.trader}</span>
         </div>
         <div class="form-group" style="margin-bottom:16px">
-          <label class="form-label">Set/Change Password</label>
-          <input type="password" id="new-app-password" placeholder="Enter new password" style="width:200px">
+          <label class="form-label">Change Your Password</label>
+          <input type="password" id="new-app-password" placeholder="New password" style="width:200px">
         </div>
-        <div style="display:flex;gap:8px">
-          <button class="btn btn-warn" onclick="setAppPassword(document.getElementById('new-app-password').value)">Set Password</button>
-          <button class="btn btn-danger" onclick="if(confirm('Remove password protection?'))setAppPassword('')">Remove Password</button>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn btn-warn" onclick="setAppPassword(document.getElementById('new-app-password').value)">Update Password</button>
+          <button class="btn btn-danger" onclick="doLogout()">🚪 Logout</button>
         </div>
       </div></div>
       
       <div class="card"><div class="card-header"><span class="card-title info">☁️ CLOUD SYNC</span></div><div class="card-body">
         <div style="margin-bottom:16px;padding:12px;background:rgba(34,197,94,0.1);border:1px solid var(--positive);border-radius:4px">
           <span style="color:var(--positive)">✓ Cloud sync pre-configured</span>
-          <span style="color:var(--muted);margin-left:12px">User: ${sbUser}</span>
+          <span style="color:var(--muted);margin-left:12px">Team ID: ${sbUser}</span>
         </div>
         
         <div class="form-group" style="margin-bottom:16px">
-          <label class="form-label">User ID</label>
-          <input type="text" id="sb-user" value="${sbUser}" placeholder="your-name" style="width:200px">
-          <div style="color:var(--muted);font-size:10px;margin-top:4px">Use same ID on all your devices to sync data</div>
+          <label class="form-label">Team ID</label>
+          <input type="text" id="sb-user" value="${sbUser}" placeholder="buckeye_dept" style="width:200px">
+          <div style="color:var(--muted);font-size:10px;margin-top:4px">Same ID for all traders to share department data</div>
         </div>
         
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">
-          <button class="btn btn-primary" onclick="saveUserIdOnly()">Save User ID</button>
+          <button class="btn btn-primary" onclick="saveUserIdOnly()">Save Team ID</button>
           <button class="btn btn-success" onclick="doCloudSync('push')">⬆️ Push to Cloud</button>
           <button class="btn btn-warn" onclick="doCloudSync('pull')">⬇️ Pull from Cloud</button>
         </div>
@@ -6553,14 +6585,17 @@ async function clearAll(){
 
 // INIT
 async function init(){
-  // Check for password protection
-  const appPassword=LS('appPassword','');
+  // Always require login
   const isLoggedIn=sessionStorage.getItem('syp_logged_in')==='true';
+  const sessionTrader=sessionStorage.getItem('syp_trader');
   
-  if(appPassword&&!isLoggedIn){
+  if(!isLoggedIn||!sessionTrader){
     showLoginScreen();
     return;
   }
+  
+  // Set trader from session (locked after login)
+  S.trader=sessionTrader;
   
   await initDB();
   await loadAllLocal();
@@ -6582,10 +6617,10 @@ async function init(){
     }
   }
   
-  // Setup trader selector (includes Department view + individual traders)
+  // Update trader display in sidebar (read-only, shows who's logged in)
   const traderSelect=document.getElementById('trader-select');
   if(traderSelect){
-    traderSelect.innerHTML=ALL_TRADERS.map(t=>`<option value="${t}" ${t===S.trader?'selected':''}>${t==='Department'?'📊 '+t:t}</option>`).join('');
+    traderSelect.outerHTML=`<div style="padding:8px 12px;background:var(--card);border:1px solid ${traderColor(S.trader)};border-radius:4px;font-weight:600;color:${traderColor(S.trader)};text-align:center">${S.trader}</div>`;
   }
   
   document.getElementById('f-date').onchange=e=>{S.filters.date=e.target.value;render()};
@@ -6596,7 +6631,7 @@ async function init(){
   
   // Show sync status
   if(sbUrl&&sbKey){
-    showToast('☁️ Connected as '+S.trader,'info');
+    showToast('☁️ Logged in as '+S.trader,'info');
   }
 }
 
@@ -6606,38 +6641,83 @@ function showLoginScreen(){
       <div style="background:var(--panel);border:1px solid var(--border);padding:40px;width:320px;text-align:center">
         <div style="background:linear-gradient(135deg,var(--accent),#00a080);padding:12px;font-weight:700;font-size:16px;color:var(--bg);margin-bottom:24px">SYP ANALYTICS</div>
         <div style="color:var(--muted);font-size:11px;margin-bottom:20px">Buckeye Pacific</div>
-        <input type="password" id="login-password" placeholder="Enter password" style="width:100%;padding:12px;margin-bottom:16px;text-align:center" onkeydown="if(event.key==='Enter')doLogin()">
+        <select id="login-trader" style="width:100%;padding:12px;margin-bottom:12px;text-align:center;font-size:14px">
+          ${TRADERS.map(t=>`<option value="${t}">${t}</option>`).join('')}
+        </select>
+        <input type="password" id="login-password" placeholder="Enter your password" style="width:100%;padding:12px;margin-bottom:16px;text-align:center" onkeydown="if(event.key==='Enter')doLogin()">
         <button class="btn btn-primary" style="width:100%" onclick="doLogin()">Login</button>
         <div id="login-error" style="color:var(--negative);font-size:11px;margin-top:12px"></div>
+        <div style="margin-top:20px;border-top:1px solid var(--border);padding-top:16px">
+          <div style="color:var(--muted);font-size:10px;margin-bottom:8px">First time? Set your password:</div>
+          <input type="password" id="new-password" placeholder="New password" style="width:100%;padding:8px;margin-bottom:8px;text-align:center;font-size:12px">
+          <button class="btn btn-default btn-sm" style="width:100%" onclick="setupTraderPassword()">Set Password</button>
+        </div>
       </div>
     </div>`;
   setTimeout(()=>document.getElementById('login-password')?.focus(),100);
 }
 
 function doLogin(){
+  const trader=document.getElementById('login-trader')?.value||'Ian';
   const input=document.getElementById('login-password')?.value||'';
-  const stored=LS('appPassword','');
+  const passwords=JSON.parse(localStorage.getItem('traderPasswords')||'{}');
+  const stored=passwords[trader]||'';
+  
+  if(!stored){
+    document.getElementById('login-error').textContent='No password set for '+trader+'. Set one below.';
+    return;
+  }
   
   // Simple hash comparison
   const hash=btoa(input.split('').reverse().join('')+input.length);
   
   if(hash===stored){
+    S.trader=trader;
+    SS('trader',trader);
     sessionStorage.setItem('syp_logged_in','true');
+    sessionStorage.setItem('syp_trader',trader);
     location.reload();
   }else{
-    document.getElementById('login-error').textContent='Incorrect password';
+    document.getElementById('login-error').textContent='Incorrect password for '+trader;
   }
 }
 
-function setAppPassword(pwd){
-  if(!pwd){
-    SS('appPassword','');
-    showToast('Password removed','warn');
-  }else{
-    const hash=btoa(pwd.split('').reverse().join('')+pwd.length);
-    SS('appPassword',hash);
-    showToast('Password set! Remember it.','positive');
+function setupTraderPassword(){
+  const trader=document.getElementById('login-trader')?.value||'Ian';
+  const pwd=document.getElementById('new-password')?.value||'';
+  
+  if(!pwd||pwd.length<3){
+    document.getElementById('login-error').textContent='Password must be at least 3 characters';
+    return;
   }
+  
+  const passwords=JSON.parse(localStorage.getItem('traderPasswords')||'{}');
+  const hash=btoa(pwd.split('').reverse().join('')+pwd.length);
+  passwords[trader]=hash;
+  localStorage.setItem('traderPasswords',JSON.stringify(passwords));
+  
+  document.getElementById('login-error').innerHTML=`<span style="color:var(--positive)">✓ Password set for ${trader}! Now login above.</span>`;
+  document.getElementById('new-password').value='';
+}
+
+function setAppPassword(pwd){
+  if(!pwd||pwd.length<3){
+    showToast('Password must be at least 3 characters','warn');
+    return;
+  }
+  const passwords=JSON.parse(localStorage.getItem('traderPasswords')||'{}');
+  const hash=btoa(pwd.split('').reverse().join('')+pwd.length);
+  passwords[S.trader]=hash;
+  localStorage.setItem('traderPasswords',JSON.stringify(passwords));
+  showToast('Password updated for '+S.trader,'positive');
+  // Sync passwords to cloud
+  if(supabase){cloudSync('push').catch(()=>{});}
+}
+
+function doLogout(){
+  sessionStorage.removeItem('syp_logged_in');
+  sessionStorage.removeItem('syp_trader');
+  location.reload();
 }
 
 // Mobile navigation functions
