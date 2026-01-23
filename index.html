@@ -656,7 +656,8 @@ let S={
   marketBlurb:LS('marketBlurb',''),
   shortHaulFloor:LS('shortHaulFloor',0),
   freightBase:LS('freightBase',450),
-  singleQuoteCustomer:''
+  singleQuoteCustomer:'',
+  chartProduct:'2x4#2'
 };
 
 const fmt=(v,d=0)=>v!=null&&!isNaN(v)?`$${Number(v).toLocaleString(undefined,{minimumFractionDigits:d,maximumFractionDigits:d})}`:'—';
@@ -1105,60 +1106,111 @@ function render(){
   else if(S.view==='charts'){
     // RL Charts & Spread Monitor View
     const rlData=S.rl.slice(-12); // Last 12 weeks
+    const chartProduct=S.chartProduct||'2x4#2';
     
-    // Prepare chart data
+    // Available products
+    const products=['2x4#2','2x6#2','2x8#2','2x10#2','2x12#2','2x4#1','2x6#1'];
+    
+    // Prepare chart data based on selected product
     const chartLabels=rlData.map(r=>r.date?.split('/').slice(0,2).join('/')||'');
-    const west2x4=rlData.map(r=>r.west?.['2x4#2']||0);
-    const west2x6=rlData.map(r=>r.west?.['2x6#2']||0);
-    const central2x4=rlData.map(r=>r.central?.['2x4#2']||0);
-    const east2x4=rlData.map(r=>r.east?.['2x4#2']||0);
+    const westData=rlData.map(r=>r.west?.[chartProduct]||0);
+    const centralData=rlData.map(r=>r.central?.[chartProduct]||0);
+    const eastData=rlData.map(r=>r.east?.[chartProduct]||0);
     
     // Calculate spreads over time
     const spread2x4_2x6=rlData.map(r=>(r.west?.['2x6#2']||0)-(r.west?.['2x4#2']||0));
-    const spreadWestCentral=rlData.map(r=>(r.west?.['2x4#2']||0)-(r.central?.['2x4#2']||0));
+    const spreadWestCentral=rlData.map(r=>(r.west?.[chartProduct]||0)-(r.central?.[chartProduct]||0));
     
     // Get min/max for chart scaling
-    const allPrices=[...west2x4,...west2x6,...central2x4,...east2x4].filter(p=>p>0);
-    const minPrice=Math.min(...allPrices,350);
-    const maxPrice=Math.max(...allPrices,500);
+    const allPrices=[...westData,...centralData,...eastData].filter(p=>p>0);
+    const minPrice=allPrices.length?Math.floor(Math.min(...allPrices)/10)*10-10:350;
+    const maxPrice=allPrices.length?Math.ceil(Math.max(...allPrices)/10)*10+10:500;
     const range=maxPrice-minPrice||100;
     
     c.innerHTML=`
       <div class="card" style="margin-bottom:16px">
         <div class="card-header">
-          <span class="card-title">📈 SYP PRICE TRENDS (2x4 #2 by Region)</span>
-          <span style="font-size:10px;color:var(--muted)">${rlData.length} weeks</span>
+          <span class="card-title">📈 SYP PRICE TRENDS</span>
+          <div style="display:flex;align-items:center;gap:12px">
+            <select id="chart-product" onchange="S.chartProduct=this.value;render()" style="padding:4px 8px;font-size:11px;background:var(--card);border:1px solid var(--border);color:var(--text);border-radius:4px">
+              ${products.map(p=>`<option value="${p}" ${p===chartProduct?'selected':''}>${p}</option>`).join('')}
+            </select>
+            <span style="font-size:10px;color:var(--muted)">${rlData.length} weeks</span>
+          </div>
         </div>
         <div class="card-body">
           ${rlData.length>1?`
-            <div style="position:relative;height:220px;margin-bottom:8px">
+            <div style="position:relative;height:250px;margin-bottom:8px">
               <!-- Y-axis labels -->
-              <div style="position:absolute;left:0;top:0;bottom:20px;width:45px;display:flex;flex-direction:column;justify-content:space-between;font-size:9px;color:var(--muted);text-align:right;padding-right:8px">
+              <div style="position:absolute;left:0;top:0;bottom:30px;width:40px;display:flex;flex-direction:column;justify-content:space-between;font-size:9px;color:var(--muted);text-align:right;padding-right:6px">
                 <span>$${maxPrice}</span>
-                <span>$${Math.round((maxPrice+minPrice)/2)}</span>
+                <span>$${Math.round(minPrice+(range*0.75))}</span>
+                <span>$${Math.round(minPrice+(range*0.5))}</span>
+                <span>$${Math.round(minPrice+(range*0.25))}</span>
                 <span>$${minPrice}</span>
               </div>
               <!-- Chart area -->
-              <div style="position:absolute;left:50px;right:0;top:0;bottom:20px;border-left:1px solid var(--border);border-bottom:1px solid var(--border)">
+              <div style="position:absolute;left:45px;right:10px;top:0;bottom:30px;border-left:1px solid var(--border);border-bottom:1px solid var(--border);background:linear-gradient(180deg,rgba(0,200,150,0.03) 0%,transparent 100%)">
                 <!-- Grid lines -->
-                <div style="position:absolute;left:0;right:0;top:50%;border-top:1px dashed var(--border)"></div>
-                <!-- SVG Chart -->
-                <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none" style="overflow:visible" id="price-chart">
-                  ${generateChartLine(west2x4,minPrice,range,'var(--accent)')}
-                  ${generateChartLine(central2x4,minPrice,range,'var(--warn)')}
-                  ${generateChartLine(east2x4,minPrice,range,'var(--info)')}
-                </svg>
+                <div style="position:absolute;left:0;right:0;top:25%;border-top:1px solid rgba(255,255,255,0.05)"></div>
+                <div style="position:absolute;left:0;right:0;top:50%;border-top:1px solid rgba(255,255,255,0.05)"></div>
+                <div style="position:absolute;left:0;right:0;top:75%;border-top:1px solid rgba(255,255,255,0.05)"></div>
+                <!-- Canvas for chart -->
+                <canvas id="price-canvas" style="width:100%;height:100%"></canvas>
               </div>
               <!-- X-axis labels -->
-              <div style="position:absolute;left:50px;right:0;bottom:0;height:20px;display:flex;justify-content:space-between;font-size:8px;color:var(--muted)">
-                ${chartLabels.filter((l,i)=>i%2===0||chartLabels.length<8).map(l=>`<span>${l}</span>`).join('')}
+              <div style="position:absolute;left:45px;right:10px;bottom:0;height:25px;display:flex;justify-content:space-between;align-items:center;font-size:9px;color:var(--muted)">
+                ${chartLabels.filter((l,i)=>i%Math.ceil(chartLabels.length/6)===0||i===chartLabels.length-1).map(l=>`<span>${l}</span>`).join('')}
               </div>
             </div>
-            <div style="display:flex;justify-content:center;gap:20px;font-size:10px">
-              <span><span style="display:inline-block;width:12px;height:3px;background:var(--accent);margin-right:4px"></span>West</span>
-              <span><span style="display:inline-block;width:12px;height:3px;background:var(--warn);margin-right:4px"></span>Central</span>
-              <span><span style="display:inline-block;width:12px;height:3px;background:var(--info);margin-right:4px"></span>East</span>
+            <div style="display:flex;justify-content:center;gap:24px;font-size:11px">
+              <span><span style="display:inline-block;width:16px;height:3px;background:#00c896;margin-right:6px;border-radius:2px"></span>West</span>
+              <span><span style="display:inline-block;width:16px;height:3px;background:#f5a623;margin-right:6px;border-radius:2px"></span>Central</span>
+              <span><span style="display:inline-block;width:16px;height:3px;background:#4a9eff;margin-right:6px;border-radius:2px"></span>East</span>
             </div>
+            <script>
+              (function(){
+                const canvas=document.getElementById('price-canvas');
+                if(!canvas)return;
+                const ctx=canvas.getContext('2d');
+                const rect=canvas.getBoundingClientRect();
+                canvas.width=rect.width*2;
+                canvas.height=rect.height*2;
+                ctx.scale(2,2);
+                const w=rect.width,h=rect.height;
+                const data={west:${JSON.stringify(westData)},central:${JSON.stringify(centralData)},east:${JSON.stringify(eastData)}};
+                const min=${minPrice},range=${range};
+                
+                function drawLine(vals,color){
+                  const valid=vals.map((v,i)=>({v,i})).filter(p=>p.v>0);
+                  if(valid.length<2)return;
+                  ctx.beginPath();
+                  ctx.strokeStyle=color;
+                  ctx.lineWidth=2.5;
+                  ctx.lineJoin='round';
+                  ctx.lineCap='round';
+                  valid.forEach((p,idx)=>{
+                    const x=(p.i/(vals.length-1))*w;
+                    const y=h-((p.v-min)/range)*h;
+                    if(idx===0)ctx.moveTo(x,y);
+                    else ctx.lineTo(x,y);
+                  });
+                  ctx.stroke();
+                  // Draw dots
+                  valid.forEach(p=>{
+                    const x=(p.i/(vals.length-1))*w;
+                    const y=h-((p.v-min)/range)*h;
+                    ctx.beginPath();
+                    ctx.arc(x,y,3,0,Math.PI*2);
+                    ctx.fillStyle=color;
+                    ctx.fill();
+                  });
+                }
+                drawLine(data.west,'#00c896');
+                drawLine(data.central,'#f5a623');
+                drawLine(data.east,'#4a9eff');
+              })();
+            </script>
           `:'<div class="empty-state">Need at least 2 weeks of RL data for charts</div>'}
         </div>
       </div>
@@ -1169,9 +1221,30 @@ function render(){
           <div class="card-body">
             ${rlData.length>1?`
               <div style="height:120px;position:relative;margin-bottom:8px">
-                <svg width="100%" height="100%" id="spread-chart">
-                  ${generateBarChart(spread2x4_2x6,'var(--warn)')}
-                </svg>
+                <canvas id="spread-canvas" style="width:100%;height:100%"></canvas>
+                <script>
+                  (function(){
+                    const canvas=document.getElementById('spread-canvas');
+                    if(!canvas)return;
+                    const ctx=canvas.getContext('2d');
+                    const rect=canvas.getBoundingClientRect();
+                    canvas.width=rect.width*2;canvas.height=rect.height*2;
+                    ctx.scale(2,2);
+                    const w=rect.width,h=rect.height;
+                    const data=${JSON.stringify(spread2x4_2x6)};
+                    const maxVal=Math.max(...data.map(Math.abs),1);
+                    const barW=w/data.length*0.7;
+                    data.forEach((v,i)=>{
+                      const barH=Math.abs(v)/maxVal*(h/2-5);
+                      const x=i*(w/data.length)+(w/data.length-barW)/2;
+                      const y=v>=0?h/2-barH:h/2;
+                      ctx.fillStyle=v>=0?'#f5a623':'#ff6b6b';
+                      ctx.fillRect(x,y,barW,barH);
+                    });
+                    ctx.strokeStyle='rgba(255,255,255,0.2)';
+                    ctx.beginPath();ctx.moveTo(0,h/2);ctx.lineTo(w,h/2);ctx.stroke();
+                  })();
+                </script>
               </div>
               <div style="display:flex;justify-content:space-between;font-size:9px;color:var(--muted)">
                 ${chartLabels.filter((l,i)=>i%3===0).map(l=>`<span>${l}</span>`).join('')}
@@ -1185,13 +1258,34 @@ function render(){
         </div>
         
         <div class="card">
-          <div class="card-header"><span class="card-title info">🗺️ WEST vs CENTRAL (2x4)</span></div>
+          <div class="card-header"><span class="card-title info">🗺️ WEST vs CENTRAL (${chartProduct})</span></div>
           <div class="card-body">
             ${rlData.length>1?`
               <div style="height:120px;position:relative;margin-bottom:8px">
-                <svg width="100%" height="100%" id="regional-chart">
-                  ${generateBarChart(spreadWestCentral,'var(--info)')}
-                </svg>
+                <canvas id="regional-canvas" style="width:100%;height:100%"></canvas>
+                <script>
+                  (function(){
+                    const canvas=document.getElementById('regional-canvas');
+                    if(!canvas)return;
+                    const ctx=canvas.getContext('2d');
+                    const rect=canvas.getBoundingClientRect();
+                    canvas.width=rect.width*2;canvas.height=rect.height*2;
+                    ctx.scale(2,2);
+                    const w=rect.width,h=rect.height;
+                    const data=${JSON.stringify(spreadWestCentral)};
+                    const maxVal=Math.max(...data.map(Math.abs),1);
+                    const barW=w/data.length*0.7;
+                    data.forEach((v,i)=>{
+                      const barH=Math.abs(v)/maxVal*(h/2-5);
+                      const x=i*(w/data.length)+(w/data.length-barW)/2;
+                      const y=v>=0?h/2-barH:h/2;
+                      ctx.fillStyle=v>=0?'#4a9eff':'#ff6b6b';
+                      ctx.fillRect(x,y,barW,barH);
+                    });
+                    ctx.strokeStyle='rgba(255,255,255,0.2)';
+                    ctx.beginPath();ctx.moveTo(0,h/2);ctx.lineTo(w,h/2);ctx.stroke();
+                  })();
+                </script>
               </div>
               <div style="display:flex;justify-content:space-between;font-size:9px;color:var(--muted)">
                 ${chartLabels.filter((l,i)=>i%3===0).map(l=>`<span>${l}</span>`).join('')}
