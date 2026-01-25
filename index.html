@@ -293,6 +293,34 @@
       .mobile-nav-item{font-size:8px}
       .content{padding:8px}
     }
+    /* Quick Entry Grid Styles */
+    .modal.extra-wide{width:95%;max-width:1200px}
+    .quick-entry-table{width:100%;border-collapse:collapse;font-size:11px}
+    .quick-entry-table th{padding:8px 6px;text-align:left;background:var(--panel-alt);color:var(--muted);font-size:9px;text-transform:uppercase;border-bottom:1px solid var(--border);white-space:nowrap}
+    .quick-entry-table td{padding:4px 3px;border-bottom:1px solid var(--border)}
+    .quick-entry-table input,.quick-entry-table select{padding:6px 8px;font-size:11px;width:100%;background:var(--bg);border:1px solid var(--border);color:var(--text);font-family:inherit}
+    .quick-entry-table input:focus,.quick-entry-table select:focus{border-color:var(--accent);outline:none;background:var(--panel-alt)}
+    .quick-entry-table input::placeholder{color:var(--muted);opacity:0.7}
+    .quick-entry-table .col-order{width:80px}
+    .quick-entry-table .col-date{width:110px}
+    .quick-entry-table .col-mill{width:160px}
+    .quick-entry-table .col-origin{width:100px}
+    .quick-entry-table .col-region{width:80px}
+    .quick-entry-table .col-product{width:100px}
+    .quick-entry-table .col-length{width:70px}
+    .quick-entry-table .col-volume{width:70px}
+    .quick-entry-table .col-price{width:80px}
+    .quick-entry-table .col-actions{width:50px;text-align:center}
+    .quick-entry-table tr:hover{background:var(--panel-alt)}
+    .qe-row-btn{background:none;border:1px solid var(--border);color:var(--muted);cursor:pointer;padding:4px 8px;font-size:12px;border-radius:3px}
+    .qe-row-btn:hover{background:var(--panel);color:var(--text)}
+    .qe-row-btn.add{color:var(--positive);border-color:var(--positive)}
+    .qe-row-btn.add:hover{background:rgba(34,197,94,0.1)}
+    .qe-row-btn.remove{color:var(--negative);border-color:var(--negative)}
+    .qe-row-btn.remove:hover{background:rgba(239,68,68,0.1)}
+    .qe-actions{display:flex;gap:8px;margin-top:16px;justify-content:space-between;align-items:center}
+    .qe-actions-left{display:flex;gap:8px}
+    .qe-status{font-size:11px;color:var(--muted)}
   </style>
 </head>
 <body>
@@ -375,7 +403,7 @@ const REGIONS=['west','central','east'];
 const DESTS=['Atlanta','Charlotte','Dallas','Memphis','Birmingham','Chicago','Houston','Nashville','Jacksonville','New Orleans'];
 const MILLS=['Canfor - DeQuincy','Canfor - Urbana','West Fraser - Huttig','West Fraser - Leola','Interfor - Monticello','Interfor - Georgetown','GP - Clarendon','GP - Camden','Rex Lumber - Bristol','Rex Lumber - Graceville','Weyerhaeuser - Dierks','Tolko - Leland'];
 const FREIGHT={west:{Atlanta:96,Charlotte:104,Dallas:40,Memphis:60,Birmingham:85,Chicago:110,Houston:55,Nashville:78},central:{Atlanta:83,Charlotte:91,Dallas:70,Memphis:50,Birmingham:60,Chicago:90,Houston:75,Nashville:55},east:{Atlanta:60,Charlotte:55,Dallas:120,Memphis:80,Birmingham:65,Chicago:84,Houston:115,Nashville:65}};
-const NAV=[{id:'dashboard',icon:'📊',label:'Dashboard'},{id:'leaderboard',icon:'🏆',label:'Leaderboard'},{id:'insights',icon:'🎯',label:'Daily Briefing'},{id:'charts',icon:'📈',label:'RL Charts'},{id:'blotter',icon:'📋',label:'Trade Blotter'},{id:'benchmark',icon:'🎯',label:'vs Market'},{id:'risk',icon:'⚠️',label:'Risk'},{id:'quotes',icon:'💰',label:'Quote Engine'},{id:'products',icon:'📦',label:'By Product'},{id:'crm',icon:'🏢',label:'CRM'},{id:'rldata',icon:'📰',label:'RL Data'},{id:'ai',icon:'🤖',label:'AI Analyst'},{id:'settings',icon:'⚙️',label:'Settings'}];
+const NAV=[{id:'dashboard',icon:'📊',label:'Dashboard'},{id:'leaderboard',icon:'🏆',label:'Leaderboard'},{id:'insights',icon:'🎯',label:'Daily Briefing'},{id:'blotter',icon:'📋',label:'Trade Blotter'},{id:'benchmark',icon:'🎯',label:'vs Market'},{id:'risk',icon:'⚠️',label:'Risk'},{id:'quotes',icon:'💰',label:'Quote Engine'},{id:'products',icon:'📦',label:'By Product'},{id:'crm',icon:'🏢',label:'CRM'},{id:'rldata',icon:'📈',label:'RL Data'},{id:'ai',icon:'🤖',label:'AI Analyst'},{id:'settings',icon:'⚙️',label:'Settings'}];
 
 const LS=(k,d)=>{try{const v=localStorage.getItem('syp_'+k);return v?JSON.parse(v):d}catch{return d}};
 const SS=(k,v)=>{try{localStorage.setItem('syp_'+k,JSON.stringify(v))}catch{}};
@@ -750,6 +778,213 @@ function isAdmin(){
   return S.trader==='Admin';
 }
 
+// Advanced Analytics Helper Functions
+function calcTopProducts(buys,sells){
+  // Group by product
+  const products={};
+
+  // Build buy lookup by order number
+  const buyByOrder={};
+  S.buys.forEach(b=>{
+    const ord=String(b.orderNum||b.po||'').trim();
+    if(ord)buyByOrder[ord]=b;
+  });
+
+  buys.forEach(b=>{
+    const p=b.product||'Unknown';
+    if(!products[p])products[p]={product:p,buyVol:0,sellVol:0,buyVal:0,sellVal:0,profit:0};
+    products[p].buyVol+=(b.volume||0);
+    products[p].buyVal+=(b.price||0)*(b.volume||0);
+  });
+
+  sells.forEach(s=>{
+    const p=s.product||'Unknown';
+    if(!products[p])products[p]={product:p,buyVol:0,sellVol:0,buyVal:0,sellVal:0,profit:0};
+    products[p].sellVol+=(s.volume||0);
+    const frtPerMBF=s.volume>0?(s.freight||0)/s.volume:0;
+    products[p].sellVal+=((s.price||0)-frtPerMBF)*(s.volume||0);
+
+    // Calculate profit from matched orders
+    const ord=String(s.orderNum||s.linkedPO||s.oc||'').trim();
+    const buy=ord?buyByOrder[ord]:null;
+    if(buy){
+      const buyCost=buy.price||0;
+      const buyFrtPerMBF=buy.volume>0?(buy.freight||0)/buy.volume:0;
+      const sellFob=(s.price||0)-frtPerMBF;
+      products[p].profit+=(sellFob-buyCost-buyFrtPerMBF)*(s.volume||0);
+    }
+  });
+
+  const list=Object.values(products).map(p=>({
+    ...p,
+    volume:p.buyVol+p.sellVol,
+    margin:p.sellVol?(p.sellVal/p.sellVol)-(p.buyVol?p.buyVal/p.buyVol:0):0
+  }));
+
+  return{
+    byVolume:[...list].sort((a,b)=>b.volume-a.volume),
+    byProfit:[...list].filter(p=>p.profit!==0).sort((a,b)=>b.profit-a.profit)
+  };
+}
+
+function calcTopCustomers(sells){
+  const customers={};
+
+  // Build buy lookup
+  const buyByOrder={};
+  S.buys.forEach(b=>{
+    const ord=String(b.orderNum||b.po||'').trim();
+    if(ord)buyByOrder[ord]=b;
+  });
+
+  sells.forEach(s=>{
+    const c=s.customer||'Unknown';
+    if(!customers[c])customers[c]={customer:c,volume:0,value:0,profit:0,orders:0};
+    customers[c].volume+=(s.volume||0);
+    customers[c].orders++;
+    const frtPerMBF=s.volume>0?(s.freight||0)/s.volume:0;
+    customers[c].value+=((s.price||0)-frtPerMBF)*(s.volume||0);
+
+    // Calculate profit
+    const ord=String(s.orderNum||s.linkedPO||s.oc||'').trim();
+    const buy=ord?buyByOrder[ord]:null;
+    if(buy){
+      const buyCost=buy.price||0;
+      const buyFrtPerMBF=buy.volume>0?(buy.freight||0)/buy.volume:0;
+      const sellFob=(s.price||0)-frtPerMBF;
+      customers[c].profit+=(sellFob-buyCost-buyFrtPerMBF)*(s.volume||0);
+    }
+  });
+
+  return Object.values(customers).sort((a,b)=>b.volume-a.volume);
+}
+
+function calcAgingSummary(buys){
+  const now=new Date();
+  let fresh=0,week=0,twoWeek=0,old=0;
+
+  // Calculate sold volume per order
+  const orderSold={};
+  S.sells.forEach(s=>{
+    const ord=String(s.orderNum||s.linkedPO||s.oc||'').trim();
+    if(ord)orderSold[ord]=(orderSold[ord]||0)+(s.volume||0);
+  });
+
+  buys.forEach(b=>{
+    if(!b.date)return;
+    const days=Math.floor((now-new Date(b.date))/(1000*60*60*24));
+    const ord=String(b.orderNum||b.po||'').trim();
+    const sold=orderSold[ord]||0;
+    const avail=(b.volume||0)-sold;
+    if(avail<=0)return; // Skip fully sold inventory
+
+    if(days<=7)fresh+=avail;
+    else if(days<=14)week+=avail;
+    else if(days<=30)twoWeek+=avail;
+    else old+=avail;
+  });
+
+  return{fresh,week,twoWeek,old,total:fresh+week+twoWeek+old};
+}
+
+function calcWeeklyVsMarket(allBuys,rlData){
+  const weeks=[];
+  const now=new Date();
+
+  for(let i=7;i>=0;i--){
+    const weekEnd=new Date(now);
+    weekEnd.setDate(weekEnd.getDate()-i*7);
+    const weekStart=new Date(weekEnd);
+    weekStart.setDate(weekStart.getDate()-7);
+
+    const inWeek=d=>{
+      const date=new Date(d);
+      return date>=weekStart&&date<weekEnd;
+    };
+
+    const weekBuys=allBuys.filter(b=>inWeek(b.date)&&!b.product?.toUpperCase().includes('MSR')&&!b.product?.toUpperCase().includes('2400'));
+
+    // Find RL data closest to this week
+    const weekRL=rlData.filter(r=>new Date(r.date)<=weekEnd).pop();
+
+    let totalDiff=0,totalVol=0;
+    weekBuys.forEach(b=>{
+      if(!weekRL)return;
+      const region=b.region||'west';
+      const product=b.product;
+      const length=b.length;
+
+      // Try to match RL price
+      let rlPrice=null;
+      if(length&&length!=='RL'&&weekRL.specified_lengths?.[region]?.[product]?.[length]){
+        rlPrice=weekRL.specified_lengths[region][product][length];
+      }else if(weekRL[region]?.[product]){
+        rlPrice=weekRL[region][product];
+      }
+
+      if(rlPrice){
+        const diff=(b.price||0)-rlPrice;
+        totalDiff+=diff*(b.volume||0);
+        totalVol+=b.volume||0;
+      }
+    });
+
+    const avgDiff=totalVol>0?totalDiff/totalVol:0;
+    const label=`${weekStart.getMonth()+1}/${weekStart.getDate()}`;
+    weeks.push({label,avgDiff,volume:totalVol});
+  }
+
+  return weeks;
+}
+
+function calcWeeklyPerformance(allBuys,allSells){
+  const weeks=[];
+  const now=new Date();
+
+  // Build buy lookup
+  const buyByOrder={};
+  allBuys.forEach(b=>{
+    const ord=String(b.orderNum||b.po||'').trim();
+    if(ord)buyByOrder[ord]=b;
+  });
+
+  for(let i=7;i>=0;i--){
+    const weekEnd=new Date(now);
+    weekEnd.setDate(weekEnd.getDate()-i*7);
+    const weekStart=new Date(weekEnd);
+    weekStart.setDate(weekStart.getDate()-7);
+
+    const inWeek=d=>{
+      const date=new Date(d);
+      return date>=weekStart&&date<weekEnd;
+    };
+
+    const weekBuys=allBuys.filter(b=>inWeek(b.date));
+    const weekSells=allSells.filter(s=>inWeek(s.date));
+
+    const buyVol=weekBuys.reduce((s,b)=>s+(b.volume||0),0);
+    const sellVol=weekSells.reduce((s,x)=>s+(x.volume||0),0);
+
+    // Calculate profit
+    let profit=0;
+    weekSells.forEach(s=>{
+      const ord=String(s.orderNum||s.linkedPO||s.oc||'').trim();
+      const buy=ord?buyByOrder[ord]:null;
+      if(buy){
+        const frtPerMBF=s.volume>0?(s.freight||0)/s.volume:0;
+        const buyFrtPerMBF=buy.volume>0?(buy.freight||0)/buy.volume:0;
+        const sellFob=(s.price||0)-frtPerMBF;
+        profit+=(sellFob-(buy.price||0)-buyFrtPerMBF)*(s.volume||0);
+      }
+    });
+
+    const label=`${weekStart.getMonth()+1}/${weekStart.getDate()}`;
+    weeks.push({label,buyVol,sellVol,profit});
+  }
+
+  return weeks;
+}
+
 function analytics(){
   const{buys,sells}=filtered();
   const latestRL=S.rl.length?S.rl[S.rl.length-1]:null;
@@ -976,7 +1211,165 @@ function render(){
         <div class="card"><div class="card-header"><span class="card-title">RECENT SELLS</span></div>
           ${a.sells.length?a.sells.slice(0,5).map(x=>`<div class="activity-item"><div><div class="activity-main">${x.product} @ ${fmt(x.price)} DLVD</div><div class="activity-sub">${x.customer} • ${x.destination}</div></div><div class="activity-right"><div class="activity-value accent">${x.volume} MBF</div><span class="badge ${x.delivered?'badge-success':'badge-pending'}">${x.delivered?'Delivered':'Pending'}</span></div></div>`).join(''):'<div class="empty-state">No sells yet</div>'}
         </div>
-      </div>`;
+      </div>
+
+      <!-- ADVANCED ANALYTICS SECTION -->
+      ${(()=>{
+        // Calculate advanced analytics
+        const topProducts=calcTopProducts(a.buys,a.sells);
+        const topCustomers=calcTopCustomers(a.sells);
+        const agingSummary=calcAgingSummary(a.buys);
+        const weeklyPerf=calcWeeklyPerformance(S.buys,S.sells);
+
+        return `
+        <div style="margin-top:24px;padding-top:20px;border-top:2px solid var(--border)">
+          <h3 style="color:var(--accent);margin-bottom:16px;font-size:14px">📈 Advanced Analytics</h3>
+
+          <div class="grid-3" style="margin-bottom:20px">
+            <!-- Top Products -->
+            <div class="card">
+              <div class="card-header"><span class="card-title">TOP PRODUCTS (Vol)</span></div>
+              <div class="card-body" style="padding:0">
+                ${topProducts.byVolume.slice(0,5).map((p,i)=>`
+                  <div class="activity-item" style="padding:8px 12px">
+                    <div style="display:flex;align-items:center;gap:8px">
+                      <span style="color:${i===0?'gold':i===1?'silver':i===2?'#cd7f32':'var(--muted)'};font-weight:700;width:18px">${i+1}</span>
+                      <span style="font-weight:500">${p.product}</span>
+                    </div>
+                    <span style="font-weight:600">${p.volume} MBF</span>
+                  </div>
+                `).join('')||'<div class="empty-state" style="padding:20px">No data</div>'}
+              </div>
+            </div>
+
+            <!-- Top Customers -->
+            <div class="card">
+              <div class="card-header"><span class="card-title">TOP CUSTOMERS</span></div>
+              <div class="card-body" style="padding:0">
+                ${topCustomers.slice(0,5).map((c,i)=>`
+                  <div class="activity-item" style="padding:8px 12px">
+                    <div style="display:flex;align-items:center;gap:8px">
+                      <span style="color:${i===0?'gold':i===1?'silver':i===2?'#cd7f32':'var(--muted)'};font-weight:700;width:18px">${i+1}</span>
+                      <div>
+                        <div style="font-weight:500">${c.customer}</div>
+                        <div style="font-size:9px;color:var(--muted)">${c.orders} orders</div>
+                      </div>
+                    </div>
+                    <div style="text-align:right">
+                      <div style="font-weight:600">${c.volume} MBF</div>
+                      <div style="font-size:9px;color:var(--positive)">${fmt(c.profit)}</div>
+                    </div>
+                  </div>
+                `).join('')||'<div class="empty-state" style="padding:20px">No sales yet</div>'}
+              </div>
+            </div>
+
+            <!-- Inventory Aging -->
+            <div class="card">
+              <div class="card-header"><span class="card-title warn">INVENTORY AGING</span></div>
+              <div class="card-body">
+                <div style="margin-bottom:12px">
+                  <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+                    <span style="font-size:10px;color:var(--positive)">0-7 days</span>
+                    <span style="font-weight:600">${agingSummary.fresh} MBF</span>
+                  </div>
+                  <div class="progress-bar"><div class="progress-fill accent" style="width:${agingSummary.total?agingSummary.fresh/agingSummary.total*100:0}%"></div></div>
+                </div>
+                <div style="margin-bottom:12px">
+                  <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+                    <span style="font-size:10px;color:var(--muted)">8-14 days</span>
+                    <span style="font-weight:600">${agingSummary.week} MBF</span>
+                  </div>
+                  <div class="progress-bar"><div class="progress-fill info" style="width:${agingSummary.total?agingSummary.week/agingSummary.total*100:0}%"></div></div>
+                </div>
+                <div style="margin-bottom:12px">
+                  <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+                    <span style="font-size:10px;color:var(--warn)">15-30 days</span>
+                    <span style="font-weight:600">${agingSummary.twoWeek} MBF</span>
+                  </div>
+                  <div class="progress-bar"><div class="progress-fill warn" style="width:${agingSummary.total?agingSummary.twoWeek/agingSummary.total*100:0}%"></div></div>
+                </div>
+                <div>
+                  <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+                    <span style="font-size:10px;color:var(--negative)">30+ days</span>
+                    <span style="font-weight:600;color:var(--negative)">${agingSummary.old} MBF</span>
+                  </div>
+                  <div class="progress-bar"><div class="progress-fill" style="width:${agingSummary.total?agingSummary.old/agingSummary.total*100:0}%;background:var(--negative)"></div></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Weekly Performance Chart -->
+          <div class="card">
+            <div class="card-header">
+              <span class="card-title">WEEKLY PERFORMANCE (Last 8 Weeks)</span>
+              <span style="font-size:9px;color:var(--muted)">Volume & Profit Trends</span>
+            </div>
+            <div class="card-body">
+              ${weeklyPerf.length?`
+              <div style="display:flex;gap:4px;align-items:flex-end;height:140px;padding:10px 0;border-bottom:1px solid var(--border)">
+                ${weeklyPerf.map(w=>{
+                  const maxVol=Math.max(...weeklyPerf.map(x=>x.buyVol+x.sellVol))||1;
+                  const buyH=Math.max(4,(w.buyVol/(maxVol))*100);
+                  const sellH=Math.max(4,(w.sellVol/(maxVol))*100);
+                  return`
+                  <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:2px">
+                    <div style="display:flex;gap:2px;align-items:flex-end;height:100px">
+                      <div style="width:14px;background:var(--positive);border-radius:2px 2px 0 0;height:${buyH}px" title="Buy: ${w.buyVol} MBF"></div>
+                      <div style="width:14px;background:var(--accent);border-radius:2px 2px 0 0;height:${sellH}px" title="Sell: ${w.sellVol} MBF"></div>
+                    </div>
+                    <div style="font-size:8px;color:var(--muted);text-align:center">${w.label}</div>
+                    <div style="font-size:9px;color:${w.profit>=0?'var(--positive)':'var(--negative)'}">${w.profit>=0?'+':''}${Math.round(w.profit/1000)}k</div>
+                  </div>`;
+                }).join('')}
+              </div>
+              <div class="chart-legend" style="margin-top:8px">
+                <div class="legend-item"><div style="width:10px;height:10px;background:var(--positive)"></div><span class="legend-text">Buys</span></div>
+                <div class="legend-item"><div style="width:10px;height:10px;background:var(--accent)"></div><span class="legend-text">Sells</span></div>
+              </div>
+              `:'<div class="empty-state">Not enough data for weekly trends</div>'}
+            </div>
+          </div>
+
+          <!-- Top Products by Profit -->
+          <div class="grid-2" style="margin-top:16px">
+            <div class="card">
+              <div class="card-header"><span class="card-title positive">MOST PROFITABLE PRODUCTS</span></div>
+              <div style="overflow-x:auto"><table style="font-size:11px">
+                <thead><tr><th>Product</th><th class="right">Margin</th><th class="right">Volume</th><th class="right">Profit</th></tr></thead>
+                <tbody>
+                  ${topProducts.byProfit.slice(0,5).map(p=>`
+                    <tr>
+                      <td class="bold">${p.product}</td>
+                      <td class="right ${p.margin>=0?'positive':'negative'}">${fmt(Math.round(p.margin))}/MBF</td>
+                      <td class="right">${p.volume} MBF</td>
+                      <td class="right ${p.profit>=0?'positive':'negative'} bold">${fmt(Math.round(p.profit))}</td>
+                    </tr>
+                  `).join('')||'<tr><td colspan="4" class="empty-state">No matched trades</td></tr>'}
+                </tbody>
+              </table></div>
+            </div>
+
+            <div class="card">
+              <div class="card-header"><span class="card-title negative">LEAST PROFITABLE PRODUCTS</span></div>
+              <div style="overflow-x:auto"><table style="font-size:11px">
+                <thead><tr><th>Product</th><th class="right">Margin</th><th class="right">Volume</th><th class="right">Profit</th></tr></thead>
+                <tbody>
+                  ${topProducts.byProfit.slice(-5).reverse().filter(p=>p.profit<topProducts.byProfit[0]?.profit).map(p=>`
+                    <tr>
+                      <td class="bold">${p.product}</td>
+                      <td class="right ${p.margin>=0?'positive':'negative'}">${fmt(Math.round(p.margin))}/MBF</td>
+                      <td class="right">${p.volume} MBF</td>
+                      <td class="right ${p.profit>=0?'positive':'negative'} bold">${fmt(Math.round(p.profit))}</td>
+                    </tr>
+                  `).join('')||'<tr><td colspan="4" class="empty-state">All products profitable!</td></tr>'}
+                </tbody>
+              </table></div>
+            </div>
+          </div>
+        </div>`;
+      })()}`;
   }
   else if(S.view==='leaderboard'){
     // Department Leaderboard - uses ALL data regardless of filter
@@ -1391,150 +1784,8 @@ function render(){
       </div>`;
   }
   else if(S.view==='charts'){
-    // RL Charts & Spread Monitor View
-    const rlData=S.rl.slice(-12); // Last 12 weeks
-    const chartProduct=S.chartProduct||'2x4#2';
-    
-    // Available products
-    const products=['2x4#2','2x6#2','2x8#2','2x10#2','2x12#2','2x4#1','2x6#1'];
-    
-    // Prepare chart data based on selected product
-    const chartLabels=rlData.map(r=>r.date?.split('/').slice(0,2).join('/')||'');
-    const westData=rlData.map(r=>r.west?.[chartProduct]||0);
-    const centralData=rlData.map(r=>r.central?.[chartProduct]||0);
-    const eastData=rlData.map(r=>r.east?.[chartProduct]||0);
-    
-    // Calculate spreads over time
-    const spread2x4_2x6=rlData.map(r=>(r.west?.['2x6#2']||0)-(r.west?.['2x4#2']||0));
-    const spreadWestCentral=rlData.map(r=>(r.west?.[chartProduct]||0)-(r.central?.[chartProduct]||0));
-    
-    // Get min/max for chart scaling
-    const allPrices=[...westData,...centralData,...eastData].filter(p=>p>0);
-    const minPrice=allPrices.length?Math.floor(Math.min(...allPrices)/10)*10-10:350;
-    const maxPrice=allPrices.length?Math.ceil(Math.max(...allPrices)/10)*10+10:500;
-    const range=maxPrice-minPrice||100;
-    
-    // Store chart data for drawing after render
-    window._chartData={westData,centralData,eastData,minPrice,range,spread2x4_2x6,spreadWestCentral};
-    
-    c.innerHTML=`
-      <div class="card" style="margin-bottom:16px">
-        <div class="card-header">
-          <span class="card-title">📈 SYP PRICE TRENDS</span>
-          <div style="display:flex;align-items:center;gap:12px">
-            <select id="chart-product" onchange="S.chartProduct=this.value;render()" style="padding:4px 8px;font-size:11px;background:var(--card);border:1px solid var(--border);color:var(--text);border-radius:4px">
-              ${products.map(p=>`<option value="${p}" ${p===chartProduct?'selected':''}>${p}</option>`).join('')}
-            </select>
-            <span style="font-size:10px;color:var(--muted)">${rlData.length} weeks</span>
-          </div>
-        </div>
-        <div class="card-body">
-          ${rlData.length>1?`
-            <div style="position:relative;height:250px;margin-bottom:8px">
-              <!-- Y-axis labels -->
-              <div style="position:absolute;left:0;top:0;bottom:30px;width:40px;display:flex;flex-direction:column;justify-content:space-between;font-size:9px;color:var(--muted);text-align:right;padding-right:6px">
-                <span>$${maxPrice}</span>
-                <span>$${Math.round(minPrice+(range*0.75))}</span>
-                <span>$${Math.round(minPrice+(range*0.5))}</span>
-                <span>$${Math.round(minPrice+(range*0.25))}</span>
-                <span>$${minPrice}</span>
-              </div>
-              <!-- Chart area -->
-              <div style="position:absolute;left:45px;right:10px;top:0;bottom:30px;border-left:1px solid var(--border);border-bottom:1px solid var(--border);background:linear-gradient(180deg,rgba(0,200,150,0.03) 0%,transparent 100%)">
-                <!-- Grid lines -->
-                <div style="position:absolute;left:0;right:0;top:25%;border-top:1px solid rgba(255,255,255,0.05)"></div>
-                <div style="position:absolute;left:0;right:0;top:50%;border-top:1px solid rgba(255,255,255,0.05)"></div>
-                <div style="position:absolute;left:0;right:0;top:75%;border-top:1px solid rgba(255,255,255,0.05)"></div>
-                <!-- Canvas for chart -->
-                <canvas id="price-canvas" style="width:100%;height:100%"></canvas>
-              </div>
-              <!-- X-axis labels -->
-              <div style="position:absolute;left:45px;right:10px;bottom:0;height:25px;display:flex;justify-content:space-between;align-items:center;font-size:9px;color:var(--muted)">
-                ${chartLabels.filter((l,i)=>i%Math.ceil(chartLabels.length/6)===0||i===chartLabels.length-1).map(l=>`<span>${l}</span>`).join('')}
-              </div>
-            </div>
-            <div style="display:flex;justify-content:center;gap:24px;font-size:11px">
-              <span><span style="display:inline-block;width:16px;height:3px;background:#00c896;margin-right:6px;border-radius:2px"></span>West</span>
-              <span><span style="display:inline-block;width:16px;height:3px;background:#f5a623;margin-right:6px;border-radius:2px"></span>Central</span>
-              <span><span style="display:inline-block;width:16px;height:3px;background:#4a9eff;margin-right:6px;border-radius:2px"></span>East</span>
-            </div>
-          `:'<div class="empty-state">Need at least 2 weeks of RL data for charts</div>'}
-        </div>
-      </div>
-      
-      <div class="grid-2">
-        <div class="card">
-          <div class="card-header"><span class="card-title warn">📐 2x4/2x6 SPREAD (West)</span></div>
-          <div class="card-body">
-            ${rlData.length>1?`
-              <div style="height:120px;position:relative;margin-bottom:8px">
-                <canvas id="spread-canvas" style="width:100%;height:100%"></canvas>
-              </div>
-              <div style="display:flex;justify-content:space-between;font-size:9px;color:var(--muted)">
-                ${chartLabels.filter((l,i)=>i%3===0).map(l=>`<span>${l}</span>`).join('')}
-              </div>
-              <div style="text-align:center;margin-top:12px">
-                <span style="font-size:20px;font-weight:700;color:var(--warn)">$${spread2x4_2x6[spread2x4_2x6.length-1]||0}</span>
-                <div style="font-size:10px;color:var(--muted)">Current Spread</div>
-              </div>
-            `:'<div class="empty-state">Need RL data</div>'}
-          </div>
-        </div>
-        
-        <div class="card">
-          <div class="card-header"><span class="card-title info">🗺️ WEST vs CENTRAL (${chartProduct})</span></div>
-          <div class="card-body">
-            ${rlData.length>1?`
-              <div style="height:120px;position:relative;margin-bottom:8px">
-                <canvas id="regional-canvas" style="width:100%;height:100%"></canvas>
-              </div>
-              <div style="display:flex;justify-content:space-between;font-size:9px;color:var(--muted)">
-                ${chartLabels.filter((l,i)=>i%3===0).map(l=>`<span>${l}</span>`).join('')}
-              </div>
-              <div style="text-align:center;margin-top:12px">
-                <span style="font-size:20px;font-weight:700;color:var(--info)">$${spreadWestCentral[spreadWestCentral.length-1]||0}</span>
-                <div style="font-size:10px;color:var(--muted)">West Premium</div>
-              </div>
-            `:'<div class="empty-state">Need RL data</div>'}
-          </div>
-        </div>
-      </div>
-      
-      <div class="card" style="margin-top:16px">
-        <div class="card-header"><span class="card-title">📊 SPREAD MONITOR</span></div>
-        <div class="card-body">
-          <table>
-            <thead>
-              <tr><th>Spread</th><th>Region</th><th class="right">Current</th><th class="right">4-Wk Avg</th><th class="right">12-Wk Avg</th><th class="right">vs Avg</th></tr>
-            </thead>
-            <tbody>
-              ${generateSpreadTable(rlData)}
-            </tbody>
-          </table>
-        </div>
-      </div>
-      
-      <div class="card" style="margin-top:16px">
-        <div class="card-header"><span class="card-title">📜 PRICE HISTORY</span></div>
-        <div class="card-body" style="max-height:300px;overflow:auto">
-          <table>
-            <thead>
-              <tr><th>Date</th><th class="right">W 2x4</th><th class="right">W 2x6</th><th class="right">C 2x4</th><th class="right">C 2x6</th><th class="right">E 2x4</th><th class="right">E 2x6</th></tr>
-            </thead>
-            <tbody>
-              ${rlData.slice().reverse().map(r=>`<tr>
-                <td>${r.date||'—'}</td>
-                <td class="right">${r.west?.['2x4#2']?'$'+r.west['2x4#2']:'—'}</td>
-                <td class="right">${r.west?.['2x6#2']?'$'+r.west['2x6#2']:'—'}</td>
-                <td class="right">${r.central?.['2x4#2']?'$'+r.central['2x4#2']:'—'}</td>
-                <td class="right">${r.central?.['2x6#2']?'$'+r.central['2x6#2']:'—'}</td>
-                <td class="right">${r.east?.['2x4#2']?'$'+r.east['2x4#2']:'—'}</td>
-                <td class="right">${r.east?.['2x6#2']?'$'+r.east['2x6#2']:'—'}</td>
-              </tr>`).join('')}
-            </tbody>
-          </table>
-        </div>
-      </div>`;
+    // Redirect old charts view to rldata
+    S.view='rldata';S.rlTab='charts';render();return;
   }
   else if(S.view==='blotter'){
     // Calculate sold volume per Order# - normalize to strings
@@ -1543,16 +1794,36 @@ function render(){
       const ord=String(s.orderNum||s.linkedPO||s.oc||'').trim();
       if(ord)orderSold[ord]=(orderSold[ord]||0)+(s.volume||0);
     });
-    
+
     // Get unique values for filters
     const mills=[...new Set(S.buys.map(b=>b.mill).filter(Boolean))].sort();
     const customers=[...new Set(S.sells.map(s=>s.customer).filter(Boolean))].sort();
     const products=[...new Set([...S.buys.map(b=>b.product),...S.sells.map(s=>s.product)].filter(Boolean))].sort();
-    
+
     // Apply blotter filters
     const bf=S.blotterFilter||{};
     let filteredBuys=a.buys;
     let filteredSells=a.sells;
+
+    // Text search filter
+    if(bf.search){
+      const q=bf.search.toLowerCase();
+      filteredBuys=filteredBuys.filter(b=>
+        (b.orderNum||b.po||'').toLowerCase().includes(q)||
+        (b.mill||'').toLowerCase().includes(q)||
+        (b.origin||'').toLowerCase().includes(q)||
+        (b.product||'').toLowerCase().includes(q)||
+        (b.notes||'').toLowerCase().includes(q)
+      );
+      filteredSells=filteredSells.filter(s=>
+        (s.orderNum||s.linkedPO||s.oc||'').toLowerCase().includes(q)||
+        (s.customer||'').toLowerCase().includes(q)||
+        (s.destination||'').toLowerCase().includes(q)||
+        (s.product||'').toLowerCase().includes(q)||
+        (s.notes||'').toLowerCase().includes(q)
+      );
+    }
+
     if(bf.mill)filteredBuys=filteredBuys.filter(b=>b.mill===bf.mill);
     if(bf.product){filteredBuys=filteredBuys.filter(b=>b.product===bf.product);filteredSells=filteredSells.filter(s=>s.product===bf.product);}
     if(bf.customer)filteredSells=filteredSells.filter(s=>s.customer===bf.customer);
@@ -1569,6 +1840,9 @@ function render(){
       filteredBuys=filteredBuys.filter(b=>!String(b.orderNum||b.po||'').trim());
       filteredSells=filteredSells.filter(s=>!String(s.orderNum||s.linkedPO||s.oc||'').trim());
     }
+
+    // Calculate inventory age (days since buy date)
+    const calcAge=d=>{if(!d)return'—';const days=Math.floor((new Date()-new Date(d))/(1000*60*60*24));return days;};
     
     // Apply sorting
     const bs=S.blotterSort||{col:'date',dir:'desc'};
@@ -1598,7 +1872,11 @@ function render(){
     c.innerHTML=`
       <div class="card" style="margin-bottom:16px;padding:12px">
         <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center">
-          <span style="color:var(--muted);font-size:11px">FILTERS:</span>
+          <div style="position:relative;flex:0 0 200px">
+            <input type="text" id="blotter-search" placeholder="Search orders, mills, customers..." value="${bf.search||''}" onkeyup="handleBlotterSearch(event)" style="width:100%;padding:6px 10px 6px 28px;font-size:11px;background:var(--bg);border:1px solid var(--border);color:var(--text)">
+            <span style="position:absolute;left:8px;top:50%;transform:translateY(-50%);color:var(--muted);font-size:12px">🔍</span>
+          </div>
+          <span style="color:var(--muted);font-size:11px">|</span>
           <select onchange="setBlotterFilter('mill',this.value)" style="font-size:11px;padding:4px">
             <option value="">All Mills</option>${mills.map(m=>`<option value="${m}" ${bf.mill===m?'selected':''}>${m}</option>`).join('')}
           </select>
@@ -1614,8 +1892,8 @@ function render(){
         </div>
       </div>
       <div class="card"><div class="card-header"><span class="card-title positive">${S.trader==='Admin'?'ALL BUYS':'MY BUYS'}</span><span style="color:var(--muted);font-size:10px;margin-left:8px">${filteredBuys.length} trades</span><button class="btn btn-default btn-sm" onclick="expCSV('buys')">Export CSV</button></div>
-        <div style="overflow-x:auto"><table><thead><tr>${S.trader==='Admin'?'<th>👤</th>':''}<th ${sortClick('orderNum')}>Order # ${sortIcon('orderNum')}</th><th ${sortClick('date')}>Date ${sortIcon('date')}</th><th ${sortClick('mill')}>Mill ${sortIcon('mill')}</th><th>Origin</th><th>Reg</th><th ${sortClick('product')}>Product ${sortIcon('product')}</th><th>Len</th><th class="right" ${sortClick('price')}>Price ${sortIcon('price')}</th><th class="right">Frt</th><th class="right" ${sortClick('volume')}>Vol ${sortIcon('volume')}</th><th class="right">Sold</th><th class="right">Avail</th><th></th></tr></thead><tbody>
-          ${filteredBuys.length?filteredBuys.map(b=>{const ord=String(b.orderNum||b.po||'').trim();const sold=orderSold[ord]||0;const avail=(b.volume||0)-sold;const buyFrtMBF=b.volume>0?(b.freight||0)/b.volume:0;return`<tr>${S.trader==='Admin'?`<td><span style="display:inline-block;width:20px;height:20px;border-radius:50%;background:${traderColor(b.trader||'Ian')};color:var(--bg);font-size:10px;font-weight:700;text-align:center;line-height:20px" title="${b.trader||'Ian'}">${traderInitial(b.trader||'Ian')}</span></td>`:''}<td class="bold accent">${ord||'—'}</td><td>${fmtD(b.date)}</td><td>${b.mill||'—'}</td><td>${b.origin||'—'}</td><td style="text-transform:capitalize">${b.region}</td><td class="bold">${b.product}${b.msrPremium?' <span style="color:var(--accent);font-size:9px">+'+b.msrPremium+'</span>':''}</td><td>${b.length||'RL'}${b.tally?' <span style="color:var(--warn);font-size:9px">T</span>':''}</td><td class="right positive">${fmt(b.price)}${b.freight?' <span style="color:var(--muted);font-size:9px">FOB</span>':''}</td><td class="right ${b.freight?'warn':''}">${b.freight?fmt(b.freight):'—'}</td><td class="right">${b.volume}</td><td class="right ${sold>0?'warn':''}">${sold}</td><td class="right ${avail>0?'positive':''}">${avail}</td><td><div class="action-buttons"><button class="btn btn-default btn-sm" onclick="editBuy(${b.id})">Edit</button><button class="btn btn-default btn-sm" onclick="dupBuy(${b.id})">⧉</button><button class="btn btn-danger btn-sm" onclick="delBuy(${b.id})">×</button></div></td></tr>`}).join(''):`<tr><td colspan="${S.trader==='Admin'?14:13}" class="empty-state">No buys</td></tr>`}
+        <div style="overflow-x:auto"><table><thead><tr>${S.trader==='Admin'?'<th>👤</th>':''}<th ${sortClick('orderNum')}>Order # ${sortIcon('orderNum')}</th><th ${sortClick('date')}>Date ${sortIcon('date')}</th><th class="right" title="Days since purchase">Age</th><th ${sortClick('mill')}>Mill ${sortIcon('mill')}</th><th>Origin</th><th>Reg</th><th ${sortClick('product')}>Product ${sortIcon('product')}</th><th>Len</th><th class="right" ${sortClick('price')}>Price ${sortIcon('price')}</th><th class="right">Frt</th><th class="right" ${sortClick('volume')}>Vol ${sortIcon('volume')}</th><th class="right">Sold</th><th class="right">Avail</th><th></th></tr></thead><tbody>
+          ${filteredBuys.length?filteredBuys.map(b=>{const ord=String(b.orderNum||b.po||'').trim();const sold=orderSold[ord]||0;const avail=(b.volume||0)-sold;const buyFrtMBF=b.volume>0?(b.freight||0)/b.volume:0;const age=calcAge(b.date);const ageColor=age>30?'var(--negative)':age>14?'var(--warn)':'var(--muted)';return`<tr>${S.trader==='Admin'?`<td><span style="display:inline-block;width:20px;height:20px;border-radius:50%;background:${traderColor(b.trader||'Ian')};color:var(--bg);font-size:10px;font-weight:700;text-align:center;line-height:20px" title="${b.trader||'Ian'}">${traderInitial(b.trader||'Ian')}</span></td>`:''}<td class="bold accent">${ord||'—'}</td><td>${fmtD(b.date)}</td><td class="right" style="color:${ageColor};font-size:10px" title="${age} days old">${age}d</td><td>${b.mill||'—'}</td><td>${b.origin||'—'}</td><td style="text-transform:capitalize">${b.region}</td><td class="bold">${b.product}${b.msrPremium?' <span style="color:var(--accent);font-size:9px">+'+b.msrPremium+'</span>':''}</td><td>${b.length||'RL'}${b.tally?' <span style="color:var(--warn);font-size:9px">T</span>':''}</td><td class="right positive">${fmt(b.price)}${b.freight?' <span style="color:var(--muted);font-size:9px">FOB</span>':''}</td><td class="right ${b.freight?'warn':''}">${b.freight?fmt(b.freight):'—'}</td><td class="right">${b.volume}</td><td class="right ${sold>0?'warn':''}">${sold}</td><td class="right ${avail>0?'positive':''}">${avail}</td><td><div class="action-buttons"><button class="btn btn-default btn-sm" onclick="editBuy(${b.id})">Edit</button><button class="btn btn-default btn-sm" onclick="dupBuy(${b.id})">⧉</button><button class="btn btn-danger btn-sm" onclick="delBuy(${b.id})">×</button></div></td></tr>`}).join(''):`<tr><td colspan="${S.trader==='Admin'?15:14}" class="empty-state">No buys</td></tr>`}
         </tbody></table></div></div>
       <div class="card"><div class="card-header"><span class="card-title">${S.trader==='Admin'?'ALL SELLS':'MY SELLS'}</span><span style="color:var(--muted);font-size:10px;margin-left:8px">${filteredSells.length} trades</span><button class="btn btn-default btn-sm" onclick="expCSV('sells')">Export CSV</button></div>
         <div style="overflow-x:auto"><table><thead><tr>${S.trader==='Admin'?'<th>👤</th>':''}<th ${sortClick('orderNum')}>Order # ${sortIcon('orderNum')}</th><th ${sortClick('date')}>Date ${sortIcon('date')}</th><th ${sortClick('customer')}>Customer ${sortIcon('customer')}</th><th>Dest</th><th ${sortClick('product')}>Product ${sortIcon('product')}</th><th>Len</th><th class="right" ${sortClick('price')}>DLVD ${sortIcon('price')}</th><th class="right">Frt</th><th class="right">Frt/MBF</th><th class="right">Margin</th><th class="right" ${sortClick('volume')}>Vol ${sortIcon('volume')}</th><th class="right">Profit</th><th></th></tr></thead><tbody>
@@ -1638,20 +1916,178 @@ function render(){
     // Filter out MSR/2400 from market comparison (they're premiums)
     const standardBench=a.bench.filter(b=>!b.isMSR);
     const msrBench=a.bench.filter(b=>b.isMSR);
-    
+
+    // Calculate regional performance
+    const byRegion={west:{vol:0,diff:0,count:0},central:{vol:0,diff:0,count:0},east:{vol:0,diff:0,count:0}};
+    standardBench.filter(b=>b.diff!=null).forEach(b=>{
+      const r=b.region||'west';
+      byRegion[r].vol+=b.volume||0;
+      byRegion[r].diff+=b.diff*(b.volume||0);
+      byRegion[r].count++;
+    });
+
+    // Best and worst buys
+    const withDiff=standardBench.filter(b=>b.diff!=null).sort((x,y)=>x.diff-y.diff);
+    const bestBuys=withDiff.slice(0,3);
+    const worstBuys=withDiff.slice(-3).reverse();
+
+    // Total savings/overpay
+    const totalImpact=standardBench.filter(b=>b.diff!=null).reduce((s,b)=>s+(b.diff||0)*(b.volume||0),0);
+    const matchedVol=standardBench.filter(b=>b.diff!=null).reduce((s,b)=>s+(b.volume||0),0);
+
+    // Historical vs market trend (by week)
+    const weeklyVsMarket=calcWeeklyVsMarket(S.buys,S.rl);
+
+    // Filtering
+    const benchFilter=S.benchFilter||{};
+    let filteredBench=standardBench;
+    if(benchFilter.region)filteredBench=filteredBench.filter(b=>b.region===benchFilter.region);
+    if(benchFilter.product)filteredBench=filteredBench.filter(b=>b.product===benchFilter.product);
+    if(benchFilter.showBelow)filteredBench=filteredBench.filter(b=>b.diff!=null&&b.diff<0);
+    if(benchFilter.showAbove)filteredBench=filteredBench.filter(b=>b.diff!=null&&b.diff>0);
+
+    // Sorting
+    const benchSort=S.benchSort||{col:'date',dir:'desc'};
+    filteredBench=[...filteredBench].sort((x,y)=>{
+      let av=x[benchSort.col],bv=y[benchSort.col];
+      if(benchSort.col==='date'){av=new Date(av||0);bv=new Date(bv||0);}
+      if(benchSort.col==='diff'){av=av??999;bv=bv??999;}
+      if(typeof av==='string')av=av.toLowerCase();
+      if(typeof bv==='string')bv=bv.toLowerCase();
+      return benchSort.dir==='asc'?(av>bv?1:-1):(av<bv?1:-1);
+    });
+
+    const benchProducts=[...new Set(standardBench.map(b=>b.product))].sort();
+    const benchSortIcon=col=>benchSort.col===col?(benchSort.dir==='asc'?'▲':'▼'):'';
+    const benchSortClick=col=>`onclick="toggleBenchSort('${col}')" style="cursor:pointer"`;
+
     c.innerHTML=`
       <div class="kpi-grid">
         <div class="kpi"><div class="kpi-label">AVG vs MARKET</div><div><span class="kpi-value ${a.avgVsRL<=0?'positive':'negative'}">${a.avgVsRL<=0?'▼':'▲'} ${fmt(Math.abs(a.avgVsRL))}</span><span class="kpi-sub">/MBF</span></div></div>
-        <div class="kpi"><div class="kpi-label">TRADES ANALYZED</div><div><span class="kpi-value">${standardBench.filter(b=>b.rlP).length}/${standardBench.length}</span></div></div>
+        <div class="kpi"><div class="kpi-label">TOTAL IMPACT</div><div><span class="kpi-value ${totalImpact<=0?'positive':'negative'}">${totalImpact<=0?'':'+'} ${fmt(Math.abs(Math.round(totalImpact)))}</span><span class="kpi-sub">${totalImpact<=0?'saved':'over'}</span></div></div>
+        <div class="kpi"><div class="kpi-label">TRADES MATCHED</div><div><span class="kpi-value">${standardBench.filter(b=>b.rlP).length}/${standardBench.length}</span><span class="kpi-sub">${matchedVol} MBF</span></div></div>
         <div class="kpi"><div class="kpi-label">MSR/2400 TRADES</div><div><span class="kpi-value accent">${msrBench.length}</span></div></div>
       </div>
-      <div class="card"><div class="card-header"><span class="card-title">STANDARD GRADES vs RANDOM LENGTHS</span><span style="color:var(--muted);font-size:10px">Latest RL: ${a.latestRL?.date||'None'}</span></div>
-        <div style="overflow-x:auto"><table><thead><tr><th>Date</th><th>Mill</th><th>Product</th><th>Len</th><th>Region</th><th class="right">Your Price</th><th class="right">RL #1</th><th class="right">Diff</th><th class="right">Volume</th></tr></thead><tbody>
-          ${standardBench.length?standardBench.map(b=>`<tr><td>${fmtD(b.date)}</td><td>${b.mill||'—'}</td><td class="bold">${b.product}</td><td>${b.length||'RL'}</td><td style="text-transform:capitalize">${b.region}</td><td class="right">${fmt(b.price)}</td><td class="right" style="color:var(--muted)">${b.rlP?fmt(b.rlP):'<span style="color:var(--negative)">No match</span>'}</td><td class="right ${b.diff==null?'':b.diff<=0?'positive':'negative'} bold">${b.diff!=null?`${b.diff<=0?'':'+'}${fmt(b.diff)}`:'—'}</td><td class="right">${b.volume} MBF</td></tr>`).join(''):'<tr><td colspan="9" class="empty-state">No standard grade buys to analyze</td></tr>'}
+
+      <!-- Regional Performance -->
+      <div class="grid-3" style="margin-bottom:16px">
+        ${['west','central','east'].map(r=>{
+          const d=byRegion[r];
+          const avg=d.vol>0?d.diff/d.vol:0;
+          const color=r==='west'?'accent':r==='central'?'warn':'info';
+          return`<div class="card">
+            <div class="card-header"><span class="card-title" style="color:var(--${color});text-transform:capitalize">${r.toUpperCase()}</span></div>
+            <div class="card-body">
+              <div style="display:flex;justify-content:space-between;margin-bottom:8px">
+                <span style="color:var(--muted)">Avg vs RL</span>
+                <span class="bold ${avg<=0?'positive':'negative'}">${avg<=0?'▼':'▲'} ${fmt(Math.abs(Math.round(avg)))}/MBF</span>
+              </div>
+              <div style="display:flex;justify-content:space-between;margin-bottom:8px">
+                <span style="color:var(--muted)">Volume</span>
+                <span>${d.vol} MBF</span>
+              </div>
+              <div style="display:flex;justify-content:space-between">
+                <span style="color:var(--muted)">Trades</span>
+                <span>${d.count}</span>
+              </div>
+            </div>
+          </div>`;
+        }).join('')}
+      </div>
+
+      <!-- Weekly Trend Chart -->
+      <div class="card" style="margin-bottom:16px">
+        <div class="card-header"><span class="card-title">VS MARKET TREND (Last 8 Weeks)</span></div>
+        <div class="card-body">
+          ${weeklyVsMarket.length?`
+          <div style="display:flex;gap:4px;align-items:center;height:120px;padding:10px 0">
+            ${weeklyVsMarket.map(w=>{
+              const maxAbs=Math.max(...weeklyVsMarket.map(x=>Math.abs(x.avgDiff)))||1;
+              const h=Math.max(8,Math.abs(w.avgDiff)/maxAbs*50);
+              const isBelow=w.avgDiff<=0;
+              return`<div style="flex:1;display:flex;flex-direction:column;align-items:center;height:100%">
+                <div style="flex:1;display:flex;flex-direction:column;justify-content:center;align-items:center;width:100%">
+                  ${isBelow?`<div style="width:80%;background:var(--positive);height:${h}px;border-radius:2px" title="$${Math.round(w.avgDiff)}/MBF"></div>`:''}
+                  <div style="height:1px;width:100%;background:var(--border);margin:2px 0"></div>
+                  ${!isBelow?`<div style="width:80%;background:var(--negative);height:${h}px;border-radius:2px" title="+$${Math.round(w.avgDiff)}/MBF"></div>`:''}
+                </div>
+                <div style="font-size:8px;color:var(--muted);margin-top:4px">${w.label}</div>
+                <div style="font-size:9px;color:${isBelow?'var(--positive)':'var(--negative)'}">${isBelow?'':'+'}${Math.round(w.avgDiff)}</div>
+              </div>`;
+            }).join('')}
+          </div>
+          <div style="text-align:center;font-size:9px;color:var(--muted);margin-top:8px">
+            <span style="color:var(--positive)">▼ Below market = Good</span> &nbsp;|&nbsp; <span style="color:var(--negative)">▲ Above market = Overpaid</span>
+          </div>
+          `:'<div class="empty-state">Not enough data for trend</div>'}
+        </div>
+      </div>
+
+      <!-- Best & Worst Buys -->
+      <div class="grid-2" style="margin-bottom:16px">
+        <div class="card">
+          <div class="card-header"><span class="card-title positive">BEST BUYS (vs Market)</span></div>
+          <div class="card-body" style="padding:0">
+            ${bestBuys.length?bestBuys.map(b=>`
+              <div class="activity-item">
+                <div>
+                  <div class="activity-main">${b.product} ${b.length||'RL'}</div>
+                  <div class="activity-sub">${b.mill||'—'} • ${fmtD(b.date)}</div>
+                </div>
+                <div class="activity-right">
+                  <div class="activity-value positive">▼ ${fmt(Math.abs(b.diff))}</div>
+                  <div style="font-size:9px;color:var(--muted)">${b.volume} MBF</div>
+                </div>
+              </div>
+            `).join(''):'<div class="empty-state">No matched buys</div>'}
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-header"><span class="card-title negative">WORST BUYS (vs Market)</span></div>
+          <div class="card-body" style="padding:0">
+            ${worstBuys.filter(b=>b.diff>0).length?worstBuys.filter(b=>b.diff>0).map(b=>`
+              <div class="activity-item">
+                <div>
+                  <div class="activity-main">${b.product} ${b.length||'RL'}</div>
+                  <div class="activity-sub">${b.mill||'—'} • ${fmtD(b.date)}</div>
+                </div>
+                <div class="activity-right">
+                  <div class="activity-value negative">▲ +${fmt(b.diff)}</div>
+                  <div style="font-size:9px;color:var(--muted)">${b.volume} MBF</div>
+                </div>
+              </div>
+            `).join(''):'<div class="empty-state" style="padding:20px;color:var(--positive)">All buys at or below market!</div>'}
+          </div>
+        </div>
+      </div>
+
+      <!-- Filters -->
+      <div class="card" style="margin-bottom:16px;padding:12px">
+        <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center">
+          <span style="color:var(--muted);font-size:11px">FILTERS:</span>
+          <select onchange="setBenchFilter('region',this.value)" style="font-size:11px;padding:4px">
+            <option value="">All Regions</option>
+            <option value="west" ${benchFilter.region==='west'?'selected':''}>West</option>
+            <option value="central" ${benchFilter.region==='central'?'selected':''}>Central</option>
+            <option value="east" ${benchFilter.region==='east'?'selected':''}>East</option>
+          </select>
+          <select onchange="setBenchFilter('product',this.value)" style="font-size:11px;padding:4px">
+            <option value="">All Products</option>
+            ${benchProducts.map(p=>`<option value="${p}" ${benchFilter.product===p?'selected':''}>${p}</option>`).join('')}
+          </select>
+          <label style="font-size:11px;color:var(--positive)"><input type="checkbox" ${benchFilter.showBelow?'checked':''} onchange="setBenchFilter('showBelow',this.checked)"> Below market only</label>
+          <label style="font-size:11px;color:var(--negative)"><input type="checkbox" ${benchFilter.showAbove?'checked':''} onchange="setBenchFilter('showAbove',this.checked)"> Above market only</label>
+          <button class="btn btn-default btn-sm" onclick="S.benchFilter={};render()">Clear</button>
+        </div>
+      </div>
+
+      <div class="card"><div class="card-header"><span class="card-title">STANDARD GRADES vs RANDOM LENGTHS</span><span style="color:var(--muted);font-size:10px">${filteredBench.length} trades • Latest RL: ${a.latestRL?.date||'None'}</span></div>
+        <div style="overflow-x:auto"><table><thead><tr><th ${benchSortClick('date')}>Date ${benchSortIcon('date')}</th><th ${benchSortClick('mill')}>Mill ${benchSortIcon('mill')}</th><th ${benchSortClick('product')}>Product ${benchSortIcon('product')}</th><th>Len</th><th ${benchSortClick('region')}>Region ${benchSortIcon('region')}</th><th class="right" ${benchSortClick('price')}>Your Price ${benchSortIcon('price')}</th><th class="right">RL #1</th><th class="right" ${benchSortClick('diff')}>Diff ${benchSortIcon('diff')}</th><th class="right" ${benchSortClick('volume')}>Volume ${benchSortIcon('volume')}</th></tr></thead><tbody>
+          ${filteredBench.length?filteredBench.map(b=>`<tr><td>${fmtD(b.date)}</td><td>${b.mill||'—'}</td><td class="bold">${b.product}</td><td>${b.length||'RL'}</td><td style="text-transform:capitalize">${b.region}</td><td class="right">${fmt(b.price)}</td><td class="right" style="color:var(--muted)">${b.rlP?fmt(b.rlP):'<span style="color:var(--negative)">No match</span>'}</td><td class="right ${b.diff==null?'':b.diff<=0?'positive':'negative'} bold">${b.diff!=null?`${b.diff<=0?'':'+'}${fmt(b.diff)}`:'—'}</td><td class="right">${b.volume} MBF</td></tr>`).join(''):'<tr><td colspan="9" class="empty-state">No trades match filters</td></tr>'}
         </tbody></table></div>
         ${standardBench.some(b=>!b.rlP)?`<div style="padding:12px;color:var(--muted);font-size:10px;border-top:1px solid var(--border)">💡 "No match" means the product/length/region combo wasn't found in RL data.</div>`:''}
       </div>
-      ${msrBench.length?`<div class="card"><div class="card-header"><span class="card-title accent">MSR / 2400f TRADES (Premium over #1)</span></div>
+      ${msrBench.length?`<div class="card" style="margin-top:16px"><div class="card-header"><span class="card-title accent">MSR / 2400f TRADES (Premium over #1)</span></div>
         <div style="overflow-x:auto"><table><thead><tr><th>Date</th><th>Mill</th><th>Product</th><th>Len</th><th>Region</th><th class="right">Your Price</th><th class="right">Base #1</th><th class="right">Premium</th><th class="right">Volume</th></tr></thead><tbody>
           ${msrBench.map(b=>`<tr><td>${fmtD(b.date)}</td><td>${b.mill||'—'}</td><td class="bold accent">${b.product}</td><td>${b.length||'RL'}</td><td style="text-transform:capitalize">${b.region}</td><td class="right">${fmt(b.price)}</td><td class="right" style="color:var(--muted)">${b.basePrice?fmt(b.basePrice):(b.rlP?fmt(b.rlP):'—')}</td><td class="right accent bold">${b.msrPremium?'+'+fmt(b.msrPremium):(b.rlP?'+'+fmt(b.price-b.rlP):'—')}</td><td class="right">${b.volume} MBF</td></tr>`).join('')}
         </tbody></table></div>
@@ -1778,6 +2214,7 @@ function render(){
           <div class="quote-toolbar">
             <span style="font-weight:600;color:var(--accent)">📋 Quote Builder</span>
             <div style="flex:1"></div>
+            <button class="btn btn-warn btn-sm" onclick="showQuickEntryModal()" title="Spreadsheet-style rapid entry">Quick Entry</button>
             <button class="btn btn-success btn-sm" onclick="addQuoteItem(false)">+ Add</button>
             <button class="btn btn-info btn-sm" onclick="addQuoteItem(true)" title="Add short/spec position">+ Short</button>
             <button class="btn btn-default btn-sm" onclick="loadFromInventory()">📦 Inventory</button>
@@ -1969,46 +2406,254 @@ function render(){
       </div>`;
   }
   else if(S.view==='products'){
-    // Calculate margin by product using matched trades (same orderNum)
+    // Calculate comprehensive product analytics
     const buyByOrder={};
     S.buys.forEach(b=>{
       const ord=String(b.orderNum||b.po||'').trim();
       if(ord)buyByOrder[ord]=b;
     });
-    
-    const prodMargins={};
-    S.sells.forEach(s=>{
+
+    const latestRL=S.rl.length?S.rl[S.rl.length-1]:null;
+
+    const prodData={};
+    // Process buys
+    a.buys.forEach(b=>{
+      const prod=b.product||'Unknown';
+      if(!prodData[prod])prodData[prod]={product:prod,bVol:0,sVol:0,bVal:0,sVal:0,marginVol:0,marginVal:0,profit:0,trades:0,buys:[],sells:[]};
+      prodData[prod].bVol+=b.volume||0;
+      prodData[prod].bVal+=(b.price||0)*(b.volume||0);
+      prodData[prod].trades++;
+      prodData[prod].buys.push(b);
+    });
+
+    // Process sells and calculate margins
+    a.sells.forEach(s=>{
+      const prod=s.product||'Unknown';
+      if(!prodData[prod])prodData[prod]={product:prod,bVol:0,sVol:0,bVal:0,sVal:0,marginVol:0,marginVal:0,profit:0,trades:0,buys:[],sells:[]};
+
       const ord=String(s.orderNum||s.linkedPO||s.oc||'').trim();
       const buy=ord?buyByOrder[ord]:null;
-      const buyCost=buy?.price||0;
-      const buyFrtPerMBF=buy?.volume>0?(buy?.freight||0)/buy.volume:0;
-      const totalCost=buyCost+buyFrtPerMBF;
       const sellFrtPerMBF=s.volume>0?(s.freight||0)/s.volume:0;
       const fob=(s.price||0)-sellFrtPerMBF;
-      const margin=buy?(fob-totalCost):null;
-      
-      const prod=s.product||'Unknown';
-      if(!prodMargins[prod])prodMargins[prod]={bVol:0,sVol:0,marginVol:0,marginVal:0};
-      prodMargins[prod].sVol+=s.volume||0;
-      if(margin!==null){
-        prodMargins[prod].marginVol+=s.volume||0;
-        prodMargins[prod].marginVal+=margin*(s.volume||0);
+
+      prodData[prod].sVol+=s.volume||0;
+      prodData[prod].sVal+=fob*(s.volume||0);
+      prodData[prod].trades++;
+      prodData[prod].sells.push(s);
+
+      if(buy){
+        const buyCost=buy.price||0;
+        const buyFrtPerMBF=buy.volume>0?(buy.freight||0)/buy.volume:0;
+        const margin=fob-buyCost-buyFrtPerMBF;
+        prodData[prod].marginVol+=s.volume||0;
+        prodData[prod].marginVal+=margin*(s.volume||0);
+        prodData[prod].profit+=margin*(s.volume||0);
       }
     });
-    // Add buy volumes
-    S.buys.forEach(b=>{
-      const prod=b.product||'Unknown';
-      if(!prodMargins[prod])prodMargins[prod]={bVol:0,sVol:0,marginVol:0,marginVal:0};
-      prodMargins[prod].bVol+=b.volume||0;
+
+    // Calculate derived metrics
+    const products=Object.values(prodData).map(p=>({
+      ...p,
+      avgBuy:p.bVol>0?p.bVal/p.bVol:0,
+      avgSell:p.sVol>0?p.sVal/p.sVol:0,
+      avgMargin:p.marginVol>0?p.marginVal/p.marginVol:null,
+      position:p.bVol-p.sVol,
+      rlPrice:latestRL?(latestRL.west?.[p.product]||latestRL.central?.[p.product]||latestRL.east?.[p.product]):null
+    }));
+
+    // Find best/worst
+    const withMargin=products.filter(p=>p.avgMargin!==null);
+    const bestProduct=withMargin.length?withMargin.reduce((best,p)=>p.avgMargin>best.avgMargin?p:best):null;
+    const worstProduct=withMargin.length?withMargin.reduce((worst,p)=>p.avgMargin<worst.avgMargin?p:worst):null;
+    const totalProfit=products.reduce((s,p)=>s+p.profit,0);
+    const totalVolume=products.reduce((s,p)=>s+p.bVol+p.sVol,0);
+
+    // Product filter
+    const prodFilter=S.prodFilter||{};
+    let filteredProducts=products;
+    if(prodFilter.showLong)filteredProducts=filteredProducts.filter(p=>p.position>0);
+    if(prodFilter.showShort)filteredProducts=filteredProducts.filter(p=>p.position<0);
+    if(prodFilter.showProfit)filteredProducts=filteredProducts.filter(p=>p.profit>0);
+    if(prodFilter.showLoss)filteredProducts=filteredProducts.filter(p=>p.profit<0);
+
+    // Sorting
+    const prodSort=S.prodSort||{col:'profit',dir:'desc'};
+    filteredProducts=[...filteredProducts].sort((x,y)=>{
+      let av=x[prodSort.col],bv=y[prodSort.col];
+      if(av===null)av=-Infinity;
+      if(bv===null)bv=-Infinity;
+      return prodSort.dir==='asc'?(av>bv?1:-1):(av<bv?1:-1);
     });
-    
-    c.innerHTML=`<div class="card"><div class="card-header"><span class="card-title">PERFORMANCE BY PRODUCT (Avg Margin/MBF Net Freight)</span></div>
-      <div style="overflow-x:auto"><table><thead><tr><th>Product</th><th class="right">Buy Vol</th><th class="right">Sell Vol</th><th class="right">Matched Vol</th><th class="right">Avg Margin/MBF</th></tr></thead><tbody>
-        ${Object.keys(prodMargins).length?Object.entries(prodMargins).sort((a,b)=>(b[1].marginVal/b[1].marginVol||0)-(a[1].marginVal/a[1].marginVol||0)).map(([p,d])=>{
-          const avgMargin=d.marginVol>0?d.marginVal/d.marginVol:null;
-          return`<tr><td class="bold">${p}</td><td class="right">${d.bVol} MBF</td><td class="right">${d.sVol} MBF</td><td class="right">${d.marginVol} MBF</td><td class="right ${avgMargin===null?'':(avgMargin>=0?'positive':'negative')} bold">${avgMargin!==null?fmt(Math.round(avgMargin)):'—'}</td></tr>`;
-        }).join(''):'<tr><td colspan="5" class="empty-state">No data</td></tr>'}
-      </tbody></table></div></div>`;
+
+    const prodSortIcon=col=>prodSort.col===col?(prodSort.dir==='asc'?'▲':'▼'):'';
+    const prodSortClick=col=>`onclick="toggleProdSort('${col}')" style="cursor:pointer"`;
+
+    // Selected product for detail view
+    const selectedProd=S.selectedProduct||null;
+    const selectedData=selectedProd?prodData[selectedProd]:null;
+
+    c.innerHTML=`
+      <div class="kpi-grid">
+        <div class="kpi"><div class="kpi-label">TOTAL PROFIT</div><div><span class="kpi-value ${totalProfit>=0?'positive':'negative'}">${fmt(Math.round(totalProfit))}</span></div></div>
+        <div class="kpi"><div class="kpi-label">BEST PRODUCT</div><div><span class="kpi-value positive" style="font-size:14px">${bestProduct?.product||'—'}</span><span class="kpi-sub">${bestProduct?fmt(Math.round(bestProduct.avgMargin))+'/MBF':''}</span></div></div>
+        <div class="kpi"><div class="kpi-label">WORST PRODUCT</div><div><span class="kpi-value negative" style="font-size:14px">${worstProduct?.product||'—'}</span><span class="kpi-sub">${worstProduct?fmt(Math.round(worstProduct.avgMargin))+'/MBF':''}</span></div></div>
+        <div class="kpi"><div class="kpi-label">PRODUCTS TRADED</div><div><span class="kpi-value">${products.length}</span><span class="kpi-sub">${totalVolume} MBF</span></div></div>
+      </div>
+
+      <!-- Margin Bar Chart -->
+      <div class="card" style="margin-bottom:16px">
+        <div class="card-header"><span class="card-title">MARGIN BY PRODUCT</span></div>
+        <div class="card-body">
+          ${withMargin.length?`
+          <div style="display:flex;flex-direction:column;gap:8px">
+            ${withMargin.sort((a,b)=>b.avgMargin-a.avgMargin).slice(0,10).map(p=>{
+              const maxMargin=Math.max(...withMargin.map(x=>Math.abs(x.avgMargin)))||1;
+              const w=Math.abs(p.avgMargin)/maxMargin*100;
+              const isPos=p.avgMargin>=0;
+              return`<div style="display:flex;align-items:center;gap:8px">
+                <div style="width:80px;font-size:11px;font-weight:500;text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${p.product}">${p.product}</div>
+                <div style="flex:1;height:20px;background:var(--panel-alt);border-radius:2px;overflow:hidden;display:flex;align-items:center;${isPos?'':'justify-content:flex-end'}">
+                  <div style="width:${w}%;height:100%;background:${isPos?'var(--positive)':'var(--negative)'};border-radius:2px"></div>
+                </div>
+                <div style="width:60px;font-size:11px;font-weight:600;color:${isPos?'var(--positive)':'var(--negative)'}">${isPos?'+':''}${fmt(Math.round(p.avgMargin))}</div>
+              </div>`;
+            }).join('')}
+          </div>
+          `:'<div class="empty-state">No matched trades yet</div>'}
+        </div>
+      </div>
+
+      <!-- Filters -->
+      <div class="card" style="margin-bottom:16px;padding:12px">
+        <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center">
+          <span style="color:var(--muted);font-size:11px">FILTERS:</span>
+          <label style="font-size:11px;color:var(--warn)"><input type="checkbox" ${prodFilter.showLong?'checked':''} onchange="setProdFilter('showLong',this.checked)"> Long only</label>
+          <label style="font-size:11px;color:var(--info)"><input type="checkbox" ${prodFilter.showShort?'checked':''} onchange="setProdFilter('showShort',this.checked)"> Short only</label>
+          <label style="font-size:11px;color:var(--positive)"><input type="checkbox" ${prodFilter.showProfit?'checked':''} onchange="setProdFilter('showProfit',this.checked)"> Profitable only</label>
+          <label style="font-size:11px;color:var(--negative)"><input type="checkbox" ${prodFilter.showLoss?'checked':''} onchange="setProdFilter('showLoss',this.checked)"> Losing only</label>
+          <button class="btn btn-default btn-sm" onclick="S.prodFilter={};render()">Clear</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header"><span class="card-title">PERFORMANCE BY PRODUCT</span><span style="color:var(--muted);font-size:10px">${filteredProducts.length} products</span></div>
+        <div style="overflow-x:auto"><table><thead><tr>
+          <th ${prodSortClick('product')}>Product ${prodSortIcon('product')}</th>
+          <th class="right" ${prodSortClick('bVol')}>Buy Vol ${prodSortIcon('bVol')}</th>
+          <th class="right" ${prodSortClick('sVol')}>Sell Vol ${prodSortIcon('sVol')}</th>
+          <th class="right" ${prodSortClick('position')}>Position ${prodSortIcon('position')}</th>
+          <th class="right" ${prodSortClick('avgBuy')}>Avg Buy ${prodSortIcon('avgBuy')}</th>
+          <th class="right" ${prodSortClick('avgSell')}>Avg Sell ${prodSortIcon('avgSell')}</th>
+          <th class="right">RL Mkt</th>
+          <th class="right" ${prodSortClick('avgMargin')}>Margin ${prodSortIcon('avgMargin')}</th>
+          <th class="right" ${prodSortClick('profit')}>Profit ${prodSortIcon('profit')}</th>
+          <th></th>
+        </tr></thead><tbody>
+          ${filteredProducts.length?filteredProducts.map(p=>`<tr style="${selectedProd===p.product?'background:var(--panel-alt)':''}">
+            <td class="bold">${p.product}</td>
+            <td class="right">${p.bVol} MBF</td>
+            <td class="right">${p.sVol} MBF</td>
+            <td class="right ${p.position>0?'warn':p.position<0?'negative':''} bold">${p.position>0?'+':''}${p.position} MBF</td>
+            <td class="right">${p.bVol?fmt(Math.round(p.avgBuy)):'—'}</td>
+            <td class="right">${p.sVol?fmt(Math.round(p.avgSell)):'—'}</td>
+            <td class="right" style="color:var(--accent)">${p.rlPrice?fmt(p.rlPrice):'—'}</td>
+            <td class="right ${p.avgMargin===null?'':p.avgMargin>=0?'positive':'negative'} bold">${p.avgMargin!==null?fmt(Math.round(p.avgMargin)):'—'}</td>
+            <td class="right ${p.profit>=0?'positive':'negative'} bold">${fmt(Math.round(p.profit))}</td>
+            <td><button class="btn btn-default btn-sm" onclick="showProductDetail('${p.product.replace(/'/g,"\\'")}')">View</button></td>
+          </tr>`).join(''):'<tr><td colspan="10" class="empty-state">No products match filters</td></tr>'}
+        </tbody></table></div>
+      </div>
+
+      <!-- Product Detail Panel -->
+      ${selectedData?`
+      <div class="card" style="margin-top:16px;border-color:var(--accent)">
+        <div class="card-header" style="background:var(--accent);color:var(--bg)">
+          <span style="font-weight:700">${selectedProd} — Detail View</span>
+          <button onclick="S.selectedProduct=null;render()" style="background:transparent;border:none;color:var(--bg);cursor:pointer;font-size:16px">×</button>
+        </div>
+        <div class="card-body">
+          <div class="grid-2" style="margin-bottom:16px">
+            <div>
+              <h4 style="color:var(--positive);margin-bottom:8px;font-size:12px">BUYS (${selectedData.buys.length})</h4>
+              <div style="max-height:200px;overflow-y:auto">
+                <table style="font-size:10px"><thead><tr><th>Date</th><th>Mill</th><th class="right">Price</th><th class="right">Vol</th></tr></thead><tbody>
+                  ${selectedData.buys.length?selectedData.buys.map(b=>`<tr><td>${fmtD(b.date)}</td><td>${b.mill||'—'}</td><td class="right">${fmt(b.price)}</td><td class="right">${b.volume}</td></tr>`).join(''):'<tr><td colspan="4" class="empty-state">No buys</td></tr>'}
+                </tbody></table>
+              </div>
+            </div>
+            <div>
+              <h4 style="color:var(--accent);margin-bottom:8px;font-size:12px">SELLS (${selectedData.sells.length})</h4>
+              <div style="max-height:200px;overflow-y:auto">
+                <table style="font-size:10px"><thead><tr><th>Date</th><th>Customer</th><th class="right">Price</th><th class="right">Vol</th></tr></thead><tbody>
+                  ${selectedData.sells.length?selectedData.sells.map(s=>`<tr><td>${fmtD(s.date)}</td><td>${s.customer||'—'}</td><td class="right">${fmt(s.price)}</td><td class="right">${s.volume}</td></tr>`).join(''):'<tr><td colspan="4" class="empty-state">No sells</td></tr>'}
+                </tbody></table>
+              </div>
+            </div>
+          </div>
+
+          <!-- Price History Chart -->
+          ${(()=>{
+            const allTrades=[
+              ...selectedData.buys.map(b=>({date:b.date,price:b.price,type:'buy'})),
+              ...selectedData.sells.map(s=>({date:s.date,price:s.price,type:'sell'}))
+            ].sort((a,b)=>new Date(a.date)-new Date(b.date));
+            if(allTrades.length<2)return'<div style="color:var(--muted);font-size:11px">Not enough trades for price chart</div>';
+            const prices=allTrades.map(t=>t.price);
+            const minP=Math.min(...prices)-10;
+            const maxP=Math.max(...prices)+10;
+            const range=maxP-minP||1;
+            return`
+            <h4 style="color:var(--muted);margin-bottom:8px;font-size:12px">PRICE HISTORY</h4>
+            <div style="display:flex;gap:2px;align-items:flex-end;height:80px;padding:8px 0;border:1px solid var(--border);border-radius:4px;background:var(--bg)">
+              ${allTrades.slice(-20).map(t=>{
+                const h=((t.price-minP)/range)*60+10;
+                const color=t.type==='buy'?'var(--positive)':'var(--accent)';
+                return`<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%">
+                  <div style="width:80%;background:${color};height:${h}px;border-radius:2px 2px 0 0" title="${t.type}: $${t.price} on ${t.date}"></div>
+                </div>`;
+              }).join('')}
+            </div>
+            <div style="display:flex;justify-content:space-between;font-size:9px;color:var(--muted);margin-top:4px">
+              <span>${allTrades[0]?.date||''}</span>
+              <span>
+                <span style="color:var(--positive)">● Buy</span> &nbsp;
+                <span style="color:var(--accent)">● Sell</span>
+              </span>
+              <span>${allTrades[allTrades.length-1]?.date||''}</span>
+            </div>`;
+          })()}
+        </div>
+      </div>
+      `:''}
+
+      <!-- Region Breakdown -->
+      <div class="card" style="margin-top:16px">
+        <div class="card-header"><span class="card-title">BY PRODUCT & REGION</span></div>
+        <div class="card-body">
+          ${(()=>{
+            const byProdReg={};
+            a.buys.forEach(b=>{
+              const key=`${b.product}|${b.region||'west'}`;
+              if(!byProdReg[key])byProdReg[key]={product:b.product,region:b.region||'west',bVol:0,sVol:0};
+              byProdReg[key].bVol+=b.volume||0;
+            });
+            a.sells.forEach(s=>{
+              const key=`${s.product}|${s.region||'west'}`;
+              if(!byProdReg[key])byProdReg[key]={product:s.product,region:s.region||'west',bVol:0,sVol:0};
+              byProdReg[key].sVol+=s.volume||0;
+            });
+            const list=Object.values(byProdReg).sort((a,b)=>(b.bVol+b.sVol)-(a.bVol+a.sVol)).slice(0,15);
+            if(!list.length)return'<div class="empty-state">No data</div>';
+            return`<table style="font-size:11px"><thead><tr><th>Product</th><th>Region</th><th class="right">Buy Vol</th><th class="right">Sell Vol</th><th class="right">Net</th></tr></thead><tbody>
+              ${list.map(r=>{
+                const net=r.bVol-r.sVol;
+                const regColor=r.region==='west'?'accent':r.region==='central'?'warn':'info';
+                return`<tr><td class="bold">${r.product}</td><td style="color:var(--${regColor});text-transform:capitalize">${r.region}</td><td class="right">${r.bVol}</td><td class="right">${r.sVol}</td><td class="right ${net>0?'warn':net<0?'negative':''}">${net>0?'+':''}${net}</td></tr>`;
+              }).join('')}
+            </tbody></table>`;
+          })()}
+        </div>
+      </div>`;
   }
   else if(S.view==='crm'){
     // Get current trader's CRM only
@@ -2072,10 +2717,135 @@ function render(){
         </tbody></table></div></div>`;
   }
   else if(S.view==='rldata'){
-    // RL Analytics
+    // Combined RL Data & Charts View
     const latestRL=S.rl.length?S.rl[S.rl.length-1]:null;
     const prevRL=S.rl.length>1?S.rl[S.rl.length-2]:null;
-    
+    const rlData=S.rl.slice(-12); // Last 12 weeks for charts
+
+    // Charts HTML
+    let chartsHTML='';
+    if(rlData.length>0){
+      const chartProduct=S.chartProduct||'2x4#2';
+      const products=['2x4#2','2x6#2','2x8#2','2x10#2','2x12#2','2x4#1','2x6#1'];
+      const chartLabels=rlData.map(r=>r.date?.split('/').slice(0,2).join('/')||'');
+      const westData=rlData.map(r=>r.west?.[chartProduct]||0);
+      const centralData=rlData.map(r=>r.central?.[chartProduct]||0);
+      const eastData=rlData.map(r=>r.east?.[chartProduct]||0);
+      const spread2x4_2x6=rlData.map(r=>(r.west?.['2x6#2']||0)-(r.west?.['2x4#2']||0));
+      const spreadWestCentral=rlData.map(r=>(r.west?.[chartProduct]||0)-(r.central?.[chartProduct]||0));
+      const allPrices=[...westData,...centralData,...eastData].filter(p=>p>0);
+      const minPrice=allPrices.length?Math.floor(Math.min(...allPrices)/10)*10-10:350;
+      const maxPrice=allPrices.length?Math.ceil(Math.max(...allPrices)/10)*10+10:500;
+      const range=maxPrice-minPrice||100;
+      window._chartData={westData,centralData,eastData,minPrice,range,spread2x4_2x6,spreadWestCentral};
+
+      chartsHTML=`
+        <div class="card" style="margin-bottom:16px">
+          <div class="card-header">
+            <span class="card-title">📈 SYP PRICE TRENDS</span>
+            <div style="display:flex;align-items:center;gap:12px">
+              <select id="chart-product" onchange="S.chartProduct=this.value;render()" style="padding:4px 8px;font-size:11px;background:var(--card);border:1px solid var(--border);color:var(--text);border-radius:4px">
+                ${products.map(p=>`<option value="${p}" ${p===chartProduct?'selected':''}>${p}</option>`).join('')}
+              </select>
+              <span style="font-size:10px;color:var(--muted)">${rlData.length} weeks</span>
+            </div>
+          </div>
+          <div class="card-body">
+            ${rlData.length>1?`
+              <div style="position:relative;height:250px;margin-bottom:8px">
+                <div style="position:absolute;left:0;top:0;bottom:30px;width:40px;display:flex;flex-direction:column;justify-content:space-between;font-size:9px;color:var(--muted);text-align:right;padding-right:6px">
+                  <span>$${maxPrice}</span>
+                  <span>$${Math.round(minPrice+(range*0.75))}</span>
+                  <span>$${Math.round(minPrice+(range*0.5))}</span>
+                  <span>$${Math.round(minPrice+(range*0.25))}</span>
+                  <span>$${minPrice}</span>
+                </div>
+                <div style="position:absolute;left:45px;right:10px;top:0;bottom:30px;border-left:1px solid var(--border);border-bottom:1px solid var(--border);background:linear-gradient(180deg,rgba(0,200,150,0.03) 0%,transparent 100%)">
+                  <div style="position:absolute;left:0;right:0;top:25%;border-top:1px solid rgba(255,255,255,0.05)"></div>
+                  <div style="position:absolute;left:0;right:0;top:50%;border-top:1px solid rgba(255,255,255,0.05)"></div>
+                  <div style="position:absolute;left:0;right:0;top:75%;border-top:1px solid rgba(255,255,255,0.05)"></div>
+                  <canvas id="price-canvas" style="width:100%;height:100%"></canvas>
+                </div>
+                <div style="position:absolute;left:45px;right:10px;bottom:0;height:25px;display:flex;justify-content:space-between;align-items:center;font-size:9px;color:var(--muted)">
+                  ${chartLabels.filter((l,i)=>i%Math.ceil(chartLabels.length/6)===0||i===chartLabels.length-1).map(l=>`<span>${l}</span>`).join('')}
+                </div>
+              </div>
+              <div style="display:flex;justify-content:center;gap:24px;font-size:11px">
+                <span><span style="display:inline-block;width:16px;height:3px;background:#00c896;margin-right:6px;border-radius:2px"></span>West</span>
+                <span><span style="display:inline-block;width:16px;height:3px;background:#f5a623;margin-right:6px;border-radius:2px"></span>Central</span>
+                <span><span style="display:inline-block;width:16px;height:3px;background:#4a9eff;margin-right:6px;border-radius:2px"></span>East</span>
+              </div>
+            `:'<div class="empty-state">Need at least 2 weeks of data for charts</div>'}
+          </div>
+        </div>
+        <div class="grid-2">
+          <div class="card">
+            <div class="card-header"><span class="card-title warn">📐 2x4/2x6 SPREAD (West)</span></div>
+            <div class="card-body">
+              ${rlData.length>1?`
+                <div style="height:120px;position:relative;margin-bottom:8px">
+                  <canvas id="spread-canvas" style="width:100%;height:100%"></canvas>
+                </div>
+                <div style="display:flex;justify-content:space-between;font-size:9px;color:var(--muted)">
+                  ${chartLabels.filter((l,i)=>i%3===0).map(l=>`<span>${l}</span>`).join('')}
+                </div>
+                <div style="text-align:center;margin-top:12px">
+                  <span style="font-size:20px;font-weight:700;color:var(--warn)">$${spread2x4_2x6[spread2x4_2x6.length-1]||0}</span>
+                  <div style="font-size:10px;color:var(--muted)">Current Spread</div>
+                </div>
+              `:'<div class="empty-state">Need data</div>'}
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-header"><span class="card-title info">🗺️ WEST vs CENTRAL (${chartProduct})</span></div>
+            <div class="card-body">
+              ${rlData.length>1?`
+                <div style="height:120px;position:relative;margin-bottom:8px">
+                  <canvas id="regional-canvas" style="width:100%;height:100%"></canvas>
+                </div>
+                <div style="display:flex;justify-content:space-between;font-size:9px;color:var(--muted)">
+                  ${chartLabels.filter((l,i)=>i%3===0).map(l=>`<span>${l}</span>`).join('')}
+                </div>
+                <div style="text-align:center;margin-top:12px">
+                  <span style="font-size:20px;font-weight:700;color:var(--info)">$${spreadWestCentral[spreadWestCentral.length-1]||0}</span>
+                  <div style="font-size:10px;color:var(--muted)">West Premium</div>
+                </div>
+              `:'<div class="empty-state">Need data</div>'}
+            </div>
+          </div>
+        </div>
+        <div class="card" style="margin-top:16px">
+          <div class="card-header"><span class="card-title">📊 SPREAD MONITOR</span></div>
+          <div class="card-body">
+            <table>
+              <thead><tr><th>Spread</th><th>Region</th><th class="right">Current</th><th class="right">4-Wk Avg</th><th class="right">12-Wk Avg</th><th class="right">vs Avg</th></tr></thead>
+              <tbody>${generateSpreadTable(rlData)}</tbody>
+            </table>
+          </div>
+        </div>
+        <div class="card" style="margin-top:16px">
+          <div class="card-header"><span class="card-title">📜 PRICE HISTORY</span></div>
+          <div class="card-body" style="max-height:300px;overflow:auto">
+            <table>
+              <thead><tr><th>Date</th><th class="right">W 2x4</th><th class="right">W 2x6</th><th class="right">C 2x4</th><th class="right">C 2x6</th><th class="right">E 2x4</th><th class="right">E 2x6</th></tr></thead>
+              <tbody>
+                ${rlData.slice().reverse().map(r=>`<tr>
+                  <td>${r.date||'—'}</td>
+                  <td class="right">${r.west?.['2x4#2']?'$'+r.west['2x4#2']:'—'}</td>
+                  <td class="right">${r.west?.['2x6#2']?'$'+r.west['2x6#2']:'—'}</td>
+                  <td class="right">${r.central?.['2x4#2']?'$'+r.central['2x4#2']:'—'}</td>
+                  <td class="right">${r.central?.['2x6#2']?'$'+r.central['2x6#2']:'—'}</td>
+                  <td class="right">${r.east?.['2x4#2']?'$'+r.east['2x4#2']:'—'}</td>
+                  <td class="right">${r.east?.['2x6#2']?'$'+r.east['2x6#2']:'—'}</td>
+                </tr>`).join('')}
+              </tbody>
+            </table>
+          </div>
+        </div>`;
+    }else{
+      chartsHTML='<div class="card"><div class="card-body"><div class="empty-state">No data yet. Import a Random Lengths PDF to get started.</div></div></div>';
+    }
+
     // Calculate spreads if we have data
     let spreadsHTML='';
     if(latestRL){
@@ -2301,12 +3071,13 @@ function render(){
       ${S.rl.length===0?`<div class="card"><div class="card-body"><div class="empty-state">No RL data yet. Import a Random Lengths PDF to get started.</div></div></div>`:`
         <div style="margin-bottom:16px">
           <div style="display:flex;gap:8px;margin-bottom:12px">
-            <button class="btn ${!S.rlTab||S.rlTab==='analytics'?'btn-primary':'btn-default'} btn-sm" onclick="S.rlTab='analytics';render()">📊 Analytics</button>
-            <button class="btn ${S.rlTab==='compare'?'btn-primary':'btn-default'} btn-sm" onclick="S.rlTab='compare';render()">📈 Compare</button>
+            <button class="btn ${!S.rlTab||S.rlTab==='charts'?'btn-primary':'btn-default'} btn-sm" onclick="S.rlTab='charts';render()">📈 Charts</button>
+            <button class="btn ${S.rlTab==='analytics'?'btn-primary':'btn-default'} btn-sm" onclick="S.rlTab='analytics';render()">📊 Analytics</button>
+            <button class="btn ${S.rlTab==='compare'?'btn-primary':'btn-default'} btn-sm" onclick="S.rlTab='compare';render()">🔀 Compare</button>
             <button class="btn ${S.rlTab==='details'?'btn-primary':'btn-default'} btn-sm" onclick="S.rlTab='details';render()">📋 Details</button>
           </div>
         </div>
-        ${!S.rlTab||S.rlTab==='analytics'?spreadsHTML:(S.rlTab==='compare'?compareHTML:detailHTML)}
+        ${!S.rlTab||S.rlTab==='charts'?chartsHTML:(S.rlTab==='analytics'?spreadsHTML:(S.rlTab==='compare'?compareHTML:detailHTML))}
       `}`;
   }
   else if(S.view==='ai'){
@@ -2399,11 +3170,23 @@ function render(){
   }
   
   // Draw charts after DOM update
-  if(S.view==='charts')setTimeout(drawCharts,10);
+  if(S.view==='rldata'&&(!S.rlTab||S.rlTab==='charts'))setTimeout(drawCharts,10);
 }
 
 // MODALS
 function closeModal(){document.getElementById('modal').innerHTML=''}
+
+// Global keyboard shortcuts
+document.addEventListener('keydown',e=>{
+  // Escape to close modal
+  if(e.key==='Escape'){
+    const modal=document.getElementById('modal');
+    if(modal&&modal.innerHTML){
+      closeModal();
+      e.preventDefault();
+    }
+  }
+});
 
 function showBuyModal(b=null){
   // Build product list from RL data + defaults
@@ -2536,6 +3319,196 @@ function autoFillOrigin(){
       }
     }
   }
+}
+
+// QUICK ENTRY GRID FOR QUOTE ENGINE
+let qeRowCount=0;
+
+function showQuickEntryModal(){
+  // Build product list from RL data + defaults
+  const rlProducts=new Set(PRODUCTS);
+  S.rl.forEach(r=>{
+    ['west','central','east'].forEach(reg=>{
+      if(r[reg])Object.keys(r[reg]).forEach(p=>rlProducts.add(p));
+      if(r.specified_lengths?.[reg])Object.keys(r.specified_lengths[reg]).forEach(p=>rlProducts.add(p));
+      if(r.timbers?.[reg])Object.keys(r.timbers[reg]).forEach(p=>rlProducts.add(p));
+    });
+  });
+  ['2x4#1','2x4#2','2x4#3','2x6#1','2x6#2','2x6#3','2x8#2','2x8#3','2x10#2','2x10#3','2x12#2','2x12#3','4x4#2','4x6','6x6','2x4 MSR','2x6 MSR','2x8 MSR','2x10 MSR','2x12 MSR','2x4 2400f','2x6 2400f','2x8 2400f','2x10 2400f'].forEach(p=>rlProducts.add(p));
+  const prodList=[...rlProducts].sort();
+
+  // Build origin location list from CRM mills and lanes
+  const defaultOrigins=['Warren, AR','Gurdon, AR','Camden, AR','Monticello, AR','Clarendon, NC','Huttig, AR','DeQuincy, LA'];
+  const origins=[...new Set([...defaultOrigins,...S.mills.filter(m=>m.origin).map(m=>m.origin),...S.lanes.map(l=>l.origin),...(S.quoteItems||[]).map(i=>i.origin).filter(Boolean)])].sort();
+
+  // Get last used origin from existing quote items
+  const lastItem=(S.quoteItems||[])[0];
+  const defaultOrigin=lastItem?.origin||'Warren, AR';
+
+  qeRowCount=0;
+
+  document.getElementById('modal').innerHTML=`<div class="modal-overlay" onclick="closeModal()"><div class="modal extra-wide" onclick="event.stopPropagation()">
+    <div class="modal-header"><span class="modal-title" style="color:var(--warn)">QUICK ENTRY - Quote Items</span><button class="modal-close" onclick="closeModal()">×</button></div>
+    <div class="modal-body" style="overflow-x:auto">
+      <div style="margin-bottom:12px;padding:8px 12px;background:var(--panel-alt);border-radius:4px;font-size:11px;color:var(--muted)">
+        Tab through cells to enter multiple products quickly. Product format: <span style="color:var(--accent)">2x4 #2 16'</span> or <span style="color:var(--accent)">2x6#2</span> (length optional)
+      </div>
+      <datalist id="qe-origin-list">${origins.map(o=>`<option value="${o}">`).join('')}</datalist>
+      <datalist id="qe-prod-list">${prodList.map(p=>`<option value="${p}">`).join('')}</datalist>
+      <table class="quick-entry-table">
+        <thead>
+          <tr>
+            <th style="width:180px">Product</th>
+            <th style="width:50px">Length</th>
+            <th style="width:130px">Origin</th>
+            <th style="width:70px">Ship Wk</th>
+            <th style="width:50px">TLs</th>
+            <th style="width:80px">Sell $</th>
+            <th style="width:50px">Short?</th>
+            <th class="col-actions"></th>
+          </tr>
+        </thead>
+        <tbody id="quick-entry-rows">
+        </tbody>
+      </table>
+      <div class="qe-actions">
+        <div class="qe-actions-left">
+          <button class="btn btn-default" onclick="addQuickEntryRow()">+ Add Row</button>
+          <button class="btn btn-default" onclick="addQuickEntryRows(5)">+ Add 5 Rows</button>
+        </div>
+        <div class="qe-status" id="qe-status">0 rows with data</div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-default" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-success" onclick="saveQuickEntry()">Save All</button>
+    </div>
+  </div></div>`;
+
+  // Add 10 starting rows
+  for(let i=0;i<10;i++){
+    addQuickEntryRow(defaultOrigin);
+  }
+
+  // Focus first product input
+  setTimeout(()=>{
+    const firstInput=document.getElementById('qe-product-0');
+    if(firstInput)firstInput.focus();
+  },100);
+}
+
+function addQuickEntryRow(defaultOrigin='Warren, AR'){
+  const idx=qeRowCount++;
+  const tbody=document.getElementById('quick-entry-rows');
+
+  const row=document.createElement('tr');
+  row.id=`qe-row-${idx}`;
+  row.innerHTML=`
+    <td><input type="text" id="qe-product-${idx}" list="qe-prod-list" placeholder="2x4 #2" tabindex="${idx*7+1}" onchange="updateQeStatus()"></td>
+    <td><select id="qe-length-${idx}" tabindex="${idx*7+2}">
+      <option value="">--</option>
+      <option value="8">8'</option>
+      <option value="10">10'</option>
+      <option value="12">12'</option>
+      <option value="14">14'</option>
+      <option value="16" selected>16'</option>
+      <option value="18">18'</option>
+      <option value="20">20'</option>
+      <option value="RL">RL</option>
+    </select></td>
+    <td><input type="text" id="qe-origin-${idx}" list="qe-origin-list" placeholder="City, ST" value="${defaultOrigin}" tabindex="${idx*7+3}"></td>
+    <td><input type="text" id="qe-shipweek-${idx}" placeholder="W1" style="text-align:center" tabindex="${idx*7+4}"></td>
+    <td><input type="number" id="qe-tls-${idx}" value="1" min="1" style="text-align:center;width:45px" tabindex="${idx*7+5}"></td>
+    <td><input type="number" id="qe-fob-${idx}" placeholder="425" tabindex="${idx*7+6}" onchange="updateQeStatus()"></td>
+    <td style="text-align:center"><input type="checkbox" id="qe-short-${idx}" tabindex="${idx*7+7}"></td>
+    <td><button class="qe-row-btn remove" onclick="removeQuickEntryRow(${idx})" title="Remove row">×</button></td>
+  `;
+  tbody.appendChild(row);
+}
+
+function addQuickEntryRows(count){
+  const lastOrigin=document.getElementById(`qe-origin-${qeRowCount-1}`)?.value||'Warren, AR';
+  for(let i=0;i<count;i++){
+    addQuickEntryRow(lastOrigin);
+  }
+}
+
+function removeQuickEntryRow(idx){
+  const row=document.getElementById(`qe-row-${idx}`);
+  if(row)row.remove();
+  updateQeStatus();
+}
+
+function updateQeStatus(){
+  let count=0;
+  const rows=document.getElementById('quick-entry-rows')?.children||[];
+  for(const row of rows){
+    const idx=row.id.replace('qe-row-','');
+    const product=document.getElementById(`qe-product-${idx}`)?.value;
+    if(product)count++;
+  }
+  const status=document.getElementById('qe-status');
+  if(status)status.textContent=`${count} row${count!==1?'s':''} with data`;
+}
+
+function saveQuickEntry(){
+  const rows=document.getElementById('quick-entry-rows')?.children||[];
+  let savedCount=0;
+
+  for(const row of rows){
+    const idx=row.id.replace('qe-row-','');
+
+    // Get all values
+    const baseProduct=document.getElementById(`qe-product-${idx}`)?.value?.trim()||'';
+    const length=document.getElementById(`qe-length-${idx}`)?.value||'';
+    const origin=document.getElementById(`qe-origin-${idx}`)?.value?.trim()||'';
+    const shipWeek=document.getElementById(`qe-shipweek-${idx}`)?.value?.trim()||'';
+    const tls=parseInt(document.getElementById(`qe-tls-${idx}`)?.value)||1;
+    const fob=parseFloat(document.getElementById(`qe-fob-${idx}`)?.value)||0;
+    const isShort=document.getElementById(`qe-short-${idx}`)?.checked||false;
+
+    // Skip empty rows (no product)
+    if(!baseProduct)continue;
+
+    // Build full product string with length if provided
+    let product=baseProduct;
+    if(length&&!baseProduct.includes("'")){
+      product=`${baseProduct} ${length}'`;
+    }
+
+    // Create quote item object (matching existing structure)
+    const item={
+      id:genId(),
+      product:product,
+      origin:origin,
+      shipWeek:shipWeek,
+      tls:tls,
+      cost:isShort?null:0,
+      fob:fob,
+      isShort:isShort,
+      selected:true
+    };
+
+    S.quoteItems.push(item);
+    savedCount++;
+  }
+
+  if(savedCount===0){
+    alert('No valid rows to save. Enter at least one product.');
+    return;
+  }
+
+  save('quoteItems',S.quoteItems);
+  saveCurrentProfileSelections();
+  closeModal();
+  render();
+
+  // Show brief success message
+  const msg=document.createElement('div');
+  msg.style.cssText='position:fixed;top:20px;right:20px;background:var(--positive);color:#fff;padding:12px 20px;border-radius:4px;font-size:12px;z-index:9999;animation:fadeIn 0.2s';
+  msg.textContent=`Added ${savedCount} quote item${savedCount!==1?'s':''}`;
+  document.body.appendChild(msg);
+  setTimeout(()=>msg.remove(),2000);
 }
 
 function autoFillDest(){
@@ -6123,8 +7096,68 @@ function setBlotterFilter(key,val){
   S.blotterFilter[key]=val;
   render();
 }
+function handleBlotterSearch(e){
+  // Debounced search - wait for Enter or 300ms pause
+  const val=e.target.value;
+  const pos=e.target.selectionStart;
+  if(e.key==='Enter'){
+    setBlotterFilter('search',val);
+    setTimeout(()=>{
+      const el=document.getElementById('blotter-search');
+      if(el){el.focus();el.setSelectionRange(pos,pos);}
+    },10);
+  }else if(e.key==='Escape'){
+    e.target.value='';
+    setBlotterFilter('search','');
+  }else{
+    clearTimeout(window._blotterSearchTimeout);
+    window._blotterSearchTimeout=setTimeout(()=>{
+      setBlotterFilter('search',val);
+      setTimeout(()=>{
+        const el=document.getElementById('blotter-search');
+        if(el){el.focus();el.setSelectionRange(pos+1,pos+1);}
+      },10);
+    },300);
+  }
+}
 function clearBlotterFilters(){
   S.blotterFilter={};
+  render();
+}
+
+// Benchmark filters and sorting
+function setBenchFilter(key,val){
+  if(!S.benchFilter)S.benchFilter={};
+  S.benchFilter[key]=val;
+  render();
+}
+function toggleBenchSort(col){
+  if(!S.benchSort)S.benchSort={col:'date',dir:'desc'};
+  if(S.benchSort.col===col){
+    S.benchSort.dir=S.benchSort.dir==='asc'?'desc':'asc';
+  }else{
+    S.benchSort={col,dir:col==='diff'?'asc':'desc'};
+  }
+  render();
+}
+
+// Product view filters and sorting
+function setProdFilter(key,val){
+  if(!S.prodFilter)S.prodFilter={};
+  S.prodFilter[key]=val;
+  render();
+}
+function toggleProdSort(col){
+  if(!S.prodSort)S.prodSort={col:'profit',dir:'desc'};
+  if(S.prodSort.col===col){
+    S.prodSort.dir=S.prodSort.dir==='asc'?'desc':'asc';
+  }else{
+    S.prodSort={col,dir:'desc'};
+  }
+  render();
+}
+function showProductDetail(product){
+  S.selectedProduct=S.selectedProduct===product?null:product;
   render();
 }
 function toggleSort(col){
