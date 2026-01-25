@@ -2096,80 +2096,187 @@ function render(){
   }
   else if(S.view==='risk'){
     // Calculate positions by product (bought vs sold)
-    // Normalize lengths by removing apostrophes for consistent matching
     const normLen=l=>String(l||'RL').replace(/'/g,'');
     const positions={};
     S.buys.forEach(b=>{
       const len=normLen(b.length);
       const key=`${b.product}|${len}`;
-      if(!positions[key])positions[key]={product:b.product,length:len,bought:0,sold:0,boughtVal:0,soldVal:0};
+      if(!positions[key])positions[key]={product:b.product,length:len,region:b.region||'west',bought:0,sold:0,boughtVal:0,soldVal:0};
       positions[key].bought+=b.volume||0;
       positions[key].boughtVal+=(b.price||0)*(b.volume||0);
     });
     S.sells.forEach(s=>{
       const len=normLen(s.length);
       const key=`${s.product}|${len}`;
-      if(!positions[key])positions[key]={product:s.product,length:len,bought:0,sold:0,boughtVal:0,soldVal:0};
+      if(!positions[key])positions[key]={product:s.product,length:len,region:s.region||'west',bought:0,sold:0,boughtVal:0,soldVal:0};
       positions[key].sold+=s.volume||0;
-      // freight is $/load, so FOB = sell price - (freight/volume)
       const freightPerMBF=s.volume>0?(s.freight||0)/s.volume:0;
       positions[key].soldVal+=((s.price||0)-freightPerMBF)*(s.volume||0);
     });
-    
-    // Split into long (bought > sold) and short (sold > bought)
+
+    // Split into long/short
     const longPos=Object.values(positions).filter(p=>p.bought>p.sold).map(p=>({...p,net:p.bought-p.sold,avgCost:p.bought?p.boughtVal/p.bought:0}));
     const shortPos=Object.values(positions).filter(p=>p.sold>p.bought).map(p=>({...p,net:p.sold-p.bought,avgSell:p.sold?p.soldVal/p.sold:0}));
-    
-    // Calculate matched profit (orders with matching buy)
-    // Build lookup of buys by orderNum - normalize to strings for matching
-    const buyByOrder={};
-    S.buys.forEach(b=>{
-      const ord=String(b.orderNum||b.po||'').trim();
-      if(ord)buyByOrder[ord]=b;
-    });
-    
-    const matchedTrades=S.sells.map(s=>{
-      const ord=String(s.orderNum||s.linkedPO||s.oc||'').trim();
-      const buy=ord?buyByOrder[ord]:null;
-      if(!buy)return null;
-      const buyCost=buy.price||0;
-      const buyFrtPerMBF=buy.volume>0?(buy.freight||0)/buy.volume:0;
-      const totalCost=buyCost+buyFrtPerMBF; // Include buy freight in cost
-      const sellFrtPerMBF=s.volume>0?(s.freight||0)/s.volume:0;
-      const fob=(s.price||0)-sellFrtPerMBF;
-      const margin=fob-totalCost;
-      const profit=margin*(s.volume||0);
-      return{sell:s,buy,ord,buyCost,buyFrtPerMBF,totalCost,fob,sellFrtPerMBF,margin,profit};
-    }).filter(Boolean);
-    
-    const totalMatchedProfit=matchedTrades.reduce((sum,t)=>sum+t.profit,0);
-    const totalMatchedVol=matchedTrades.reduce((sum,t)=>sum+t.sell.volume,0);
-    const avgMatchedMargin=totalMatchedVol?totalMatchedProfit/totalMatchedVol:0;
-    
+
     const totalLong=longPos.reduce((s,p)=>s+p.net,0);
     const totalShort=shortPos.reduce((s,p)=>s+p.net,0);
-    
+    const longExposure=longPos.reduce((s,p)=>s+p.net*p.avgCost,0);
+    const shortExposure=shortPos.reduce((s,p)=>s+p.net*p.avgSell,0);
+    const netPosition=totalLong-totalShort;
+
+    // Exposure by Region
+    const regionExposure={west:{long:0,short:0,longVal:0,shortVal:0},central:{long:0,short:0,longVal:0,shortVal:0},east:{long:0,short:0,longVal:0,shortVal:0}};
+    a.buys.forEach(b=>{
+      const r=b.region||'west';
+      regionExposure[r].long+=b.volume||0;
+      regionExposure[r].longVal+=(b.price||0)*(b.volume||0);
+    });
+    a.sells.forEach(s=>{
+      const r=s.region||'west';
+      regionExposure[r].short+=s.volume||0;
+      const frtMBF=s.volume>0?(s.freight||0)/s.volume:0;
+      regionExposure[r].shortVal+=((s.price||0)-frtMBF)*(s.volume||0);
+    });
+
+    // Concentration risk - find largest position
+    const allPos=[...longPos,...shortPos].sort((a,b)=>(b.net*b.avgCost||b.net*b.avgSell)-(a.net*a.avgCost||a.net*a.avgSell));
+    const largestPos=allPos[0];
+    const totalExposure=longExposure+shortExposure;
+    const concentrationPct=totalExposure>0&&largestPos?(largestPos.net*(largestPos.avgCost||largestPos.avgSell))/totalExposure*100:0;
+
+    // Uncovered sells (sells without matching buy order)
+    const buyOrders=new Set(S.buys.map(b=>String(b.orderNum||b.po||'').trim()).filter(Boolean));
+    const uncoveredSells=a.sells.filter(s=>{
+      const ord=String(s.orderNum||s.linkedPO||s.oc||'').trim();
+      return !ord||!buyOrders.has(ord);
+    });
+    const uncoveredVol=uncoveredSells.reduce((s,x)=>s+(x.volume||0),0);
+
     c.innerHTML=`
       <div class="kpi-grid">
-        <div class="kpi"><div class="kpi-label">LONG EXPOSURE</div><div><span class="kpi-value ${totalLong>0?'warn':''}">${totalLong} MBF</span></div></div>
-        <div class="kpi"><div class="kpi-label">SHORT EXPOSURE</div><div><span class="kpi-value ${totalShort>0?'negative':''}">${totalShort} MBF</span></div></div>
-        <div class="kpi"><div class="kpi-label">MATCHED PROFIT</div><div><span class="kpi-value ${totalMatchedProfit>=0?'positive':'negative'}">${fmt(Math.round(totalMatchedProfit))}</span></div></div>
-        <div class="kpi"><div class="kpi-label">AVG MARGIN (MATCHED)</div><div><span class="kpi-value ${avgMatchedMargin>=0?'positive':'negative'}">${fmt(Math.round(avgMatchedMargin))}</span><span class="kpi-sub">/MBF</span></div></div>
+        <div class="kpi"><div class="kpi-label">NET POSITION</div><div><span class="kpi-value ${netPosition>0?'warn':netPosition<0?'negative':''}">${netPosition>0?'+':''}${netPosition} MBF</span><span class="kpi-sub">${netPosition>0?'long':netPosition<0?'short':'flat'}</span></div></div>
+        <div class="kpi"><div class="kpi-label">LONG EXPOSURE</div><div><span class="kpi-value ${totalLong>0?'warn':''}">${totalLong} MBF</span><span class="kpi-sub">${fmt(Math.round(longExposure))}</span></div></div>
+        <div class="kpi"><div class="kpi-label">SHORT EXPOSURE</div><div><span class="kpi-value ${totalShort>0?'negative':''}">${totalShort} MBF</span><span class="kpi-sub">${fmt(Math.round(shortExposure))}</span></div></div>
+        <div class="kpi"><div class="kpi-label">UNCOVERED SELLS</div><div><span class="kpi-value ${uncoveredVol>0?'negative':''}">${uncoveredVol} MBF</span><span class="kpi-sub">${uncoveredSells.length} orders</span></div></div>
       </div>
+
+      <!-- What-If Analysis -->
+      <div class="card" style="margin-bottom:16px">
+        <div class="card-header"><span class="card-title">WHAT-IF ANALYSIS</span><span style="color:var(--muted);font-size:10px">Impact of market moves on long position</span></div>
+        <div class="card-body">
+          <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px;text-align:center">
+            ${[-50,-25,-10,10,25,50].map(move=>{
+              const impact=totalLong*move;
+              const isGain=(move>0);
+              return`<div style="padding:12px;background:var(--panel-alt);border-radius:4px;border:1px solid ${isGain?'var(--positive)':'var(--negative)'}">
+                <div style="font-size:10px;color:var(--muted);margin-bottom:4px">RL ${move>0?'+':''}${move}</div>
+                <div style="font-size:16px;font-weight:700;color:${isGain?'var(--positive)':'var(--negative)'}">${isGain?'+':''}${fmt(Math.round(impact))}</div>
+                <div style="font-size:9px;color:var(--muted)">${totalLong} MBF × $${Math.abs(move)}</div>
+              </div>`;
+            }).join('')}
+          </div>
+          <div style="margin-top:12px;padding:10px;background:var(--bg);border-radius:4px;font-size:11px;color:var(--muted)">
+            💡 <strong>Long positions</strong> gain value when market rises, lose when it falls. <strong>Short positions</strong> are the opposite.
+          </div>
+        </div>
+      </div>
+
+      <!-- Regional Exposure -->
+      <div class="grid-3" style="margin-bottom:16px">
+        ${['west','central','east'].map(r=>{
+          const d=regionExposure[r];
+          const net=d.long-d.short;
+          const color=r==='west'?'accent':r==='central'?'warn':'info';
+          return`<div class="card">
+            <div class="card-header"><span class="card-title" style="color:var(--${color});text-transform:uppercase">${r}</span></div>
+            <div class="card-body">
+              <div style="display:flex;justify-content:space-between;margin-bottom:8px">
+                <span style="color:var(--muted)">Long</span>
+                <span class="warn">${d.long} MBF</span>
+              </div>
+              <div style="display:flex;justify-content:space-between;margin-bottom:8px">
+                <span style="color:var(--muted)">Short</span>
+                <span class="negative">${d.short} MBF</span>
+              </div>
+              <div style="display:flex;justify-content:space-between;padding-top:8px;border-top:1px solid var(--border)">
+                <span style="font-weight:600">Net</span>
+                <span class="bold ${net>0?'warn':net<0?'negative':''}">${net>0?'+':''}${net} MBF</span>
+              </div>
+            </div>
+          </div>`;
+        }).join('')}
+      </div>
+
+      <!-- Concentration Risk -->
+      <div class="card" style="margin-bottom:16px">
+        <div class="card-header">
+          <span class="card-title ${concentrationPct>50?'negative':concentrationPct>30?'warn':''}">CONCENTRATION RISK</span>
+          ${concentrationPct>50?'<span style="background:var(--negative);color:#fff;padding:2px 8px;border-radius:10px;font-size:9px">HIGH RISK</span>':''}
+          ${concentrationPct>30&&concentrationPct<=50?'<span style="background:var(--warn);color:var(--bg);padding:2px 8px;border-radius:10px;font-size:9px">MODERATE</span>':''}
+        </div>
+        <div class="card-body">
+          ${allPos.length?`
+          <div style="margin-bottom:12px">
+            <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+              <span style="color:var(--muted);font-size:11px">Top position: <strong>${largestPos?.product||'—'} ${largestPos?.length||''}</strong></span>
+              <span style="font-size:11px;color:${concentrationPct>50?'var(--negative)':concentrationPct>30?'var(--warn)':'var(--muted)'}">${concentrationPct.toFixed(1)}% of exposure</span>
+            </div>
+            <div class="progress-bar" style="height:8px">
+              <div class="progress-fill" style="width:${Math.min(100,concentrationPct)}%;background:${concentrationPct>50?'var(--negative)':concentrationPct>30?'var(--warn)':'var(--accent)'}"></div>
+            </div>
+          </div>
+          <table style="font-size:11px"><thead><tr><th>Product</th><th>Length</th><th class="right">Position</th><th class="right">Exposure</th><th class="right">% of Total</th></tr></thead><tbody>
+            ${allPos.slice(0,5).map(p=>{
+              const exp=p.net*(p.avgCost||p.avgSell);
+              const pct=totalExposure>0?exp/totalExposure*100:0;
+              const isLong=p.bought>p.sold;
+              return`<tr>
+                <td class="bold">${p.product}</td>
+                <td>${p.length}</td>
+                <td class="right ${isLong?'warn':'negative'}">${isLong?'+':'-'}${p.net} MBF</td>
+                <td class="right">${fmt(Math.round(exp))}</td>
+                <td class="right" style="color:${pct>30?'var(--negative)':pct>20?'var(--warn)':'var(--muted)'}">${pct.toFixed(1)}%</td>
+              </tr>`;
+            }).join('')}
+          </tbody></table>
+          `:'<div class="empty-state">No positions</div>'}
+        </div>
+      </div>
+
+      <!-- Long/Short Position Tables -->
       <div class="grid-2">
-        <div class="card"><div class="card-header"><span class="card-title warn">LONG POSITIONS</span><span style="color:var(--muted);font-size:10px">Bought more than sold</span></div>
-          <div style="overflow-x:auto"><table><thead><tr><th>Product</th><th>Length</th><th class="right">Bought</th><th class="right">Sold</th><th class="right">Net Long</th><th class="right">Avg Cost</th><th class="right">Exposure</th><th></th></tr></thead><tbody>
-            ${longPos.length?longPos.sort((a,b)=>b.net-a.net).map(p=>{const prodEsc=(p.product||'').replace(/'/g,"\\'");const lenEsc=(p.length||'').replace(/'/g,"\\'");return`<tr><td class="bold">${p.product}</td><td>${p.length}</td><td class="right">${p.bought} MBF</td><td class="right">${p.sold} MBF</td><td class="right warn bold">${p.net} MBF</td><td class="right">${fmt(Math.round(p.avgCost))}</td><td class="right">${fmt(Math.round(p.net*p.avgCost))}</td><td><button class="btn btn-primary btn-sm" onclick="sellPosition('${prodEsc}','${lenEsc}',${p.net})">Sell</button></td></tr>`}).join(''):'<tr><td colspan="8" class="empty-state">No long positions</td></tr>'}
+        <div class="card"><div class="card-header"><span class="card-title warn">LONG POSITIONS</span><span style="color:var(--muted);font-size:10px">${longPos.length} products</span></div>
+          <div style="overflow-x:auto;max-height:300px"><table><thead><tr><th>Product</th><th>Len</th><th class="right">Bought</th><th class="right">Sold</th><th class="right">Net</th><th class="right">Avg Cost</th><th class="right">Exposure</th><th></th></tr></thead><tbody>
+            ${longPos.length?longPos.sort((a,b)=>b.net-a.net).map(p=>{const prodEsc=(p.product||'').replace(/'/g,"\\'");const lenEsc=(p.length||'').replace(/'/g,"\\'");return`<tr><td class="bold">${p.product}</td><td>${p.length}</td><td class="right">${p.bought}</td><td class="right">${p.sold}</td><td class="right warn bold">${p.net}</td><td class="right">${fmt(Math.round(p.avgCost))}</td><td class="right">${fmt(Math.round(p.net*p.avgCost))}</td><td><button class="btn btn-primary btn-sm" onclick="sellPosition('${prodEsc}','${lenEsc}',${p.net})">Sell</button></td></tr>`}).join(''):'<tr><td colspan="8" class="empty-state">No long positions</td></tr>'}
           </tbody></table></div></div>
-        <div class="card"><div class="card-header"><span class="card-title negative">SHORT POSITIONS</span><span style="color:var(--muted);font-size:10px">Sold more than bought</span></div>
-          <div style="overflow-x:auto"><table><thead><tr><th>Product</th><th>Length</th><th class="right">Bought</th><th class="right">Sold</th><th class="right">Net Short</th><th class="right">Avg Sell</th><th class="right">Exposure</th><th></th></tr></thead><tbody>
-            ${shortPos.length?shortPos.sort((a,b)=>b.net-a.net).map(p=>{const prodEsc=(p.product||'').replace(/'/g,"\\'");const lenEsc=(p.length||'').replace(/'/g,"\\'");return`<tr><td class="bold">${p.product}</td><td>${p.length}</td><td class="right">${p.bought} MBF</td><td class="right">${p.sold} MBF</td><td class="right negative bold">${p.net} MBF</td><td class="right">${fmt(Math.round(p.avgSell))}</td><td class="right">${fmt(Math.round(p.net*p.avgSell))}</td><td><button class="btn btn-success btn-sm" onclick="coverPosition('${prodEsc}','${lenEsc}',${p.net})">Cover</button></td></tr>`}).join(''):'<tr><td colspan="8" class="empty-state">No short positions</td></tr>'}
+        <div class="card"><div class="card-header"><span class="card-title negative">SHORT POSITIONS</span><span style="color:var(--muted);font-size:10px">${shortPos.length} products</span></div>
+          <div style="overflow-x:auto;max-height:300px"><table><thead><tr><th>Product</th><th>Len</th><th class="right">Bought</th><th class="right">Sold</th><th class="right">Net</th><th class="right">Avg Sell</th><th class="right">Exposure</th><th></th></tr></thead><tbody>
+            ${shortPos.length?shortPos.sort((a,b)=>b.net-a.net).map(p=>{const prodEsc=(p.product||'').replace(/'/g,"\\'");const lenEsc=(p.length||'').replace(/'/g,"\\'");return`<tr><td class="bold">${p.product}</td><td>${p.length}</td><td class="right">${p.bought}</td><td class="right">${p.sold}</td><td class="right negative bold">${p.net}</td><td class="right">${fmt(Math.round(p.avgSell))}</td><td class="right">${fmt(Math.round(p.net*p.avgSell))}</td><td><button class="btn btn-success btn-sm" onclick="coverPosition('${prodEsc}','${lenEsc}',${p.net})">Cover</button></td></tr>`}).join(''):'<tr><td colspan="8" class="empty-state">No short positions</td></tr>'}
           </tbody></table></div></div>
       </div>
-      <div class="card" style="margin-top:16px"><div class="card-header"><span class="card-title positive">MATCHED TRADES (REALIZED P&L)</span></div>
-        <div style="overflow-x:auto"><table><thead><tr><th>Order #</th><th>Product</th><th>Customer</th><th class="right">Buy FOB</th><th class="right">Buy Frt</th><th class="right">Total Cost</th><th class="right">Sell FOB</th><th class="right">Margin</th><th class="right">Vol</th><th class="right">Profit</th></tr></thead><tbody>
-          ${matchedTrades.length?matchedTrades.map(t=>`<tr><td class="bold accent">${t.ord}</td><td>${t.sell.product}</td><td>${t.sell.customer||'—'}</td><td class="right">${fmt(t.buyCost)}</td><td class="right ${t.buyFrtPerMBF?'warn':''}">${t.buyFrtPerMBF?fmt(Math.round(t.buyFrtPerMBF)):'—'}</td><td class="right">${fmt(Math.round(t.totalCost))}</td><td class="right">${fmt(Math.round(t.fob))}${t.sellFrtPerMBF?' <span style="color:var(--warn);font-size:9px">-'+Math.round(t.sellFrtPerMBF)+'</span>':''}</td><td class="right ${t.margin>=0?'positive':'negative'} bold">${fmt(Math.round(t.margin))}</td><td class="right">${t.sell.volume} MBF</td><td class="right ${t.profit>=0?'positive':'negative'} bold">${fmt(Math.round(t.profit))}</td></tr>`).join(''):'<tr><td colspan="10" class="empty-state">No matched trades. Use same Order # on buy and sell.</td></tr>'}
-        </tbody></table></div></div>`;
+
+      <!-- Uncovered Sells -->
+      ${uncoveredSells.length?`
+      <div class="card" style="margin-top:16px;border-color:var(--negative)">
+        <div class="card-header" style="background:rgba(239,68,68,0.1)"><span class="card-title negative">UNCOVERED SELLS (Need Coverage)</span><span style="color:var(--negative);font-size:10px">${uncoveredVol} MBF at risk</span></div>
+        <div style="overflow-x:auto;max-height:250px"><table><thead><tr><th>Order #</th><th>Date</th><th>Customer</th><th>Product</th><th>Len</th><th class="right">Volume</th><th class="right">Price</th><th></th></tr></thead><tbody>
+          ${uncoveredSells.slice(0,10).map(s=>{
+            const ord=String(s.orderNum||s.linkedPO||s.oc||'').trim();
+            return`<tr>
+              <td class="bold negative">${ord||'—'}</td>
+              <td>${fmtD(s.date)}</td>
+              <td>${s.customer||'—'}</td>
+              <td class="bold">${s.product}</td>
+              <td>${s.length||'RL'}</td>
+              <td class="right">${s.volume} MBF</td>
+              <td class="right">${fmt(s.price)}</td>
+              <td><button class="btn btn-success btn-sm" onclick="coverSell(${s.id})">Cover</button></td>
+            </tr>`;
+          }).join('')}
+          ${uncoveredSells.length>10?`<tr><td colspan="8" style="text-align:center;color:var(--muted);font-size:10px">...and ${uncoveredSells.length-10} more</td></tr>`:''}
+        </tbody></table></div>
+      </div>
+      `:''}`
   }
   else if(S.view==='quotes'){
     // Quote Engine View
@@ -3676,6 +3783,26 @@ function coverPosition(product, length, volume){
       alert(`No uncovered short orders found for ${product} ${length}. Make sure your sells have Order #s assigned, or select from the dropdown.`);
     },100);
   }
+}
+
+function coverSell(sellId){
+  // Find the sell by ID and open buy modal to cover it
+  const sell=S.sells.find(s=>s.id===sellId);
+  if(!sell){
+    alert('Sell not found');
+    return;
+  }
+
+  const orderNum=String(sell.orderNum||sell.linkedPO||sell.oc||'').trim();
+
+  showBuyModal({
+    orderNum:orderNum,
+    po:orderNum,
+    product:sell.product||'',
+    length:sell.length||'RL',
+    volume:sell.volume||0,
+    region:sell.region||'west'
+  });
 }
 
 // ===== QUOTE ENGINE FUNCTIONS =====
