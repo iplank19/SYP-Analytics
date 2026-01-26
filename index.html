@@ -73,6 +73,9 @@
     .badge{display:inline-block;padding:2px 8px;font-size:10px;border-radius:3px}
     .badge-pending{background:rgba(245,166,35,0.2);color:var(--warn)}
     .badge-success{background:rgba(34,197,94,0.2);color:var(--positive)}
+    .badge-info{background:rgba(59,130,246,0.2);color:var(--info)}
+    .badge-warn{background:rgba(245,166,35,0.2);color:var(--warn)}
+    .badge-danger{background:rgba(239,68,68,0.2);color:var(--negative)}
     .modal-overlay{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.85);display:flex;align-items:center;justify-content:center;z-index:1000}
     .modal{background:var(--panel);border:1px solid var(--border);width:500px;max-height:90vh;display:flex;flex-direction:column}
     .modal.wide{width:700px}
@@ -1291,7 +1294,7 @@ function renderMkt(){
   document.getElementById('mkt-d').textContent=rl?.date||'';
 }
 
-function go(v){S.view=v;closeMobileSidebar();render()}
+function go(v){S.view=v;closeMobileSidebar();if(v==='crm'&&typeof loadCRMProspects==='function')loadCRMProspects();render()}
 
 function toggleAIPanel(){
   S.aiPanelOpen=!S.aiPanelOpen;
@@ -3038,17 +3041,18 @@ function render(){
       </div>`;
   }
   else if(S.view==='crm'){
-    // Get current trader's CRM only
+    // CRM with Prospects and Customers tabs
+    const crmTab=S.crmTab||'prospects';
     const mills=myMills();
     const customers=myCustomers();
-    
+
     // Calculate margin by customer for current trader only
     const buyByOrder={};
     S.buys.forEach(b=>{
       const ord=String(b.orderNum||b.po||'').trim();
       if(ord)buyByOrder[ord]=b;
     });
-    
+
     const custMargins={};
     S.sells.filter(s=>s.trader===S.trader||!s.trader).forEach(s=>{
       const ord=String(s.orderNum||s.linkedPO||s.oc||'').trim();
@@ -3059,28 +3063,109 @@ function render(){
       const sellFrtPerMBF=s.volume>0?(s.freight||0)/s.volume:0;
       const fob=(s.price||0)-sellFrtPerMBF;
       const margin=buy?(fob-totalCost):null;
-      
+
       if(!custMargins[s.customer])custMargins[s.customer]={vol:0,marginVal:0,n:0};
       custMargins[s.customer].n++;
       custMargins[s.customer].vol+=s.volume||0;
       if(margin!==null)custMargins[s.customer].marginVal+=margin*(s.volume||0);
     });
-    
-    c.innerHTML=`
-      <div style="margin-bottom:12px;padding:8px 12px;background:var(--panel);border-left:3px solid ${traderColor(S.trader)};font-size:12px">
-        <strong>${S.trader==='Admin'?'🔑 All Traders':S.trader+"'s Book"}</strong> <span style="color:var(--muted)">— ${mills.length} mills, ${customers.length} customers</span>
-      </div>
-      <div class="grid-2">
-        <div class="card"><div class="card-header"><span class="card-title positive">${S.trader==='Admin'?'ALL MILLS':'MY MILLS'}</span><button class="btn btn-default btn-sm" onclick="showMillModal()">+ Add</button></div>
-          <div style="overflow-x:auto"><table><thead><tr>${S.trader==='Admin'?'<th>👤</th>':''}<th>Mill</th><th>Locations</th><th>Trades</th><th>Volume</th><th></th></tr></thead><tbody>
-            ${mills.length?mills.map(m=>{
-              const locs=m.locations||[m.origin].filter(Boolean);
-              const trades=S.trader==='Admin'?S.buys.filter(b=>b.mill===m.name):S.buys.filter(b=>b.mill===m.name&&(b.trader===S.trader||!b.trader));
-              const vol=trades.reduce((s,b)=>s+(b.volume||0),0);
-              return`<tr>${S.trader==='Admin'?`<td><span style="display:inline-block;width:18px;height:18px;border-radius:50%;background:${traderColor(m.trader||'Ian')};color:var(--bg);font-size:9px;font-weight:700;text-align:center;line-height:18px" title="${m.trader||'Ian'}">${traderInitial(m.trader||'Ian')}</span></td>`:''}<td class="bold">${m.name}</td><td style="font-size:10px">${locs.length?locs.join(', '):'—'}</td><td class="right">${trades.length}</td><td class="right">${vol} MBF</td><td style="white-space:nowrap"><button class="btn btn-default btn-sm" onclick="editMill('${m.name}')">Edit</button> <button class="btn btn-default btn-sm" onclick="deleteMill('${m.name}')" style="color:var(--negative)">×</button></td></tr>`;
-            }).join(''):`<tr><td colspan="${S.trader==='Admin'?6:5}" class="empty-state">No mills yet</td></tr>`}
-          </tbody></table></div></div>
-        <div class="card"><div class="card-header"><span class="card-title">${S.trader==='Admin'?'ALL CUSTOMERS':'MY CUSTOMERS'}</span><button class="btn btn-default btn-sm" onclick="showCustModal()">+ Add</button></div>
+
+    // Tab navigation
+    const tabsHTML=`
+      <div style="display:flex;gap:4px;margin-bottom:16px;background:var(--panel);padding:4px;border-radius:4px">
+        <button class="btn ${crmTab==='prospects'?'btn-info':'btn-default'}" onclick="S.crmTab='prospects';render()">📋 Prospects</button>
+        <button class="btn ${crmTab==='customers'?'btn-success':'btn-default'}" onclick="S.crmTab='customers';render()">🏢 Customers</button>
+        <button class="btn ${crmTab==='mills'?'btn-warn':'btn-default'}" onclick="S.crmTab='mills';render()">🏭 Mills</button>
+      </div>`;
+
+    let contentHTML='';
+
+    if(crmTab==='prospects'){
+      // Prospects view - fetched from CRM API
+      const prospects=S.crmProspects||[];
+      const crmStats=S.crmStats||{};
+      const statusFilter=S.crmStatusFilter||'all';
+
+      contentHTML=`
+        <div class="kpi-grid" style="margin-bottom:16px">
+          <div class="kpi"><div class="kpi-label">TOTAL PROSPECTS</div><div class="kpi-value">${crmStats.total_prospects||0}</div></div>
+          <div class="kpi"><div class="kpi-label">NEW</div><div class="kpi-value" style="color:var(--info)">${crmStats.new_prospects||0}</div></div>
+          <div class="kpi"><div class="kpi-label">QUALIFIED</div><div class="kpi-value" style="color:var(--warn)">${crmStats.qualified||0}</div></div>
+          <div class="kpi"><div class="kpi-label">CONVERTED</div><div class="kpi-value positive">${crmStats.converted||0}</div></div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title info">PROSPECT PIPELINE</span>
+            <div style="display:flex;gap:8px;align-items:center">
+              <select onchange="S.crmStatusFilter=this.value;loadCRMProspects()" style="padding:4px 8px;font-size:10px">
+                <option value="all" ${statusFilter==='all'?'selected':''}>All Status</option>
+                <option value="prospect" ${statusFilter==='prospect'?'selected':''}>New Prospects</option>
+                <option value="qualified" ${statusFilter==='qualified'?'selected':''}>Qualified</option>
+                <option value="converted" ${statusFilter==='converted'?'selected':''}>Converted</option>
+                <option value="lost" ${statusFilter==='lost'?'selected':''}>Lost</option>
+              </select>
+              <button class="btn btn-info btn-sm" onclick="showProspectModal()">+ Add Prospect</button>
+            </div>
+          </div>
+          <div style="overflow-x:auto">
+            <table>
+              <thead><tr><th>Company</th><th>Contact</th><th>Phone</th><th>Status</th><th>Last Touch</th><th>Actions</th></tr></thead>
+              <tbody>
+                ${prospects.length?prospects.map(p=>{
+                  const statusBadge={prospect:'badge-pending',qualified:'badge-warn',converted:'badge-success',lost:'badge-danger'}[p.status]||'badge-pending';
+                  return`<tr>
+                    <td class="bold">${p.company_name}</td>
+                    <td>${p.contact_name||'—'}</td>
+                    <td>${p.phone||'—'}</td>
+                    <td><span class="badge ${statusBadge}">${p.status}</span></td>
+                    <td style="font-size:10px">${p.updated_at?new Date(p.updated_at).toLocaleDateString():'—'}</td>
+                    <td style="white-space:nowrap">
+                      <button class="btn btn-default btn-sm" onclick="showTouchModal(${p.id})">📞 Log</button>
+                      <button class="btn btn-default btn-sm" onclick="viewProspect(${p.id})">View</button>
+                      ${p.status!=='converted'?`<button class="btn btn-success btn-sm" onclick="convertProspect(${p.id})">→ Convert</button>`:''}
+                    </td>
+                  </tr>`;
+                }).join(''):'<tr><td colspan="6" class="empty-state">No prospects yet. Add your first prospect!</td></tr>'}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        ${(S.crmOverdue||[]).length?`
+        <div class="card" style="margin-top:16px;border-left:3px solid var(--negative)">
+          <div class="card-header"><span class="card-title" style="color:var(--negative)">⚠️ OVERDUE FOLLOW-UPS</span></div>
+          <div class="card-body">
+            ${S.crmOverdue.map(t=>`
+              <div class="activity-item">
+                <div><div class="activity-main">${t.company_name}</div><div class="activity-sub">Due: ${t.follow_up_date}</div></div>
+                <button class="btn btn-default btn-sm" onclick="showTouchModal(${t.prospect_id})">📞 Follow Up</button>
+              </div>
+            `).join('')}
+          </div>
+        </div>`:''}
+
+        ${(S.crmRecent||[]).length?`
+        <div class="card" style="margin-top:16px">
+          <div class="card-header"><span class="card-title">📋 RECENT ACTIVITY</span></div>
+          <div class="card-body">
+            ${S.crmRecent.slice(0,5).map(t=>`
+              <div class="activity-item">
+                <div>
+                  <div class="activity-main">${t.company_name}</div>
+                  <div class="activity-sub">${t.touch_type}: ${(t.notes||'').substring(0,50)}${(t.notes||'').length>50?'...':''}</div>
+                </div>
+                <div class="activity-right">
+                  <div style="font-size:10px;color:var(--muted)">${new Date(t.created_at).toLocaleDateString()}</div>
+                </div>
+              </div>
+            `).join('')}
+          </div>
+        </div>`:''}`;
+    }
+    else if(crmTab==='customers'){
+      contentHTML=`
+        <div class="card"><div class="card-header"><span class="card-title positive">${S.trader==='Admin'?'ALL CUSTOMERS':'MY CUSTOMERS'}</span><button class="btn btn-default btn-sm" onclick="showCustModal()">+ Add</button></div>
           <div style="overflow-x:auto"><table><thead><tr>${S.trader==='Admin'?'<th>👤</th>':''}<th>Customer</th><th>Locations</th><th>Trades</th><th>Volume</th><th></th></tr></thead><tbody>
             ${customers.length?customers.map(c=>{
               const locs=c.locations||[c.destination].filter(Boolean);
@@ -3089,14 +3174,33 @@ function render(){
               return`<tr>${S.trader==='Admin'?`<td><span style="display:inline-block;width:18px;height:18px;border-radius:50%;background:${traderColor(c.trader||'Ian')};color:var(--bg);font-size:9px;font-weight:700;text-align:center;line-height:18px" title="${c.trader||'Ian'}">${traderInitial(c.trader||'Ian')}</span></td>`:''}<td class="bold">${c.name}</td><td style="font-size:10px">${locs.length?locs.join(', '):'—'}</td><td class="right">${trades.length}</td><td class="right">${vol} MBF</td><td style="white-space:nowrap"><button class="btn btn-default btn-sm" onclick="editCust('${c.name}')">Edit</button> <button class="btn btn-default btn-sm" onclick="deleteCust('${c.name}')" style="color:var(--negative)">×</button></td></tr>`;
             }).join(''):`<tr><td colspan="${S.trader==='Admin'?6:5}" class="empty-state">No customers yet</td></tr>`}
           </tbody></table></div></div>
+        <div class="card" style="margin-top:16px"><div class="card-header"><span class="card-title warn">CUSTOMER PROFITABILITY</span></div>
+          <div style="overflow-x:auto"><table><thead><tr><th>Customer</th><th class="right">Trades</th><th class="right">Volume</th><th class="right">Avg Margin/MBF</th></tr></thead><tbody>
+            ${Object.keys(custMargins).length?Object.entries(custMargins).filter(([c,d])=>d.vol>0).sort((x,y)=>(y[1].marginVal/y[1].vol)-(x[1].marginVal/x[1].vol)).map(([c,d])=>{
+              const avgMargin=d.vol>0?d.marginVal/d.vol:0;
+              return`<tr><td class="bold">${c}</td><td class="right">${d.n}</td><td class="right">${d.vol} MBF</td><td class="right ${avgMargin>=0?'positive':'negative'} bold">${fmt(Math.round(avgMargin))}</td></tr>`;
+            }).join(''):'<tr><td colspan="4" class="empty-state">No linked sales yet</td></tr>'}
+          </tbody></table></div></div>`;
+    }
+    else if(crmTab==='mills'){
+      contentHTML=`
+        <div class="card"><div class="card-header"><span class="card-title warn">${S.trader==='Admin'?'ALL MILLS':'MY MILLS'}</span><button class="btn btn-default btn-sm" onclick="showMillModal()">+ Add</button></div>
+          <div style="overflow-x:auto"><table><thead><tr>${S.trader==='Admin'?'<th>👤</th>':''}<th>Mill</th><th>Locations</th><th>Trades</th><th>Volume</th><th></th></tr></thead><tbody>
+            ${mills.length?mills.map(m=>{
+              const locs=m.locations||[m.origin].filter(Boolean);
+              const trades=S.trader==='Admin'?S.buys.filter(b=>b.mill===m.name):S.buys.filter(b=>b.mill===m.name&&(b.trader===S.trader||!b.trader));
+              const vol=trades.reduce((s,b)=>s+(b.volume||0),0);
+              return`<tr>${S.trader==='Admin'?`<td><span style="display:inline-block;width:18px;height:18px;border-radius:50%;background:${traderColor(m.trader||'Ian')};color:var(--bg);font-size:9px;font-weight:700;text-align:center;line-height:18px" title="${m.trader||'Ian'}">${traderInitial(m.trader||'Ian')}</span></td>`:''}<td class="bold">${m.name}</td><td style="font-size:10px">${locs.length?locs.join(', '):'—'}</td><td class="right">${trades.length}</td><td class="right">${vol} MBF</td><td style="white-space:nowrap"><button class="btn btn-default btn-sm" onclick="editMill('${m.name}')">Edit</button> <button class="btn btn-default btn-sm" onclick="deleteMill('${m.name}')" style="color:var(--negative)">×</button></td></tr>`;
+            }).join(''):`<tr><td colspan="${S.trader==='Admin'?6:5}" class="empty-state">No mills yet</td></tr>`}
+          </tbody></table></div></div>`;
+    }
+
+    c.innerHTML=`
+      <div style="margin-bottom:12px;padding:8px 12px;background:var(--panel);border-left:3px solid ${traderColor(S.trader)};font-size:12px">
+        <strong>${S.trader==='Admin'?'🔑 All Traders':S.trader+"'s CRM"}</strong>
       </div>
-      <div class="card"><div class="card-header"><span class="card-title warn">${S.trader==='Admin'?'ALL':'MY'} CUSTOMER PROFITABILITY</span></div>
-        <div style="overflow-x:auto"><table><thead><tr><th>Customer</th><th class="right">Trades</th><th class="right">Volume</th><th class="right">Avg Margin/MBF</th></tr></thead><tbody>
-          ${Object.keys(custMargins).length?Object.entries(custMargins).filter(([c,d])=>d.vol>0).sort((x,y)=>(y[1].marginVal/y[1].vol)-(x[1].marginVal/x[1].vol)).map(([c,d])=>{
-            const avgMargin=d.vol>0?d.marginVal/d.vol:0;
-            return`<tr><td class="bold">${c}</td><td class="right">${d.n}</td><td class="right">${d.vol} MBF</td><td class="right ${avgMargin>=0?'positive':'negative'} bold">${fmt(Math.round(avgMargin))}</td></tr>`;
-          }).join(''):'<tr><td colspan="4" class="empty-state">No linked sales yet</td></tr>'}
-        </tbody></table></div></div>`;
+      ${tabsHTML}
+      ${contentHTML}`;
   }
   else if(S.view==='rldata'){
     // Combined RL Data & Charts View
@@ -7150,6 +7254,210 @@ function saveParsedRL(){
   if(i>=0)S.rl[i]=parsedRL;else{S.rl.push(parsedRL);S.rl.sort((a,b)=>new Date(a.date)-new Date(b.date))}
   saveAllLocal();closeModal();render();
 }
+
+// ==================== CRM FUNCTIONS ====================
+
+async function loadCRMProspects(){
+  try{
+    const trader=S.trader==='Admin'?'':S.trader;
+    const status=S.crmStatusFilter||'';
+    const params=new URLSearchParams();
+    if(trader)params.set('trader',trader);
+    if(status&&status!=='all')params.set('status',status);
+
+    const[prospectsRes,dashRes]=await Promise.all([
+      fetch('/api/crm/prospects?'+params),
+      fetch('/api/crm/dashboard?trader='+(trader||'Admin'))
+    ]);
+    S.crmProspects=await prospectsRes.json();
+    const dash=await dashRes.json();
+    S.crmStats=dash.stats||{};
+    S.crmOverdue=dash.overdue||[];
+    S.crmRecent=dash.recent_touches||[];
+    render();
+  }catch(e){console.error('CRM load error:',e)}
+}
+
+function showProspectModal(p=null){
+  document.getElementById('modal').innerHTML=`<div class="modal-overlay" onclick="closeModal()"><div class="modal" onclick="event.stopPropagation()">
+    <div class="modal-header"><span class="modal-title info">${p?'EDIT':'NEW'} PROSPECT</span><button class="modal-close" onclick="closeModal()">×</button></div>
+    <div class="modal-body">
+      <div class="form-grid">
+        <div class="form-group full"><label class="form-label">Company Name *</label><input type="text" id="p-company" value="${p?.company_name||''}" required></div>
+        <div class="form-group"><label class="form-label">Contact Name</label><input type="text" id="p-contact" value="${p?.contact_name||''}"></div>
+        <div class="form-group"><label class="form-label">Phone</label><input type="tel" id="p-phone" value="${p?.phone||''}"></div>
+        <div class="form-group"><label class="form-label">Email</label><input type="email" id="p-email" value="${p?.email||''}"></div>
+        <div class="form-group"><label class="form-label">Status</label>
+          <select id="p-status">
+            <option value="prospect" ${(p?.status||'prospect')==='prospect'?'selected':''}>Prospect</option>
+            <option value="qualified" ${p?.status==='qualified'?'selected':''}>Qualified</option>
+            <option value="converted" ${p?.status==='converted'?'selected':''}>Converted</option>
+            <option value="lost" ${p?.status==='lost'?'selected':''}>Lost</option>
+          </select>
+        </div>
+        <div class="form-group full"><label class="form-label">Address</label><input type="text" id="p-address" value="${p?.address||''}"></div>
+        <div class="form-group"><label class="form-label">Source</label><input type="text" id="p-source" value="${p?.source||''}" placeholder="How did you find them?"></div>
+        <div class="form-group full"><label class="form-label">Notes</label><textarea id="p-notes" rows="3">${p?.notes||''}</textarea></div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      ${p?`<button class="btn btn-danger" onclick="deleteProspect(${p.id})">Delete</button>`:''}
+      <button class="btn btn-default" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-info" onclick="saveProspect(${p?.id||'null'})">${p?'Update':'Create'} Prospect</button>
+    </div>
+  </div></div>`;
+}
+
+async function saveProspect(id){
+  const data={
+    company_name:document.getElementById('p-company').value,
+    contact_name:document.getElementById('p-contact').value,
+    phone:document.getElementById('p-phone').value,
+    email:document.getElementById('p-email').value,
+    address:document.getElementById('p-address').value,
+    status:document.getElementById('p-status').value,
+    source:document.getElementById('p-source').value,
+    notes:document.getElementById('p-notes').value,
+    trader:S.trader==='Admin'?'':S.trader
+  };
+  if(!data.company_name){alert('Company name required');return}
+  try{
+    const url=id?'/api/crm/prospects/'+id:'/api/crm/prospects';
+    await fetch(url,{method:id?'PUT':'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
+    closeModal();loadCRMProspects();
+  }catch(e){alert('Error saving prospect')}
+}
+
+async function deleteProspect(id){
+  if(!confirm('Delete this prospect?'))return;
+  try{
+    await fetch('/api/crm/prospects/'+id,{method:'DELETE'});
+    closeModal();loadCRMProspects();
+  }catch(e){alert('Error deleting prospect')}
+}
+
+async function viewProspect(id){
+  try{
+    const res=await fetch('/api/crm/prospects/'+id);
+    const p=await res.json();
+    document.getElementById('modal').innerHTML=`<div class="modal-overlay" onclick="closeModal()"><div class="modal wide" onclick="event.stopPropagation()">
+      <div class="modal-header">
+        <span class="modal-title info">${p.company_name}</span>
+        <button class="modal-close" onclick="closeModal()">×</button>
+      </div>
+      <div class="modal-body">
+        <div class="grid-2" style="gap:20px">
+          <div>
+            <h4 style="color:var(--accent);margin-bottom:12px">Contact Info</h4>
+            <div style="font-size:12px;line-height:1.8">
+              <div><strong>Contact:</strong> ${p.contact_name||'—'}</div>
+              <div><strong>Phone:</strong> ${p.phone||'—'}</div>
+              <div><strong>Email:</strong> ${p.email||'—'}</div>
+              <div><strong>Address:</strong> ${p.address||'—'}</div>
+              <div><strong>Status:</strong> <span class="badge badge-pending">${p.status}</span></div>
+              <div><strong>Source:</strong> ${p.source||'—'}</div>
+              ${p.notes?`<div style="margin-top:8px"><strong>Notes:</strong><div style="background:var(--bg);padding:8px;margin-top:4px;border-radius:4px">${p.notes}</div></div>`:''}
+            </div>
+          </div>
+          <div>
+            <h4 style="color:var(--accent);margin-bottom:12px">Touch History (${(p.touches||[]).length})</h4>
+            <div style="max-height:250px;overflow-y:auto">
+              ${(p.touches||[]).length?p.touches.map(t=>`
+                <div style="border-left:2px solid var(--border);padding-left:12px;margin-bottom:12px">
+                  <div style="display:flex;justify-content:space-between;font-size:11px">
+                    <span class="badge badge-${t.touch_type==='call'?'pending':t.touch_type==='email'?'info':'success'}">${t.touch_type}</span>
+                    <span style="color:var(--muted)">${new Date(t.created_at).toLocaleDateString()}</span>
+                  </div>
+                  <div style="margin-top:4px;font-size:11px">${t.notes||'No notes'}</div>
+                  ${t.follow_up_date?`<div style="font-size:10px;color:var(--warn);margin-top:4px">Follow-up: ${t.follow_up_date}</div>`:''}
+                </div>
+              `).join(''):'<div class="empty-state">No touches yet</div>'}
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-default" onclick="showProspectModal(${JSON.stringify(p).replace(/"/g,'&quot;')})">Edit</button>
+        <button class="btn btn-info" onclick="closeModal();showTouchModal(${p.id})">Log Touch</button>
+        ${p.status!=='converted'?`<button class="btn btn-success" onclick="convertProspect(${p.id})">Convert to Customer</button>`:''}
+      </div>
+    </div></div>`;
+  }catch(e){alert('Error loading prospect')}
+}
+
+function showTouchModal(prospectId){
+  document.getElementById('modal').innerHTML=`<div class="modal-overlay" onclick="closeModal()"><div class="modal" onclick="event.stopPropagation()">
+    <div class="modal-header"><span class="modal-title positive">LOG CONTACT TOUCH</span><button class="modal-close" onclick="closeModal()">×</button></div>
+    <div class="modal-body">
+      <div class="form-grid">
+        <div class="form-group full">
+          <label class="form-label">Touch Type *</label>
+          <div style="display:flex;gap:8px">
+            <button class="btn btn-info" id="tt-call" onclick="selectTouchType('call')">📞 Call</button>
+            <button class="btn btn-default" id="tt-email" onclick="selectTouchType('email')">✉️ Email</button>
+            <button class="btn btn-default" id="tt-meeting" onclick="selectTouchType('meeting')">🤝 Meeting</button>
+            <button class="btn btn-default" id="tt-note" onclick="selectTouchType('note')">📝 Note</button>
+          </div>
+        </div>
+        <div class="form-group full"><label class="form-label">Notes *</label><textarea id="t-notes" rows="4" placeholder="What was discussed?"></textarea></div>
+        <div class="form-group full">
+          <label class="form-label">Products Discussed</label>
+          <div style="display:flex;flex-wrap:wrap;gap:6px">
+            ${PRODUCTS.map(p=>`<label style="display:flex;align-items:center;gap:4px;padding:4px 8px;background:var(--bg);border-radius:4px;font-size:10px;cursor:pointer"><input type="checkbox" value="${p}" class="prod-check">${p}</label>`).join('')}
+          </div>
+        </div>
+        <div class="form-group"><label class="form-label">Follow-up Date</label><input type="date" id="t-followup"></div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-default" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-success" onclick="saveTouch(${prospectId})">Save Touch</button>
+    </div>
+  </div></div>`;
+  window._touchType='call';
+}
+
+function selectTouchType(type){
+  window._touchType=type;
+  ['call','email','meeting','note'].forEach(t=>{
+    document.getElementById('tt-'+t).className=t===type?'btn btn-info':'btn btn-default';
+  });
+}
+
+async function saveTouch(prospectId){
+  const notes=document.getElementById('t-notes').value;
+  if(!notes){alert('Notes required');return}
+  const products=Array.from(document.querySelectorAll('.prod-check:checked')).map(c=>c.value);
+  const data={
+    prospect_id:prospectId,
+    touch_type:window._touchType||'call',
+    notes,
+    products_discussed:products.length?products:null,
+    follow_up_date:document.getElementById('t-followup').value||null
+  };
+  try{
+    await fetch('/api/crm/touches',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
+    closeModal();loadCRMProspects();
+  }catch(e){alert('Error saving touch')}
+}
+
+async function convertProspect(id){
+  if(!confirm('Convert this prospect to a customer? They will be marked as converted.'))return;
+  try{
+    const res=await fetch('/api/crm/prospects/'+id+'/convert',{method:'POST'});
+    const p=await res.json();
+    // Optionally add to customers list
+    if(!S.customers)S.customers=[];
+    if(!S.customers.find(c=>c.name===p.company_name)){
+      S.customers.push({name:p.company_name,destination:p.address||'',trader:S.trader});
+      saveAllLocal();
+    }
+    closeModal();loadCRMProspects();
+    alert('Prospect converted! They have been added to your Customers list.');
+  }catch(e){alert('Error converting prospect')}
+}
+
+// ==================== END CRM FUNCTIONS ====================
 
 function showCustModal(c=null){
   const locs=c?.locations||[c?.destination].filter(Boolean);
