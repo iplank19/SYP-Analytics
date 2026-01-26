@@ -700,6 +700,20 @@ def convert_prospect(id):
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+# Wipe ALL CRM data
+@app.route('/api/crm/wipe-all', methods=['POST'])
+def wipe_all_crm():
+    try:
+        conn = get_crm_db()
+        conn.execute('DELETE FROM contact_touches')
+        conn.execute('DELETE FROM prospect_product_interest')
+        conn.execute('DELETE FROM prospects')
+        conn.commit()
+        conn.close()
+        return jsonify({'message': 'All CRM data wiped', 'success': True})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 # Cleanup endpoint - wipe all CRM data except Ian's
 @app.route('/api/crm/cleanup-non-ian', methods=['POST'])
 def cleanup_non_ian():
