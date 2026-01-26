@@ -2066,22 +2066,26 @@ function render(){
     S.view='rldata';S.rlTab='charts';render();return;
   }
   else if(S.view==='blotter'){
-    // Calculate sold volume per Order# - normalize to strings
+    // Use trader-filtered data (Admin sees all, traders see only their own)
+    const myBuys=a.buys;
+    const mySells=a.sells;
+
+    // Calculate sold volume per Order# - normalize to strings (only from my sells)
     const orderSold={};
-    S.sells.forEach(s=>{
+    mySells.forEach(s=>{
       const ord=String(s.orderNum||s.linkedPO||s.oc||'').trim();
       if(ord)orderSold[ord]=(orderSold[ord]||0)+(s.volume||0);
     });
 
-    // Get unique values for filters
-    const mills=[...new Set(S.buys.map(b=>b.mill).filter(Boolean))].sort();
-    const customers=[...new Set(S.sells.map(s=>s.customer).filter(Boolean))].sort();
-    const products=[...new Set([...S.buys.map(b=>b.product),...S.sells.map(s=>s.product)].filter(Boolean))].sort();
+    // Get unique values for filters (only from my trades)
+    const mills=[...new Set(myBuys.map(b=>b.mill).filter(Boolean))].sort();
+    const customers=[...new Set(mySells.map(s=>s.customer).filter(Boolean))].sort();
+    const products=[...new Set([...myBuys.map(b=>b.product),...mySells.map(s=>s.product)].filter(Boolean))].sort();
 
     // Apply blotter filters
     const bf=S.blotterFilter||{};
-    let filteredBuys=a.buys;
-    let filteredSells=a.sells;
+    let filteredBuys=myBuys;
+    let filteredSells=mySells;
 
     // Text search filter
     if(bf.search){
@@ -2106,8 +2110,8 @@ function render(){
     if(bf.product){filteredBuys=filteredBuys.filter(b=>b.product===bf.product);filteredSells=filteredSells.filter(s=>s.product===bf.product);}
     if(bf.customer)filteredSells=filteredSells.filter(s=>s.customer===bf.customer);
     if(bf.showShorts){
-      // Shorts = sells with orderNum that has no matching buy - normalize for comparison
-      const buyOrders=new Set(S.buys.map(b=>String(b.orderNum||b.po||'').trim()).filter(Boolean));
+      // Shorts = sells with orderNum that has no matching buy - normalize for comparison (use my buys only)
+      const buyOrders=new Set(myBuys.map(b=>String(b.orderNum||b.po||'').trim()).filter(Boolean));
       filteredSells=filteredSells.filter(s=>{
         const ord=String(s.orderNum||s.linkedPO||s.oc||'').trim();
         return !ord||!buyOrders.has(ord);
@@ -2140,14 +2144,27 @@ function render(){
     const sortIcon=(col)=>bs.col===col?(bs.dir==='asc'?'▲':'▼'):'';
     const sortClick=(col)=>`onclick="toggleSort('${col}')"style="cursor:pointer"`;
     
-    // Build order lookup for sells - normalize to strings for matching
+    // Build order lookup for cross-trader visibility
+    // Use ALL department data to see if coworkers are involved in linked orders
     const buyByOrder={};
     S.buys.forEach(b=>{
       const ord=String(b.orderNum||b.po||'').trim();
       if(ord)buyByOrder[ord]=b;
     });
+    const sellByOrder={};
+    S.sells.forEach(s=>{
+      const ord=String(s.orderNum||s.linkedPO||s.oc||'').trim();
+      if(ord){
+        if(!sellByOrder[ord])sellByOrder[ord]=[];
+        sellByOrder[ord].push(s);
+      }
+    });
     
     c.innerHTML=`
+      <div style="margin-bottom:12px;padding:8px 12px;background:var(--panel);border-left:3px solid ${traderColor(S.trader)};font-size:12px;display:flex;justify-content:space-between;align-items:center">
+        <div><strong>${S.trader==='Admin'?'🔑 All Traders':S.trader+"'s Trade Blotter"}</strong> <span style="color:var(--muted)">— ${filteredBuys.length} buys, ${filteredSells.length} sells</span></div>
+        ${S.trader!=='Admin'?`<div style="font-size:10px;color:var(--muted)">📊 See Risk & Leaderboard for dept-wide data</div>`:''}
+      </div>
       <div class="card" style="margin-bottom:16px;padding:12px">
         <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center">
           <div style="position:relative;flex:0 0 200px">
@@ -2171,7 +2188,7 @@ function render(){
       </div>
       <div class="card"><div class="card-header"><span class="card-title positive">${S.trader==='Admin'?'ALL BUYS':'MY BUYS'}</span><span style="color:var(--muted);font-size:10px;margin-left:8px">${filteredBuys.length} trades</span><button class="btn btn-default btn-sm" onclick="expCSV('buys')">Export CSV</button></div>
         <div style="overflow-x:auto"><table><thead><tr>${S.trader==='Admin'?'<th>👤</th>':''}<th ${sortClick('orderNum')}>Order # ${sortIcon('orderNum')}</th><th ${sortClick('date')}>Date ${sortIcon('date')}</th><th class="right" title="Days since purchase">Age</th><th ${sortClick('mill')}>Mill ${sortIcon('mill')}</th><th>Origin</th><th>Reg</th><th ${sortClick('product')}>Product ${sortIcon('product')}</th><th>Len</th><th class="right" ${sortClick('price')}>Price ${sortIcon('price')}</th><th class="right">Frt</th><th class="right" ${sortClick('volume')}>Vol ${sortIcon('volume')}</th><th class="right">Sold</th><th class="right">Avail</th><th></th></tr></thead><tbody>
-          ${filteredBuys.length?filteredBuys.map(b=>{const ord=String(b.orderNum||b.po||'').trim();const sold=orderSold[ord]||0;const avail=(b.volume||0)-sold;const buyFrtMBF=b.volume>0?(b.freight||0)/b.volume:0;const age=calcAge(b.date);const ageColor=age>30?'var(--negative)':age>14?'var(--warn)':'var(--muted)';return`<tr>${S.trader==='Admin'?`<td><span style="display:inline-block;width:20px;height:20px;border-radius:50%;background:${traderColor(b.trader||'Ian')};color:var(--bg);font-size:10px;font-weight:700;text-align:center;line-height:20px" title="${b.trader||'Ian'}">${traderInitial(b.trader||'Ian')}</span></td>`:''}<td class="bold accent">${ord||'—'}</td><td>${fmtD(b.date)}</td><td class="right" style="color:${ageColor};font-size:10px" title="${age} days old">${age}d</td><td>${b.mill||'—'}</td><td>${b.origin||'—'}</td><td style="text-transform:capitalize">${b.region}</td><td class="bold">${b.product}${b.msrPremium?' <span style="color:var(--accent);font-size:9px">+'+b.msrPremium+'</span>':''}</td><td>${b.length||'RL'}${b.tally?' <span style="color:var(--warn);font-size:9px">T</span>':''}</td><td class="right positive">${fmt(b.price)}${b.freight?' <span style="color:var(--muted);font-size:9px">FOB</span>':''}</td><td class="right ${b.freight?'warn':''}">${b.freight?fmt(b.freight):'—'}</td><td class="right">${b.volume}</td><td class="right ${sold>0?'warn':''}">${sold}</td><td class="right ${avail>0?'positive':''}">${avail}</td><td><div class="action-buttons"><button class="btn btn-default btn-sm" onclick="editBuy(${b.id})">Edit</button><button class="btn btn-default btn-sm" onclick="dupBuy(${b.id})">⧉</button><button class="btn btn-danger btn-sm" onclick="delBuy(${b.id})">×</button></div></td></tr>`}).join(''):`<tr><td colspan="${S.trader==='Admin'?15:14}" class="empty-state">No buys</td></tr>`}
+          ${filteredBuys.length?filteredBuys.map(b=>{const ord=String(b.orderNum||b.po||'').trim();const sold=orderSold[ord]||0;const avail=(b.volume||0)-sold;const buyFrtMBF=b.volume>0?(b.freight||0)/b.volume:0;const age=calcAge(b.date);const ageColor=age>30?'var(--negative)':age>14?'var(--warn)':'var(--muted)';const linkedSells=ord?sellByOrder[ord]||[]:[];const coworkerSells=linkedSells.filter(s=>s.trader&&s.trader!==b.trader);return`<tr>${S.trader==='Admin'?`<td><span style="display:inline-block;width:20px;height:20px;border-radius:50%;background:${traderColor(b.trader||'Ian')};color:var(--bg);font-size:10px;font-weight:700;text-align:center;line-height:20px" title="${b.trader||'Ian'}">${traderInitial(b.trader||'Ian')}</span></td>`:''}<td class="bold accent">${ord||'—'}${coworkerSells.length?` <span style="font-size:9px;color:var(--info)" title="Sold by: ${coworkerSells.map(s=>s.trader).join(', ')}">→${coworkerSells.map(s=>traderInitial(s.trader)).join(',')}</span>`:''}</td><td>${fmtD(b.date)}</td><td class="right" style="color:${ageColor};font-size:10px" title="${age} days old">${age}d</td><td>${b.mill||'—'}</td><td>${b.origin||'—'}</td><td style="text-transform:capitalize">${b.region}</td><td class="bold">${b.product}${b.msrPremium?' <span style="color:var(--accent);font-size:9px">+'+b.msrPremium+'</span>':''}</td><td>${b.length||'RL'}${b.tally?' <span style="color:var(--warn);font-size:9px">T</span>':''}</td><td class="right positive">${fmt(b.price)}${b.freight?' <span style="color:var(--muted);font-size:9px">FOB</span>':''}</td><td class="right ${b.freight?'warn':''}">${b.freight?fmt(b.freight):'—'}</td><td class="right">${b.volume}</td><td class="right ${sold>0?'warn':''}">${sold}</td><td class="right ${avail>0?'positive':''}">${avail}</td><td><div class="action-buttons"><button class="btn btn-default btn-sm" onclick="editBuy(${b.id})">Edit</button><button class="btn btn-default btn-sm" onclick="dupBuy(${b.id})">⧉</button><button class="btn btn-danger btn-sm" onclick="delBuy(${b.id})">×</button></div></td></tr>`}).join(''):`<tr><td colspan="${S.trader==='Admin'?15:14}" class="empty-state">No buys</td></tr>`}
         </tbody></table></div></div>
       <div class="card"><div class="card-header"><span class="card-title">${S.trader==='Admin'?'ALL SELLS':'MY SELLS'}</span><span style="color:var(--muted);font-size:10px;margin-left:8px">${filteredSells.length} trades</span><button class="btn btn-default btn-sm" onclick="expCSV('sells')">Export CSV</button></div>
         <div style="overflow-x:auto"><table><thead><tr>${S.trader==='Admin'?'<th>👤</th>':''}<th ${sortClick('orderNum')}>Order # ${sortIcon('orderNum')}</th><th ${sortClick('date')}>Date ${sortIcon('date')}</th><th ${sortClick('customer')}>Customer ${sortIcon('customer')}</th><th>Dest</th><th ${sortClick('product')}>Product ${sortIcon('product')}</th><th>Len</th><th class="right" ${sortClick('price')}>DLVD ${sortIcon('price')}</th><th class="right">Frt</th><th class="right">Frt/MBF</th><th class="right">Margin</th><th class="right" ${sortClick('volume')}>Vol ${sortIcon('volume')}</th><th class="right">Profit</th><th></th></tr></thead><tbody>
@@ -2373,17 +2390,21 @@ function render(){
       </div>`:''}`
   }
   else if(S.view==='risk'){
-    // Calculate positions by product (bought vs sold)
+    // Risk analytics shows DEPARTMENT-WIDE data for all traders to see overall exposure
+    const deptBuys=S.buys;
+    const deptSells=S.sells;
+
+    // Calculate positions by product (bought vs sold) - DEPT WIDE
     const normLen=l=>String(l||'RL').replace(/'/g,'');
     const positions={};
-    S.buys.forEach(b=>{
+    deptBuys.forEach(b=>{
       const len=normLen(b.length);
       const key=`${b.product}|${len}`;
       if(!positions[key])positions[key]={product:b.product,length:len,region:b.region||'west',bought:0,sold:0,boughtVal:0,soldVal:0};
       positions[key].bought+=b.volume||0;
       positions[key].boughtVal+=(b.price||0)*(b.volume||0);
     });
-    S.sells.forEach(s=>{
+    deptSells.forEach(s=>{
       const len=normLen(s.length);
       const key=`${s.product}|${len}`;
       if(!positions[key])positions[key]={product:s.product,length:len,region:s.region||'west',bought:0,sold:0,boughtVal:0,soldVal:0};
@@ -2402,14 +2423,14 @@ function render(){
     const shortExposure=shortPos.reduce((s,p)=>s+p.net*p.avgSell,0);
     const netPosition=totalLong-totalShort;
 
-    // Exposure by Region
+    // Exposure by Region - DEPT WIDE
     const regionExposure={west:{long:0,short:0,longVal:0,shortVal:0},central:{long:0,short:0,longVal:0,shortVal:0},east:{long:0,short:0,longVal:0,shortVal:0}};
-    a.buys.forEach(b=>{
+    deptBuys.forEach(b=>{
       const r=b.region||'west';
       regionExposure[r].long+=b.volume||0;
       regionExposure[r].longVal+=(b.price||0)*(b.volume||0);
     });
-    a.sells.forEach(s=>{
+    deptSells.forEach(s=>{
       const r=s.region||'west';
       regionExposure[r].short+=s.volume||0;
       const frtMBF=s.volume>0?(s.freight||0)/s.volume:0;
@@ -2422,9 +2443,9 @@ function render(){
     const totalExposure=longExposure+shortExposure;
     const concentrationPct=totalExposure>0&&largestPos?(largestPos.net*(largestPos.avgCost||largestPos.avgSell))/totalExposure*100:0;
 
-    // Uncovered sells (sells without matching buy order)
-    const buyOrders=new Set(S.buys.map(b=>String(b.orderNum||b.po||'').trim()).filter(Boolean));
-    const uncoveredSells=a.sells.filter(s=>{
+    // Uncovered sells (sells without matching buy order) - DEPT WIDE
+    const buyOrders=new Set(deptBuys.map(b=>String(b.orderNum||b.po||'').trim()).filter(Boolean));
+    const uncoveredSells=deptSells.filter(s=>{
       const ord=String(s.orderNum||s.linkedPO||s.oc||'').trim();
       return !ord||!buyOrders.has(ord);
     });
