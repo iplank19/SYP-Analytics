@@ -7383,7 +7383,7 @@ async function seedMockData(){
 }
 
 async function assignAllToIan(){
-  if(!confirm('This will assign ALL customers, mills, and CRM prospects to Ian and clear other traders\\' CRM data. Continue?'))return;
+  if(!confirm("This will assign ALL customers, mills, and CRM prospects to Ian and clear other traders' CRM data. Continue?"))return;
   try{
     // 1. Assign all CRM prospects to Ian via API
     await fetch('/api/crm/assign-to-ian',{method:'POST'});
