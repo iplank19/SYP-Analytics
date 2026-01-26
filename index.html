@@ -3200,7 +3200,8 @@ function render(){
           <div class="card-header">
             <span class="card-title info">PROSPECT PIPELINE</span>
             <div style="display:flex;gap:8px;align-items:center">
-              <button class="btn btn-default btn-sm" onclick="seedMockData()" title="Load test data">🧪 Mock Data</button>
+              ${S.trader==='Admin'?`<button class="btn btn-danger btn-sm" onclick="resetAllCRMData()" title="Delete all CRM data">🗑️ Reset All</button>
+              <button class="btn btn-default btn-sm" onclick="seedMockData()" title="Load test data">🧪 Mock Data</button>`:''}
               <select onchange="S.crmStatusFilter=this.value;loadCRMProspects()" style="padding:4px 8px;font-size:10px">
                 <option value="all" ${statusFilter==='all'?'selected':''}>All Status</option>
                 <option value="prospect" ${statusFilter==='prospect'?'selected':''}>New Prospects</option>
@@ -7347,7 +7348,7 @@ function saveParsedRL(){
 
 // ==================== CRM FUNCTIONS ====================
 
-async function loadCRMProspects(){
+async function loadCRMData(){
   try{
     // Each trader sees only their own CRM data
     const trader=S.trader;
@@ -7356,9 +7357,13 @@ async function loadCRMProspects(){
     if(trader && trader!=='Admin')params.set('trader',trader);
     if(status&&status!=='all')params.set('status',status);
 
-    const[prospectsRes,dashRes]=await Promise.all([
+    const traderParam=trader && trader!=='Admin'?'?trader='+trader:'';
+
+    const[prospectsRes,dashRes,customersRes,millsRes]=await Promise.all([
       fetch('/api/crm/prospects?'+params),
-      fetch('/api/crm/dashboard?trader='+trader)
+      fetch('/api/crm/dashboard?trader='+trader),
+      fetch('/api/crm/customers'+traderParam),
+      fetch('/api/crm/mills'+traderParam)
     ]);
     S.crmProspects=await prospectsRes.json();
     const dash=await dashRes.json();
@@ -7368,8 +7373,31 @@ async function loadCRMProspects(){
     S.crmStaleCritical=dash.stale_critical||[];
     S.crmStaleWarning=dash.stale_warning||[];
     S.crmNeverContacted=dash.never_contacted||[];
+    // Load customers and mills from cloud DB
+    S.customers=await customersRes.json();
+    S.mills=await millsRes.json();
+    // Parse locations if stored as JSON string
+    S.customers.forEach(c=>{if(typeof c.locations==='string')try{c.locations=JSON.parse(c.locations)}catch(e){}});
+    S.mills.forEach(m=>{if(typeof m.products==='string')try{m.products=JSON.parse(m.products)}catch(e){}});
     render();
   }catch(e){console.error('CRM load error:',e)}
+}
+
+// Alias for backwards compatibility
+async function loadCRMProspects(){return loadCRMData()}
+
+async function resetAllCRMData(){
+  if(!confirm('This will DELETE ALL CRM data (prospects, customers, mills) for ALL traders. This cannot be undone. Continue?'))return;
+  if(!confirm('Are you SURE? Type "RESET" in the next prompt to confirm.'))return;
+  const confirmation=prompt('Type RESET to confirm deletion of all CRM data:');
+  if(confirmation!=='RESET'){alert('Cancelled.');return;}
+  try{
+    const res=await fetch('/api/crm/wipe-all',{method:'POST'});
+    const result=await res.json();
+    alert(result.message||'All CRM data wiped');
+    S.crmProspects=[];S.customers=[];S.mills=[];
+    loadCRMData();
+  }catch(e){alert('Error: '+e.message)}
 }
 
 async function seedMockData(){
@@ -7806,20 +7834,23 @@ function saveRL(){
   saveAllLocal();closeModal();render();
 }
 
-function saveCust(name){
+async function saveCust(oldName){
   const locations=[...document.querySelectorAll('.cust-loc')].map(el=>el.value.trim()).filter(Boolean);
   const assignedTrader=S.trader==='Admin'?(document.getElementById('m-trader')?.value||'Ian'):S.trader;
-  const c={name:document.getElementById('m-name').value,contact:document.getElementById('m-contact')?.value||'',phone:document.getElementById('m-phone')?.value||'',email:document.getElementById('m-email')?.value||'',locations:locations,destination:locations[0]||'',terms:document.getElementById('m-terms')?.value||'',trader:assignedTrader};
+  const c={name:document.getElementById('m-name').value,contact:document.getElementById('m-contact')?.value||'',phone:document.getElementById('m-phone')?.value||'',email:document.getElementById('m-email')?.value||'',locations:locations,destination:locations[0]||'',notes:document.getElementById('m-terms')?.value||'',trader:assignedTrader};
   if(!c.name){alert('Enter name');return}
-  const existing=S.customers.findIndex(x=>x.name===name);
-  if(existing>=0){
-    // Admin can reassign trader, otherwise keep original
-    c.trader=S.trader==='Admin'?assignedTrader:(S.customers[existing].trader||S.trader);
-    S.customers[existing]={...S.customers[existing],...c};
-  }else{
-    S.customers.push(c);
-  }
-  saveAllLocal();closeModal();render();
+  try{
+    const existing=S.customers.find(x=>x.name===oldName);
+    if(existing?.id){
+      // Update existing customer via API
+      c.trader=S.trader==='Admin'?assignedTrader:(existing.trader||S.trader);
+      await fetch('/api/crm/customers/'+existing.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(c)});
+    }else{
+      // Create new customer via API
+      await fetch('/api/crm/customers',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(c)});
+    }
+    closeModal();loadCRMData();
+  }catch(e){alert('Error saving customer: '+e.message)}
 }
 
 function showMillModal(m=null){
@@ -7857,20 +7888,23 @@ function addMillLocation(){
   container.appendChild(div);
 }
 
-function saveMill(oldName){
+async function saveMill(oldName){
   const locations=[...document.querySelectorAll('.mill-loc')].map(el=>el.value.trim()).filter(Boolean);
   const assignedTrader=S.trader==='Admin'?(document.getElementById('m-trader')?.value||'Ian'):S.trader;
-  const m={name:document.getElementById('m-name').value,locations:locations,origin:locations[0]||'',region:document.getElementById('m-region').value,contact:document.getElementById('m-contact').value,phone:document.getElementById('m-phone').value,notes:document.getElementById('m-notes').value,trader:assignedTrader};
+  const m={name:document.getElementById('m-name').value,location:locations[0]||'',products:locations,contact:document.getElementById('m-contact').value,phone:document.getElementById('m-phone').value,notes:document.getElementById('m-notes').value,trader:assignedTrader};
   if(!m.name){alert('Enter name');return}
-  const existing=S.mills.findIndex(x=>x.name===oldName);
-  if(existing>=0){
-    // Admin can reassign trader, otherwise keep original
-    m.trader=S.trader==='Admin'?assignedTrader:(S.mills[existing].trader||S.trader);
-    S.mills[existing]={...S.mills[existing],...m};
-  }else{
-    S.mills.push(m);
-  }
-  saveAllLocal();closeModal();render();
+  try{
+    const existing=S.mills.find(x=>x.name===oldName);
+    if(existing?.id){
+      // Update existing mill via API
+      m.trader=S.trader==='Admin'?assignedTrader:(existing.trader||S.trader);
+      await fetch('/api/crm/mills/'+existing.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(m)});
+    }else{
+      // Create new mill via API
+      await fetch('/api/crm/mills',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(m)});
+    }
+    closeModal();loadCRMData();
+  }catch(e){alert('Error saving mill: '+e.message)}
 }
 
 function editMill(name){showMillModal(name)}
@@ -7879,16 +7913,22 @@ function editCust(name){
   showCustModal(c);
 }
 
-function deleteCust(name){
+async function deleteCust(name){
   if(!confirm(`Delete customer "${name}"? This won't delete their trades.`))return;
-  S.customers=S.customers.filter(c=>c.name!==name);
-  saveAllLocal();render();
+  try{
+    const c=S.customers.find(x=>x.name===name);
+    if(c?.id)await fetch('/api/crm/customers/'+c.id,{method:'DELETE'});
+    loadCRMData();
+  }catch(e){alert('Error deleting customer: '+e.message)}
 }
 
-function deleteMill(name){
+async function deleteMill(name){
   if(!confirm(`Delete mill "${name}"? This won't delete their trades.`))return;
-  S.mills=S.mills.filter(m=>m.name!==name);
-  saveAllLocal();render();
+  try{
+    const m=S.mills.find(x=>x.name===name);
+    if(m?.id)await fetch('/api/crm/mills/'+m.id,{method:'DELETE'});
+    loadCRMData();
+  }catch(e){alert('Error deleting mill: '+e.message)}
 }
 
 function editBuy(id){showBuyModal(S.buys.find(b=>b.id===id))}

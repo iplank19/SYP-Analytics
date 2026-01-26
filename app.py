@@ -65,6 +65,39 @@ def init_crm_db():
         CREATE INDEX IF NOT EXISTS idx_touches_follow_up ON contact_touches(follow_up_date);
         CREATE INDEX IF NOT EXISTS idx_prospects_status ON prospects(status);
         CREATE INDEX IF NOT EXISTS idx_prospects_trader ON prospects(trader);
+
+        -- Customers table (cloud-based)
+        CREATE TABLE IF NOT EXISTS customers (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            contact TEXT,
+            phone TEXT,
+            email TEXT,
+            destination TEXT,
+            locations TEXT,
+            notes TEXT,
+            trader TEXT NOT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+
+        -- Mills table (cloud-based)
+        CREATE TABLE IF NOT EXISTS mills (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            contact TEXT,
+            phone TEXT,
+            email TEXT,
+            location TEXT,
+            products TEXT,
+            notes TEXT,
+            trader TEXT NOT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_customers_trader ON customers(trader);
+        CREATE INDEX IF NOT EXISTS idx_mills_trader ON mills(trader);
     ''')
     conn.commit()
     conn.close()
@@ -700,7 +733,7 @@ def convert_prospect(id):
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-# Wipe ALL CRM data
+# Wipe ALL CRM data (prospects, customers, mills)
 @app.route('/api/crm/wipe-all', methods=['POST'])
 def wipe_all_crm():
     try:
@@ -708,9 +741,11 @@ def wipe_all_crm():
         conn.execute('DELETE FROM contact_touches')
         conn.execute('DELETE FROM prospect_product_interest')
         conn.execute('DELETE FROM prospects')
+        conn.execute('DELETE FROM customers')
+        conn.execute('DELETE FROM mills')
         conn.commit()
         conn.close()
-        return jsonify({'message': 'All CRM data wiped', 'success': True})
+        return jsonify({'message': 'All CRM data wiped (prospects, customers, mills)', 'success': True})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -747,6 +782,174 @@ def cleanup_non_ian():
             'deleted': deleted,
             'remaining': remaining
         })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+# ==================== CUSTOMERS API ====================
+
+@app.route('/api/crm/customers', methods=['GET'])
+def list_customers():
+    try:
+        conn = get_crm_db()
+        trader = request.args.get('trader')
+        query = 'SELECT * FROM customers WHERE 1=1'
+        params = []
+        if trader and trader != 'Admin':
+            query += ' AND trader = ?'
+            params.append(trader)
+        query += ' ORDER BY name ASC'
+        customers = conn.execute(query, params).fetchall()
+        conn.close()
+        return jsonify([dict(c) for c in customers])
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/crm/customers', methods=['POST'])
+def create_customer():
+    try:
+        data = request.get_json()
+        conn = get_crm_db()
+        cursor = conn.execute('''
+            INSERT INTO customers (name, contact, phone, email, destination, locations, notes, trader)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (
+            data.get('name'),
+            data.get('contact'),
+            data.get('phone'),
+            data.get('email'),
+            data.get('destination'),
+            json.dumps(data.get('locations')) if data.get('locations') else None,
+            data.get('notes'),
+            data.get('trader')
+        ))
+        conn.commit()
+        customer = conn.execute('SELECT * FROM customers WHERE id = ?', (cursor.lastrowid,)).fetchone()
+        conn.close()
+        return jsonify(dict(customer)), 201
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/crm/customers/<int:id>', methods=['PUT'])
+def update_customer(id):
+    try:
+        data = request.get_json()
+        conn = get_crm_db()
+        conn.execute('''
+            UPDATE customers SET
+                name = ?, contact = ?, phone = ?, email = ?,
+                destination = ?, locations = ?, notes = ?, trader = ?,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+        ''', (
+            data.get('name'),
+            data.get('contact'),
+            data.get('phone'),
+            data.get('email'),
+            data.get('destination'),
+            json.dumps(data.get('locations')) if data.get('locations') else None,
+            data.get('notes'),
+            data.get('trader'),
+            id
+        ))
+        conn.commit()
+        customer = conn.execute('SELECT * FROM customers WHERE id = ?', (id,)).fetchone()
+        conn.close()
+        return jsonify(dict(customer))
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/crm/customers/<int:id>', methods=['DELETE'])
+def delete_customer(id):
+    try:
+        conn = get_crm_db()
+        conn.execute('DELETE FROM customers WHERE id = ?', (id,))
+        conn.commit()
+        conn.close()
+        return jsonify({'message': 'Customer deleted'})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+# ==================== MILLS API ====================
+
+@app.route('/api/crm/mills', methods=['GET'])
+def list_mills():
+    try:
+        conn = get_crm_db()
+        trader = request.args.get('trader')
+        query = 'SELECT * FROM mills WHERE 1=1'
+        params = []
+        if trader and trader != 'Admin':
+            query += ' AND trader = ?'
+            params.append(trader)
+        query += ' ORDER BY name ASC'
+        mills = conn.execute(query, params).fetchall()
+        conn.close()
+        return jsonify([dict(m) for m in mills])
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/crm/mills', methods=['POST'])
+def create_mill():
+    try:
+        data = request.get_json()
+        conn = get_crm_db()
+        cursor = conn.execute('''
+            INSERT INTO mills (name, contact, phone, email, location, products, notes, trader)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (
+            data.get('name'),
+            data.get('contact'),
+            data.get('phone'),
+            data.get('email'),
+            data.get('location'),
+            json.dumps(data.get('products')) if data.get('products') else None,
+            data.get('notes'),
+            data.get('trader')
+        ))
+        conn.commit()
+        mill = conn.execute('SELECT * FROM mills WHERE id = ?', (cursor.lastrowid,)).fetchone()
+        conn.close()
+        return jsonify(dict(mill)), 201
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/crm/mills/<int:id>', methods=['PUT'])
+def update_mill(id):
+    try:
+        data = request.get_json()
+        conn = get_crm_db()
+        conn.execute('''
+            UPDATE mills SET
+                name = ?, contact = ?, phone = ?, email = ?,
+                location = ?, products = ?, notes = ?, trader = ?,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+        ''', (
+            data.get('name'),
+            data.get('contact'),
+            data.get('phone'),
+            data.get('email'),
+            data.get('location'),
+            json.dumps(data.get('products')) if data.get('products') else None,
+            data.get('notes'),
+            data.get('trader'),
+            id
+        ))
+        conn.commit()
+        mill = conn.execute('SELECT * FROM mills WHERE id = ?', (id,)).fetchone()
+        conn.close()
+        return jsonify(dict(mill))
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/crm/mills/<int:id>', methods=['DELETE'])
+def delete_mill(id):
+    try:
+        conn = get_crm_db()
+        conn.execute('DELETE FROM mills WHERE id = ?', (id,))
+        conn.commit()
+        conn.close()
+        return jsonify({'message': 'Mill deleted'})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
