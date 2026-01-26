@@ -125,6 +125,19 @@
     .ai-msg.assistant{background:var(--panel-alt);border:1px solid var(--border);align-self:flex-start}
     .ai-input-area{padding:16px;border-top:1px solid var(--border);display:flex;gap:8px}
     .ai-input-area textarea{flex:1;resize:none;min-height:60px}
+    /* AI Side Panel */
+    .ai-sidepanel{width:320px;background:var(--panel);border-left:1px solid var(--border);display:flex;flex-direction:column;transition:width 0.2s ease}
+    .ai-sidepanel.collapsed{width:0;overflow:hidden;border:none}
+    .ai-toggle{position:fixed;bottom:80px;right:20px;width:48px;height:48px;border-radius:50%;background:var(--accent);color:var(--bg);border:none;font-size:20px;cursor:pointer;box-shadow:0 4px 12px rgba(0,0,0,0.3);z-index:100;transition:transform 0.2s ease}
+    .ai-toggle:hover{transform:scale(1.1)}
+    .ai-sidepanel-header{padding:12px 16px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center}
+    .ai-sidepanel-title{font-weight:600;font-size:12px;color:var(--accent)}
+    .ai-sidepanel-close{background:none;border:none;color:var(--muted);cursor:pointer;font-size:16px}
+    .ai-sidepanel-close:hover{color:var(--text)}
+    .ai-sidepanel .ai-messages{flex:1;overflow-y:auto;padding:12px;display:flex;flex-direction:column;gap:10px}
+    .ai-sidepanel .ai-msg{padding:10px 12px;border-radius:6px;max-width:95%;font-size:11px}
+    .ai-sidepanel .ai-input-area{padding:12px;border-top:1px solid var(--border);display:flex;gap:6px;flex-direction:column}
+    .ai-sidepanel .ai-input-area textarea{resize:none;min-height:50px;font-size:11px}
     .parsed-preview{background:var(--bg);border:1px solid var(--border);padding:12px;margin-top:12px;max-height:300px;overflow:auto}
     .parsed-row{display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--border)}
     ::-webkit-scrollbar{width:8px;height:8px}
@@ -281,7 +294,12 @@
       .ai-chat{height:calc(100vh - 180px)}
       .ai-input-area{padding:12px}
       .ai-input-area textarea{min-height:50px}
-      
+
+      /* AI Side Panel Mobile */
+      .ai-sidepanel{position:fixed;top:0;right:0;bottom:60px;width:100%;z-index:200;transition:right 0.3s ease}
+      .ai-sidepanel.collapsed{right:-100%;width:100%}
+      .ai-toggle{bottom:70px;right:16px}
+
       /* Action buttons wrap */
       .action-buttons{flex-wrap:wrap}
       .header-right{flex-wrap:wrap;width:100%;justify-content:flex-start}
@@ -395,7 +413,19 @@
     </header>
     <div class="content" id="content"></div>
   </main>
+  <aside class="ai-sidepanel collapsed" id="ai-panel">
+    <div class="ai-sidepanel-header">
+      <span class="ai-sidepanel-title">AI Assistant</span>
+      <button class="ai-sidepanel-close" onclick="toggleAIPanel()">✕</button>
+    </div>
+    <div class="ai-messages" id="ai-msgs"></div>
+    <div class="ai-input-area">
+      <textarea id="ai-in" placeholder="Ask anything about your data..." onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendAI()}"></textarea>
+      <button class="btn btn-primary btn-sm" onclick="sendAI()">Send</button>
+    </div>
+  </aside>
 </div>
+<button class="ai-toggle" onclick="toggleAIPanel()" title="AI Assistant">🤖</button>
 <div id="modal"></div>
 <script>
 const PRODUCTS=['2x4#2','2x6#2','2x8#2','2x10#2','2x12#2','2x4#3','2x6#3','2x8#3'];
@@ -403,7 +433,7 @@ const REGIONS=['west','central','east'];
 const DESTS=['Atlanta','Charlotte','Dallas','Memphis','Birmingham','Chicago','Houston','Nashville','Jacksonville','New Orleans'];
 const MILLS=['Canfor - DeQuincy','Canfor - Urbana','West Fraser - Huttig','West Fraser - Leola','Interfor - Monticello','Interfor - Georgetown','GP - Clarendon','GP - Camden','Rex Lumber - Bristol','Rex Lumber - Graceville','Weyerhaeuser - Dierks','Tolko - Leland'];
 const FREIGHT={west:{Atlanta:96,Charlotte:104,Dallas:40,Memphis:60,Birmingham:85,Chicago:110,Houston:55,Nashville:78},central:{Atlanta:83,Charlotte:91,Dallas:70,Memphis:50,Birmingham:60,Chicago:90,Houston:75,Nashville:55},east:{Atlanta:60,Charlotte:55,Dallas:120,Memphis:80,Birmingham:65,Chicago:84,Houston:115,Nashville:65}};
-const NAV=[{id:'dashboard',icon:'📊',label:'Dashboard'},{id:'leaderboard',icon:'🏆',label:'Leaderboard'},{id:'insights',icon:'🎯',label:'Daily Briefing'},{id:'blotter',icon:'📋',label:'Trade Blotter'},{id:'benchmark',icon:'🎯',label:'vs Market'},{id:'risk',icon:'⚠️',label:'Risk'},{id:'quotes',icon:'💰',label:'Quote Engine'},{id:'products',icon:'📦',label:'By Product'},{id:'crm',icon:'🏢',label:'CRM'},{id:'rldata',icon:'📈',label:'RL Data'},{id:'ai',icon:'🤖',label:'AI Analyst'},{id:'settings',icon:'⚙️',label:'Settings'}];
+const NAV=[{id:'dashboard',icon:'📊',label:'Dashboard'},{id:'leaderboard',icon:'🏆',label:'Leaderboard'},{id:'insights',icon:'🎯',label:'Daily Briefing'},{id:'blotter',icon:'📋',label:'Trade Blotter'},{id:'benchmark',icon:'🎯',label:'vs Market'},{id:'risk',icon:'⚠️',label:'Risk'},{id:'quotes',icon:'💰',label:'Quote Engine'},{id:'products',icon:'📦',label:'By Product'},{id:'crm',icon:'🏢',label:'CRM'},{id:'rldata',icon:'📈',label:'RL Data'},{id:'settings',icon:'⚙️',label:'Settings'}];
 
 const LS=(k,d)=>{try{const v=localStorage.getItem('syp_'+k);return v?JSON.parse(v):d}catch{return d}};
 const SS=(k,v)=>{try{localStorage.setItem('syp_'+k,JSON.stringify(v))}catch{}};
@@ -714,6 +744,7 @@ let S={
   nextId:LS('nextId',1),
   apiKey:LS('apiKey',''),
   aiMsgs:LS('aiMsgs',[]),
+  aiPanelOpen:LS('aiPanelOpen',false),
   flatRate:LS('flatRate',3.50),
   autoSync:LS('autoSync',false),
   lanes:LS('lanes',[]),
@@ -1134,6 +1165,28 @@ function renderMkt(){
 }
 
 function go(v){S.view=v;closeMobileSidebar();render()}
+
+function toggleAIPanel(){
+  S.aiPanelOpen=!S.aiPanelOpen;
+  SS('aiPanelOpen',S.aiPanelOpen);
+  document.getElementById('ai-panel').classList.toggle('collapsed',!S.aiPanelOpen);
+  if(S.aiPanelOpen)renderAIPanel();
+}
+
+function renderAIPanel(){
+  const msgs=document.getElementById('ai-msgs');
+  if(!msgs)return;
+  if(!S.apiKey){
+    msgs.innerHTML='<div class="empty-state" style="font-size:10px;padding:20px">⚠️ Add your Claude API key in Settings first.</div>';
+    return;
+  }
+  if(S.aiMsgs.length===0){
+    msgs.innerHTML='<div class="empty-state" style="font-size:10px;padding:20px">Ask me anything about your trading data.<br><br>Examples:<br>• "How am I doing vs market?"<br>• "Which customers are most profitable?"<br>• "What\'s my margin by product?"</div>';
+    return;
+  }
+  msgs.innerHTML=S.aiMsgs.map(m=>`<div class="ai-msg ${m.role}">${m.content}</div>`).join('');
+  msgs.scrollTop=msgs.scrollHeight;
+}
 
 function setTrader(t){
   S.trader=t;
@@ -3187,18 +3240,6 @@ function render(){
         ${!S.rlTab||S.rlTab==='charts'?chartsHTML:(S.rlTab==='analytics'?spreadsHTML:(S.rlTab==='compare'?compareHTML:detailHTML))}
       `}`;
   }
-  else if(S.view==='ai'){
-    c.innerHTML=`<div class="ai-chat">
-      <div class="ai-messages" id="ai-msgs">
-        ${S.apiKey?S.aiMsgs.length?S.aiMsgs.map(m=>`<div class="ai-msg ${m.role}">${m.content}</div>`).join(''):'<div class="empty-state">Ask me anything about your trading data.<br><br>Examples:<br>• "How am I doing vs market?"<br>• "Which customers are most profitable?"<br>• "What\'s my margin by product?"</div>':'<div class="empty-state">⚠️ Add your Claude API key in Settings first.</div>'}
-      </div>
-      <div class="ai-input-area">
-        <textarea id="ai-in" placeholder="Ask about your trading data..." onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendAI()}"></textarea>
-        <button class="btn btn-primary" onclick="sendAI()" style="align-self:flex-end">Send</button>
-      </div>
-    </div>`;
-    const msgs=document.getElementById('ai-msgs');if(msgs)msgs.scrollTop=msgs.scrollHeight;
-  }
   else if(S.view==='settings'){
     const sbUrl=LS('supabaseUrl','')||DEFAULT_SUPABASE_URL;
     const sbKey=LS('supabaseKey','')||DEFAULT_SUPABASE_KEY;
@@ -3278,6 +3319,9 @@ function render(){
   
   // Draw charts after DOM update
   if(S.view==='rldata'&&(!S.rlTab||S.rlTab==='charts'))setTimeout(drawCharts,10);
+
+  // Render AI side panel
+  if(S.aiPanelOpen)renderAIPanel();
 }
 
 // MODALS
@@ -7821,6 +7865,11 @@ async function init(){
   document.getElementById('f-prod').onchange=e=>{S.filters.prod=e.target.value;render()};
   document.getElementById('f-reg').onchange=e=>{S.filters.reg=e.target.value;render()};
   document.getElementById('f-prod').innerHTML='<option value="all">All Products</option>'+PRODUCTS.map(p=>`<option value="${p}">${p}</option>`).join('');
+
+  // Initialize AI panel state
+  document.getElementById('ai-panel').classList.toggle('collapsed',!S.aiPanelOpen);
+  document.querySelector('.ai-toggle').style.display='';
+
   render();
   
   // Show sync status
@@ -7830,6 +7879,7 @@ async function init(){
 }
 
 function showLoginScreen(){
+  document.querySelector('.ai-toggle').style.display='none';
   document.getElementById('app').innerHTML=`
     <div style="display:flex;align-items:center;justify-content:center;height:100vh;background:var(--bg)">
       <div style="background:var(--panel);border:1px solid var(--border);padding:40px;width:320px;text-align:center">
