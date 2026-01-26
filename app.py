@@ -700,6 +700,42 @@ def convert_prospect(id):
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+# Cleanup endpoint - wipe all CRM data except Ian's
+@app.route('/api/crm/cleanup-non-ian', methods=['POST'])
+def cleanup_non_ian():
+    try:
+        conn = get_crm_db()
+
+        # Delete touches for non-Ian prospects first
+        conn.execute('''
+            DELETE FROM contact_touches
+            WHERE prospect_id IN (SELECT id FROM prospects WHERE trader != 'Ian' OR trader IS NULL)
+        ''')
+
+        # Delete interests for non-Ian prospects
+        conn.execute('''
+            DELETE FROM prospect_product_interest
+            WHERE prospect_id IN (SELECT id FROM prospects WHERE trader != 'Ian' OR trader IS NULL)
+        ''')
+
+        # Delete non-Ian prospects
+        result = conn.execute("DELETE FROM prospects WHERE trader != 'Ian' OR trader IS NULL")
+        deleted = result.rowcount
+
+        # Get remaining count
+        remaining = conn.execute("SELECT COUNT(*) FROM prospects WHERE trader = 'Ian'").fetchone()[0]
+
+        conn.commit()
+        conn.close()
+
+        return jsonify({
+            'message': f'Deleted {deleted} non-Ian prospects. {remaining} Ian prospects remain.',
+            'deleted': deleted,
+            'remaining': remaining
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 # ==================== END CRM API ====================
 
 # Health check for Railway
