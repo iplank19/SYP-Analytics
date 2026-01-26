@@ -8123,20 +8123,38 @@ function showLoginScreen(){
   setTimeout(()=>document.getElementById('login-password')?.focus(),100);
 }
 
-function doLogin(){
+async function doLogin(){
   const trader=document.getElementById('login-trader')?.value||'Ian';
   const input=document.getElementById('login-password')?.value||'';
-  const passwords=JSON.parse(localStorage.getItem('traderPasswords')||'{}');
+  const errEl=document.getElementById('login-error');
+
+  errEl.textContent='Checking...';
+
+  // Pull passwords from cloud first
+  let passwords=JSON.parse(localStorage.getItem('traderPasswords')||'{}');
+  try{
+    const res=await fetch(`${DEFAULT_SUPABASE_URL}/rest/v1/syp_data?user_id=eq.default&select=data`,{
+      headers:{'apikey':DEFAULT_SUPABASE_KEY,'Authorization':`Bearer ${DEFAULT_SUPABASE_KEY}`}
+    });
+    const rows=await res.json();
+    if(rows&&rows[0]?.data?.traderPasswords){
+      // Merge cloud passwords with local (cloud takes priority)
+      const cloudPwds=rows[0].data.traderPasswords;
+      passwords={...passwords,...cloudPwds};
+      localStorage.setItem('traderPasswords',JSON.stringify(passwords));
+    }
+  }catch(e){console.log('Could not fetch cloud passwords:',e)}
+
   const stored=passwords[trader]||'';
-  
+
   if(!stored){
-    document.getElementById('login-error').textContent='No password set for '+trader+'. Set one below.';
+    errEl.textContent='No password set for '+trader+'. Set one below.';
     return;
   }
-  
+
   // Simple hash comparison
   const hash=btoa(input.split('').reverse().join('')+input.length);
-  
+
   if(hash===stored){
     S.trader=trader;
     SS('trader',trader);
@@ -8144,25 +8162,56 @@ function doLogin(){
     sessionStorage.setItem('syp_trader',trader);
     location.reload();
   }else{
-    document.getElementById('login-error').textContent='Incorrect password for '+trader;
+    errEl.textContent='Incorrect password for '+trader;
   }
 }
 
-function setupTraderPassword(){
+async function setupTraderPassword(){
   const trader=document.getElementById('login-trader')?.value||'Ian';
   const pwd=document.getElementById('new-password')?.value||'';
-  
+  const errEl=document.getElementById('login-error');
+
   if(!pwd||pwd.length<3){
-    document.getElementById('login-error').textContent='Password must be at least 3 characters';
+    errEl.textContent='Password must be at least 3 characters';
     return;
   }
-  
+
+  errEl.textContent='Saving...';
+
   const passwords=JSON.parse(localStorage.getItem('traderPasswords')||'{}');
   const hash=btoa(pwd.split('').reverse().join('')+pwd.length);
   passwords[trader]=hash;
   localStorage.setItem('traderPasswords',JSON.stringify(passwords));
-  
-  document.getElementById('login-error').innerHTML=`<span style="color:var(--positive)">✓ Password set for ${trader}! Now login above.</span>`;
+
+  // Sync to cloud
+  try{
+    // First pull existing data
+    const res=await fetch(`${DEFAULT_SUPABASE_URL}/rest/v1/syp_data?user_id=eq.default&select=data`,{
+      headers:{'apikey':DEFAULT_SUPABASE_KEY,'Authorization':`Bearer ${DEFAULT_SUPABASE_KEY}`}
+    });
+    const rows=await res.json();
+    let existingData=rows&&rows[0]?.data?rows[0].data:{};
+
+    // Merge passwords
+    existingData.traderPasswords={...(existingData.traderPasswords||{}),...passwords};
+
+    // Push back
+    const method=rows&&rows.length>0?'PATCH':'POST';
+    const url=method==='PATCH'?`${DEFAULT_SUPABASE_URL}/rest/v1/syp_data?user_id=eq.default`:`${DEFAULT_SUPABASE_URL}/rest/v1/syp_data`;
+    const body=method==='PATCH'?{data:existingData}:{user_id:'default',data:existingData};
+
+    await fetch(url,{
+      method,
+      headers:{'apikey':DEFAULT_SUPABASE_KEY,'Authorization':`Bearer ${DEFAULT_SUPABASE_KEY}`,'Content-Type':'application/json','Prefer':'return=minimal'},
+      body:JSON.stringify(body)
+    });
+
+    errEl.innerHTML=`<span style="color:var(--positive)">✓ Password set for ${trader}! Now login above.</span>`;
+  }catch(e){
+    console.log('Cloud sync failed:',e);
+    errEl.innerHTML=`<span style="color:var(--positive)">✓ Password set locally for ${trader}.</span>`;
+  }
+
   document.getElementById('new-password').value='';
 }
 
