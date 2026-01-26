@@ -3201,7 +3201,6 @@ function render(){
             <span class="card-title info">PROSPECT PIPELINE</span>
             <div style="display:flex;gap:8px;align-items:center">
               <button class="btn btn-default btn-sm" onclick="seedMockData()" title="Load test data">🧪 Mock Data</button>
-              <button class="btn btn-warn btn-sm" onclick="assignAllToIan()" title="Assign all CRM data to Ian">👤 Assign to Ian</button>
               <select onchange="S.crmStatusFilter=this.value;loadCRMProspects()" style="padding:4px 8px;font-size:10px">
                 <option value="all" ${statusFilter==='all'?'selected':''}>All Status</option>
                 <option value="prospect" ${statusFilter==='prospect'?'selected':''}>New Prospects</option>
@@ -7379,32 +7378,6 @@ async function seedMockData(){
     alert(`Mock data loaded: ${result.prospects_created} prospects, ${result.touches_created} touches`);
     loadCRMProspects();
   }catch(e){alert('Error seeding mock data: '+e.message)}
-}
-
-async function assignAllToIan(){
-  if(!confirm("This will assign ALL customers, mills, and CRM prospects to Ian and clear other traders' CRM data. Continue?"))return;
-  try{
-    // 1. Assign all CRM prospects to Ian via API
-    await fetch('/api/crm/assign-to-ian',{method:'POST'});
-
-    // 2. Assign all frontend customers to Ian
-    if(S.customers&&S.customers.length){
-      S.customers.forEach(c=>c.trader='Ian');
-    }
-
-    // 3. Assign all frontend mills to Ian
-    if(S.mills&&S.mills.length){
-      S.mills.forEach(m=>m.trader='Ian');
-    }
-
-    // 4. Save to local storage and cloud
-    saveAllLocal();
-    if(typeof cloudSync==='function')await cloudSync('push');
-
-    alert(`Done! All data assigned to Ian:\n- ${S.customers?.length||0} customers\n- ${S.mills?.length||0} mills\n- CRM prospects updated`);
-    loadCRMProspects();
-    render();
-  }catch(e){alert('Error: '+e.message)}
 }
 
 function showProspectModal(p=null){
