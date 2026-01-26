@@ -700,6 +700,28 @@ def convert_prospect(id):
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+# Clear CRM data for non-Ian traders and assign all to Ian
+@app.route('/api/crm/assign-to-ian', methods=['POST'])
+def assign_crm_to_ian():
+    try:
+        conn = get_crm_db()
+
+        # Update all prospects to be owned by Ian
+        conn.execute("UPDATE prospects SET trader = 'Ian' WHERE trader != 'Ian' OR trader IS NULL")
+
+        # Get counts
+        total = conn.execute('SELECT COUNT(*) FROM prospects').fetchone()[0]
+
+        conn.commit()
+        conn.close()
+
+        return jsonify({
+            'message': 'All CRM prospects assigned to Ian',
+            'total_prospects': total
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 # ==================== END CRM API ====================
 
 # Health check for Railway
