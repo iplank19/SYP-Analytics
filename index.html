@@ -7350,15 +7350,14 @@ function saveParsedRL(){
 
 async function loadCRMProspects(){
   try{
-    const trader=S.trader==='Admin'?'':S.trader;
+    // CRM data is shared across all profiles (Ian's data only)
     const status=S.crmStatusFilter||'';
     const params=new URLSearchParams();
-    if(trader)params.set('trader',trader);
     if(status&&status!=='all')params.set('status',status);
 
     const[prospectsRes,dashRes]=await Promise.all([
       fetch('/api/crm/prospects?'+params),
-      fetch('/api/crm/dashboard?trader='+(trader||'Admin'))
+      fetch('/api/crm/dashboard')
     ]);
     S.crmProspects=await prospectsRes.json();
     const dash=await dashRes.json();
