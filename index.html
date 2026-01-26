@@ -3085,6 +3085,10 @@ function render(){
       const prospects=S.crmProspects||[];
       const crmStats=S.crmStats||{};
       const statusFilter=S.crmStatusFilter||'all';
+      const staleCritical=S.crmStaleCritical||[];
+      const staleWarning=S.crmStaleWarning||[];
+      const neverContacted=S.crmNeverContacted||[];
+      const hasReminders=(staleCritical.length||staleWarning.length||neverContacted.length||(S.crmOverdue||[]).length);
 
       contentHTML=`
         <div class="kpi-grid" style="margin-bottom:16px">
@@ -3094,10 +3098,88 @@ function render(){
           <div class="kpi"><div class="kpi-label">CONVERTED</div><div class="kpi-value positive">${crmStats.converted||0}</div></div>
         </div>
 
+        ${hasReminders?`
+        <!-- REMINDER DASHBOARD -->
+        <div style="background:linear-gradient(135deg,rgba(239,68,68,0.1),rgba(245,166,35,0.1));border:1px solid var(--negative);border-radius:8px;padding:16px;margin-bottom:20px">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+            <h3 style="margin:0;color:var(--negative);font-size:14px">🔔 ACTION REQUIRED</h3>
+            <div style="display:flex;gap:12px;font-size:11px">
+              ${staleCritical.length?`<span style="color:var(--negative)">🚨 ${staleCritical.length} Critical</span>`:''}
+              ${staleWarning.length?`<span style="color:var(--warn)">⚠️ ${staleWarning.length} Warning</span>`:''}
+              ${neverContacted.length?`<span style="color:var(--info)">📭 ${neverContacted.length} Never Contacted</span>`:''}
+              ${(S.crmOverdue||[]).length?`<span style="color:var(--negative)">📅 ${S.crmOverdue.length} Overdue</span>`:''}
+            </div>
+          </div>
+
+          <div class="grid-2" style="gap:12px">
+            ${staleCritical.length?`
+            <div style="background:var(--panel);border-left:4px solid var(--negative);padding:12px;border-radius:4px">
+              <div style="font-weight:600;color:var(--negative);margin-bottom:8px;font-size:11px">🚨 CRITICAL: No contact 14+ days</div>
+              ${staleCritical.slice(0,3).map(p=>`
+                <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border)">
+                  <div>
+                    <div style="font-weight:500;font-size:11px">${p.company_name}</div>
+                    <div style="font-size:9px;color:var(--negative)">${p.days_since_touch} days since last touch</div>
+                  </div>
+                  <button class="btn btn-danger btn-sm" onclick="showTouchModal(${p.id})" style="font-size:9px;padding:4px 8px">📞 Call Now</button>
+                </div>
+              `).join('')}
+              ${staleCritical.length>3?`<div style="font-size:10px;color:var(--muted);margin-top:8px">+${staleCritical.length-3} more...</div>`:''}
+            </div>`:''}
+
+            ${staleWarning.length?`
+            <div style="background:var(--panel);border-left:4px solid var(--warn);padding:12px;border-radius:4px">
+              <div style="font-weight:600;color:var(--warn);margin-bottom:8px;font-size:11px">⚠️ WARNING: No contact 7-13 days</div>
+              ${staleWarning.slice(0,3).map(p=>`
+                <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border)">
+                  <div>
+                    <div style="font-weight:500;font-size:11px">${p.company_name}</div>
+                    <div style="font-size:9px;color:var(--warn)">${p.days_since_touch} days since last touch</div>
+                  </div>
+                  <button class="btn btn-warn btn-sm" onclick="showTouchModal(${p.id})" style="font-size:9px;padding:4px 8px">📞 Follow Up</button>
+                </div>
+              `).join('')}
+              ${staleWarning.length>3?`<div style="font-size:10px;color:var(--muted);margin-top:8px">+${staleWarning.length-3} more...</div>`:''}
+            </div>`:''}
+
+            ${neverContacted.length?`
+            <div style="background:var(--panel);border-left:4px solid var(--info);padding:12px;border-radius:4px">
+              <div style="font-weight:600;color:var(--info);margin-bottom:8px;font-size:11px">📭 NEVER CONTACTED</div>
+              ${neverContacted.slice(0,3).map(p=>`
+                <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border)">
+                  <div>
+                    <div style="font-weight:500;font-size:11px">${p.company_name}</div>
+                    <div style="font-size:9px;color:var(--info)">Added ${p.days_since_created} days ago</div>
+                  </div>
+                  <button class="btn btn-info btn-sm" onclick="showTouchModal(${p.id})" style="font-size:9px;padding:4px 8px">📞 First Call</button>
+                </div>
+              `).join('')}
+              ${neverContacted.length>3?`<div style="font-size:10px;color:var(--muted);margin-top:8px">+${neverContacted.length-3} more...</div>`:''}
+            </div>`:''}
+
+            ${(S.crmOverdue||[]).length?`
+            <div style="background:var(--panel);border-left:4px solid var(--negative);padding:12px;border-radius:4px">
+              <div style="font-weight:600;color:var(--negative);margin-bottom:8px;font-size:11px">📅 OVERDUE FOLLOW-UPS</div>
+              ${S.crmOverdue.slice(0,3).map(t=>`
+                <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border)">
+                  <div>
+                    <div style="font-weight:500;font-size:11px">${t.company_name}</div>
+                    <div style="font-size:9px;color:var(--negative)">Due: ${t.follow_up_date}</div>
+                  </div>
+                  <button class="btn btn-danger btn-sm" onclick="showTouchModal(${t.prospect_id})" style="font-size:9px;padding:4px 8px">📞 Call</button>
+                </div>
+              `).join('')}
+              ${S.crmOverdue.length>3?`<div style="font-size:10px;color:var(--muted);margin-top:8px">+${S.crmOverdue.length-3} more...</div>`:''}
+            </div>`:''}
+          </div>
+        </div>
+        `:''}
+
         <div class="card">
           <div class="card-header">
             <span class="card-title info">PROSPECT PIPELINE</span>
             <div style="display:flex;gap:8px;align-items:center">
+              <button class="btn btn-default btn-sm" onclick="seedMockData()" title="Load test data">🧪 Mock Data</button>
               <select onchange="S.crmStatusFilter=this.value;loadCRMProspects()" style="padding:4px 8px;font-size:10px">
                 <option value="all" ${statusFilter==='all'?'selected':''}>All Status</option>
                 <option value="prospect" ${statusFilter==='prospect'?'selected':''}>New Prospects</option>
@@ -3126,24 +3208,11 @@ function render(){
                       ${p.status!=='converted'?`<button class="btn btn-success btn-sm" onclick="convertProspect(${p.id})">→ Convert</button>`:''}
                     </td>
                   </tr>`;
-                }).join(''):'<tr><td colspan="6" class="empty-state">No prospects yet. Add your first prospect!</td></tr>'}
+                }).join(''):'<tr><td colspan="6" class="empty-state">No prospects yet. Click "Mock Data" to load test data or add your first prospect!</td></tr>'}
               </tbody>
             </table>
           </div>
         </div>
-
-        ${(S.crmOverdue||[]).length?`
-        <div class="card" style="margin-top:16px;border-left:3px solid var(--negative)">
-          <div class="card-header"><span class="card-title" style="color:var(--negative)">⚠️ OVERDUE FOLLOW-UPS</span></div>
-          <div class="card-body">
-            ${S.crmOverdue.map(t=>`
-              <div class="activity-item">
-                <div><div class="activity-main">${t.company_name}</div><div class="activity-sub">Due: ${t.follow_up_date}</div></div>
-                <button class="btn btn-default btn-sm" onclick="showTouchModal(${t.prospect_id})">📞 Follow Up</button>
-              </div>
-            `).join('')}
-          </div>
-        </div>`:''}
 
         ${(S.crmRecent||[]).length?`
         <div class="card" style="margin-top:16px">
@@ -7274,8 +7343,21 @@ async function loadCRMProspects(){
     S.crmStats=dash.stats||{};
     S.crmOverdue=dash.overdue||[];
     S.crmRecent=dash.recent_touches||[];
+    S.crmStaleCritical=dash.stale_critical||[];
+    S.crmStaleWarning=dash.stale_warning||[];
+    S.crmNeverContacted=dash.never_contacted||[];
     render();
   }catch(e){console.error('CRM load error:',e)}
+}
+
+async function seedMockData(){
+  if(!confirm('This will replace all CRM data with test data. Continue?'))return;
+  try{
+    const res=await fetch('/api/crm/seed-mock',{method:'POST'});
+    const result=await res.json();
+    alert(`Mock data loaded: ${result.prospects_created} prospects, ${result.touches_created} touches`);
+    loadCRMProspects();
+  }catch(e){alert('Error seeding mock data: '+e.message)}
 }
 
 function showProspectModal(p=null){

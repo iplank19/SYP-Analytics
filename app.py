@@ -461,7 +461,7 @@ def remove_interest(id):
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-# CRM Dashboard stats
+# CRM Dashboard stats with stale prospect tracking
 @app.route('/api/crm/dashboard', methods=['GET'])
 def crm_dashboard():
     try:
@@ -506,12 +506,181 @@ def crm_dashboard():
             ORDER BY t.created_at DESC LIMIT 10
         ''', params).fetchall()
 
+        # Stale prospects - no touch in X days (configurable thresholds)
+        # Critical: 14+ days, Warning: 7-13 days, for active prospects only
+        stale_critical = conn.execute(f'''
+            SELECT p.*,
+                   MAX(t.created_at) as last_touch,
+                   CAST(julianday('now') - julianday(COALESCE(MAX(t.created_at), p.created_at)) AS INTEGER) as days_since_touch
+            FROM prospects p
+            LEFT JOIN contact_touches t ON p.id = t.prospect_id
+            WHERE p.status IN ('prospect', 'qualified'){trader_filter.replace('trader', 'p.trader')}
+            GROUP BY p.id
+            HAVING days_since_touch >= 14
+            ORDER BY days_since_touch DESC
+            LIMIT 10
+        ''', params).fetchall()
+
+        stale_warning = conn.execute(f'''
+            SELECT p.*,
+                   MAX(t.created_at) as last_touch,
+                   CAST(julianday('now') - julianday(COALESCE(MAX(t.created_at), p.created_at)) AS INTEGER) as days_since_touch
+            FROM prospects p
+            LEFT JOIN contact_touches t ON p.id = t.prospect_id
+            WHERE p.status IN ('prospect', 'qualified'){trader_filter.replace('trader', 'p.trader')}
+            GROUP BY p.id
+            HAVING days_since_touch >= 7 AND days_since_touch < 14
+            ORDER BY days_since_touch DESC
+            LIMIT 10
+        ''', params).fetchall()
+
+        # Never contacted - prospects with zero touches
+        never_contacted = conn.execute(f'''
+            SELECT p.*,
+                   CAST(julianday('now') - julianday(p.created_at) AS INTEGER) as days_since_created
+            FROM prospects p
+            LEFT JOIN contact_touches t ON p.id = t.prospect_id
+            WHERE p.status IN ('prospect', 'qualified'){trader_filter.replace('trader', 'p.trader')}
+            GROUP BY p.id
+            HAVING COUNT(t.id) = 0
+            ORDER BY p.created_at ASC
+            LIMIT 10
+        ''', params).fetchall()
+
+        # Add stale counts to stats
+        stats['stale_critical'] = len(stale_critical)
+        stats['stale_warning'] = len(stale_warning)
+        stats['never_contacted'] = len(never_contacted)
+
         conn.close()
         return jsonify({
             'stats': stats,
             'follow_ups_today': [dict(f) for f in follow_ups_today],
             'overdue': [dict(o) for o in overdue],
-            'recent_touches': [dict(r) for r in recent]
+            'recent_touches': [dict(r) for r in recent],
+            'stale_critical': [dict(s) for s in stale_critical],
+            'stale_warning': [dict(s) for s in stale_warning],
+            'never_contacted': [dict(n) for n in never_contacted]
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+# Seed mock data for testing
+@app.route('/api/crm/seed-mock', methods=['POST'])
+def seed_mock_data():
+    try:
+        conn = get_crm_db()
+
+        # Clear existing data
+        conn.execute('DELETE FROM contact_touches')
+        conn.execute('DELETE FROM prospect_product_interest')
+        conn.execute('DELETE FROM prospects')
+
+        # Mock prospects with various states
+        mock_prospects = [
+            # Active prospects needing attention
+            ('ABC Lumber Supply', 'John Smith', '555-0101', 'john@abclumber.com', 'Atlanta, GA', 'Large regional distributor', 'prospect', 'Trade show', 'Ian'),
+            ('Southeast Building Materials', 'Sarah Johnson', '555-0102', 'sarah@sebm.com', 'Charlotte, NC', 'Interested in bulk orders', 'qualified', 'Referral', 'Ian'),
+            ('Delta Construction Co', 'Mike Brown', '555-0103', 'mike@deltacon.com', 'Birmingham, AL', 'New construction focus', 'prospect', 'Cold call', 'Ian'),
+            ('Gulf Coast Builders', 'Lisa Davis', '555-0104', 'lisa@gulfcoast.com', 'Mobile, AL', 'Coastal projects', 'qualified', 'Website', 'Ian'),
+            ('Tennessee Timber', 'Bob Wilson', '555-0105', 'bob@tntimber.com', 'Nashville, TN', 'Regular buyer potential', 'prospect', 'Trade show', 'Ian'),
+
+            # Stale prospects (will backdate)
+            ('Midwest Framing Inc', 'Tom Harris', '555-0106', 'tom@midwestframe.com', 'Memphis, TN', 'High volume potential', 'prospect', 'Referral', 'Ian'),
+            ('Southern Pine Distributors', 'Amy Clark', '555-0107', 'amy@southpine.com', 'Jackson, MS', 'Regional focus', 'qualified', 'Cold call', 'Ian'),
+            ('Coastal Lumber Yard', 'Dan Miller', '555-0108', 'dan@coastallumber.com', 'Pensacola, FL', 'Retail and wholesale', 'prospect', 'Website', 'Ian'),
+
+            # Never contacted
+            ('Texas Wood Works', 'Chris Lee', '555-0109', 'chris@txwood.com', 'Houston, TX', 'Just added, needs first contact', 'prospect', 'Trade show', 'Ian'),
+            ('Arkansas Building Supply', 'Pat Moore', '555-0110', 'pat@arkbs.com', 'Little Rock, AR', 'Warm lead from partner', 'prospect', 'Referral', 'Ian'),
+
+            # Converted (success stories)
+            ('Premium Lumber Co', 'Steve Taylor', '555-0111', 'steve@premiumlumber.com', 'Dallas, TX', 'Now a regular customer!', 'converted', 'Trade show', 'Ian'),
+            ('Quality Builders Supply', 'Nancy White', '555-0112', 'nancy@qbs.com', 'New Orleans, LA', 'Converted after 3 months', 'converted', 'Referral', 'Ian'),
+        ]
+
+        prospect_ids = []
+        for p in mock_prospects:
+            cursor = conn.execute('''
+                INSERT INTO prospects (company_name, contact_name, phone, email, address, notes, status, source, trader)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', p)
+            prospect_ids.append(cursor.lastrowid)
+
+        # Backdate some prospects to simulate stale ones
+        # Prospects 6-8 (index 5-7) - make them stale (created 20 days ago)
+        for i in range(5, 8):
+            conn.execute('''
+                UPDATE prospects SET created_at = datetime('now', '-20 days'), updated_at = datetime('now', '-20 days')
+                WHERE id = ?
+            ''', (prospect_ids[i],))
+
+        # Never contacted prospects (9-10, index 8-9) - created 5 days ago, no touches
+        for i in range(8, 10):
+            conn.execute('''
+                UPDATE prospects SET created_at = datetime('now', '-5 days'), updated_at = datetime('now', '-5 days')
+                WHERE id = ?
+            ''', (prospect_ids[i],))
+
+        # Add touches for active prospects
+        touches = [
+            # Recent touches for prospects 1-5
+            (prospect_ids[0], 'call', 'Discussed 2x4 pricing, very interested. Wants quote for 50 MBF.', '["2x4#2","2x6#2"]', 2),
+            (prospect_ids[0], 'email', 'Sent pricing sheet and availability.', None, 1),
+            (prospect_ids[1], 'meeting', 'Met at their office. Toured facility. Ready to place first order.', '["2x4#2","2x6#2","2x8#2"]', 0),
+            (prospect_ids[1], 'call', 'Initial discovery call. Large operation, 200+ MBF/month potential.', None, 7),
+            (prospect_ids[2], 'call', 'Left voicemail, will try again.', None, 3),
+            (prospect_ids[3], 'email', 'Responded to inquiry. Scheduling call for next week.', '["2x4#2"]', 1),
+            (prospect_ids[4], 'call', 'Good conversation. Needs time to review current supplier contract.', '["2x6#2","2x8#2"]', 5),
+
+            # Old touches for stale prospects (these were 15-20 days ago)
+            (prospect_ids[5], 'call', 'Initial call went well. Said to follow up in a week.', '["2x4#2"]', 18),
+            (prospect_ids[6], 'email', 'Sent intro email with company info.', None, 15),
+            (prospect_ids[7], 'call', 'Spoke briefly, was busy. Call back later.', None, 20),
+
+            # Touches for converted prospects
+            (prospect_ids[10], 'call', 'Closed the deal! First order: 100 MBF 2x4#2', '["2x4#2","2x6#2"]', 30),
+            (prospect_ids[11], 'meeting', 'Signed contract. Great partnership ahead!', '["2x4#2","2x6#2","2x8#2"]', 45),
+        ]
+
+        for t in touches:
+            days_ago = t[4]
+            conn.execute(f'''
+                INSERT INTO contact_touches (prospect_id, touch_type, notes, products_discussed, created_at)
+                VALUES (?, ?, ?, ?, datetime('now', '-{days_ago} days'))
+            ''', (t[0], t[1], t[2], t[3]))
+
+        # Add follow-up dates
+        # Overdue follow-ups
+        conn.execute('''
+            UPDATE contact_touches SET follow_up_date = date('now', '-3 days')
+            WHERE prospect_id = ? AND touch_type = 'call'
+        ''', (prospect_ids[5],))
+
+        conn.execute('''
+            UPDATE contact_touches SET follow_up_date = date('now', '-5 days')
+            WHERE prospect_id = ? AND touch_type = 'email'
+        ''', (prospect_ids[6],))
+
+        # Today's follow-ups
+        conn.execute('''
+            UPDATE contact_touches SET follow_up_date = date('now')
+            WHERE prospect_id = ? AND touch_type = 'email'
+        ''', (prospect_ids[3],))
+
+        # Future follow-ups
+        conn.execute('''
+            UPDATE contact_touches SET follow_up_date = date('now', '+3 days')
+            WHERE prospect_id = ? AND touch_type = 'call'
+        ''', (prospect_ids[4],))
+
+        conn.commit()
+        conn.close()
+
+        return jsonify({
+            'message': 'Mock data seeded successfully',
+            'prospects_created': len(mock_prospects),
+            'touches_created': len(touches)
         })
     except Exception as e:
         return jsonify({'error': str(e)}), 500
