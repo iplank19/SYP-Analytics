@@ -4294,44 +4294,48 @@ function finishSpecificCityQuote(items,city){
 
 function copyQuoteOutput(){
   const items=S.quoteItems.filter(i=>i.selected!==false);
-  
+
   // Use single quote customer dropdown
   const custName=S.singleQuoteCustomer||document.getElementById('single-quote-customer')?.value;
   const customer=custName?S.customers.find(c=>c.name===custName):S.customers.filter(c=>c.type!=='mill')[0];
-  
+
   if(!items.length){
     alert('No items selected');
     return;
   }
-  
+
   if(!customer){
     alert('Select a customer');
     return;
   }
-  
+
   // Save market blurb
   S.marketBlurb=document.getElementById('market-blurb')?.value||'';
   save('marketBlurb',S.marketBlurb);
-  
-  const dest=(customer?.locations||[customer?.destination].filter(Boolean))[0]||'TBD';
-  
-  // Build HTML table for Outlook (with blurb)
-  const html=generateQuoteHTML(items,dest,true);
-  
-  // Also build plain text fallback (with blurb)
-  const text=generateQuoteText(items,customer,null,true);
-  
+
+  // Get ALL locations for this customer
+  const locations=customer?.locations||[customer?.destination].filter(Boolean);
+  if(!locations.length)locations.push('TBD');
+
+  // Build HTML tables for ALL locations (with blurb only on first)
+  const htmlParts=locations.map((dest,i)=>generateQuoteHTML(items,dest,i===0));
+  const html=`<html><body style="font-family:Calibri,Arial,sans-serif;">${htmlParts.map(h=>h.replace(/<\/?html>|<\/?body[^>]*>/gi,'')).join('<br><br>')}</body></html>`;
+
+  // Also build plain text fallback for ALL locations
+  const textParts=locations.map((dest,i)=>generateQuoteText(items,customer,dest,i===0));
+  const text=textParts.join('\n\n');
+
   // Copy HTML to clipboard (works in Outlook, Word, etc)
   const blob=new Blob([html],{type:'text/html'});
   const textBlob=new Blob([text],{type:'text/plain'});
-  
+
   navigator.clipboard.write([
     new ClipboardItem({
       'text/html':blob,
       'text/plain':textBlob
     })
   ]).then(()=>{
-    alert('Copied to clipboard! Paste into Outlook for formatted table.');
+    alert(`Copied ${locations.length} location${locations.length>1?'s':''} to clipboard! Paste into Outlook for formatted tables.`);
   }).catch(e=>{
     // Fallback to plain text
     navigator.clipboard.writeText(text).then(()=>{
