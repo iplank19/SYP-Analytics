@@ -7397,22 +7397,49 @@ function confirmLinkShort(sellId){
 
 // AI AGENT with Tool Capabilities
 const AI_TOOLS=[
+  // Orders - Create
   {name:'create_buy',desc:'Create a buy order',params:['mill','product','price','volume','region','length','shipWeek','notes']},
   {name:'create_sell',desc:'Create a sell order',params:['customer','destination','product','price','freight','volume','length','shipWeek','notes']},
+  // Orders - Read
+  {name:'get_buys',desc:'Get all buy orders (optionally filtered)',params:['product','mill','limit']},
+  {name:'get_sells',desc:'Get all sell orders (optionally filtered)',params:['product','customer','limit']},
+  {name:'search_trades',desc:'Search buy/sell trades',params:['type','product','customer','mill']},
+  {name:'get_inventory',desc:'Get current inventory/position by product',params:[]},
+  {name:'get_analytics',desc:'Get trading analytics summary',params:[]},
+  // Orders - Update
+  {name:'update_buy',desc:'Update an existing buy order',params:['id','mill','product','price','volume','region','length','shipWeek','notes','shipped']},
+  {name:'update_sell',desc:'Update an existing sell order',params:['id','customer','destination','product','price','freight','volume','length','shipWeek','notes','delivered']},
+  {name:'mark_buy_shipped',desc:'Mark a buy order as shipped',params:['id']},
+  {name:'mark_sell_delivered',desc:'Mark a sell order as delivered',params:['id']},
+  // Orders - Delete
+  {name:'delete_buy',desc:'Delete a buy order by ID',params:['id']},
+  {name:'delete_sell',desc:'Delete a sell order by ID',params:['id']},
+  {name:'delete_buys',desc:'Delete multiple buy orders by IDs or criteria',params:['ids','product','mill','all']},
+  {name:'delete_sells',desc:'Delete multiple sell orders by IDs or criteria',params:['ids','product','customer','all']},
+  // Quote Engine
   {name:'add_quote_item',desc:'Add item to quote engine',params:['product','origin','fob','tls','shipWeek']},
   {name:'clear_quote_items',desc:'Clear all items from quote engine',params:[]},
   {name:'generate_quote',desc:'Generate quote for a customer',params:['customerName']},
-  {name:'get_inventory',desc:'Get current inventory/position by product',params:[]},
-  {name:'get_rl_prices',desc:'Get current Random Lengths prices',params:['region']},
+  // Customers & Mills
   {name:'get_customers',desc:'List all customers',params:[]},
   {name:'get_mills',desc:'List all mills',params:[]},
   {name:'add_customer',desc:'Add a new customer',params:['name','destination','email']},
   {name:'add_mill',desc:'Add a new mill',params:['name','location','region']},
-  {name:'search_trades',desc:'Search buy/sell trades',params:['type','product','customer','mill']},
+  {name:'update_customer',desc:'Update a customer or mill',params:['id','name','destination','email','locations','region']},
+  {name:'delete_customer',desc:'Delete a customer or mill by ID or name',params:['id','name']},
+  // Freight Lanes
   {name:'get_lanes',desc:'Get freight lanes and mileage',params:[]},
   {name:'add_lane',desc:'Add a freight lane',params:['origin','dest','miles']},
-  {name:'get_analytics',desc:'Get trading analytics summary',params:[]},
-  {name:'set_freight_settings',desc:'Set freight calculator settings',params:['freightBase','stateRates','shortHaulFloor']}
+  {name:'delete_lane',desc:'Delete a freight lane',params:['origin','dest']},
+  // Market Data
+  {name:'get_rl_prices',desc:'Get current Random Lengths prices',params:['region']},
+  // Settings
+  {name:'set_freight_settings',desc:'Set freight calculator settings',params:['freightBase','stateRates','shortHaulFloor']},
+  // Navigation
+  {name:'navigate',desc:'Navigate to a different view',params:['view']},
+  // Utility
+  {name:'clear_chat',desc:'Clear AI chat history',params:[]},
+  {name:'refresh',desc:'Refresh the current view',params:[]}
 ];
 
 function executeAITool(name,params){
@@ -7529,6 +7556,31 @@ function executeAITool(name,params){
         save('customers',S.customers);
         return{success:true,message:`Added mill: ${mill.name} (${mill.location})`,data:mill};
       }
+      case 'update_customer':{
+        let idx=-1;
+        if(params.id)idx=S.customers.findIndex(c=>c.id==params.id);
+        else if(params.name)idx=S.customers.findIndex(c=>c.name?.toLowerCase().includes(params.name.toLowerCase()));
+        if(idx<0)return{success:false,message:`Customer/mill not found`};
+        const cust=S.customers[idx];
+        if(params.name!==undefined)cust.name=params.name;
+        if(params.destination!==undefined)cust.destination=params.destination;
+        if(params.email!==undefined)cust.email=params.email;
+        if(params.locations!==undefined)cust.locations=Array.isArray(params.locations)?params.locations:params.locations.split(',').map(s=>s.trim());
+        if(params.region!==undefined)cust.region=params.region;
+        save('customers',S.customers);
+        render();
+        return{success:true,message:`Updated: ${cust.name}`,data:cust};
+      }
+      case 'delete_customer':{
+        let idx=-1;
+        if(params.id)idx=S.customers.findIndex(c=>c.id==params.id);
+        else if(params.name)idx=S.customers.findIndex(c=>c.name?.toLowerCase().includes(params.name.toLowerCase()));
+        if(idx<0)return{success:false,message:`Customer/mill not found`};
+        const deleted=S.customers.splice(idx,1)[0];
+        save('customers',S.customers);
+        render();
+        return{success:true,message:`Deleted: ${deleted.name}`};
+      }
       case 'search_trades':{
         let results=[];
         if(params.type==='buy'||!params.type){
@@ -7547,6 +7599,133 @@ function executeAITool(name,params){
         }
         return{success:true,data:results.slice(0,20)};
       }
+      case 'get_buys':{
+        let buys=S.buys;
+        if(params.product)buys=buys.filter(b=>b.product?.toLowerCase().includes(params.product.toLowerCase()));
+        if(params.mill)buys=buys.filter(b=>b.mill?.toLowerCase().includes(params.mill.toLowerCase()));
+        const limit=parseInt(params.limit)||50;
+        return{success:true,data:buys.slice(0,limit).map(b=>({id:b.id,date:b.date,mill:b.mill,product:b.product,price:b.price,volume:b.volume,region:b.region,shipped:b.shipped}))};
+      }
+      case 'get_sells':{
+        let sells=S.sells;
+        if(params.product)sells=sells.filter(s=>s.product?.toLowerCase().includes(params.product.toLowerCase()));
+        if(params.customer)sells=sells.filter(s=>s.customer?.toLowerCase().includes(params.customer.toLowerCase()));
+        const limit=parseInt(params.limit)||50;
+        return{success:true,data:sells.slice(0,limit).map(s=>({id:s.id,date:s.date,customer:s.customer,destination:s.destination,product:s.product,price:s.price,volume:s.volume,delivered:s.delivered}))};
+      }
+      case 'update_buy':{
+        const idx=S.buys.findIndex(b=>b.id==params.id);
+        if(idx<0)return{success:false,message:`Buy order #${params.id} not found`};
+        const buy=S.buys[idx];
+        if(params.mill!==undefined)buy.mill=params.mill;
+        if(params.product!==undefined)buy.product=params.product;
+        if(params.price!==undefined)buy.price=parseFloat(params.price);
+        if(params.volume!==undefined)buy.volume=parseFloat(params.volume);
+        if(params.region!==undefined)buy.region=params.region;
+        if(params.length!==undefined)buy.length=params.length;
+        if(params.shipWeek!==undefined)buy.shipWeek=params.shipWeek;
+        if(params.notes!==undefined)buy.notes=params.notes;
+        if(params.shipped!==undefined)buy.shipped=params.shipped==='true'||params.shipped===true;
+        save('buys',S.buys);
+        render();
+        return{success:true,message:`Updated buy order #${params.id}`,data:buy};
+      }
+      case 'update_sell':{
+        const idx=S.sells.findIndex(s=>s.id==params.id);
+        if(idx<0)return{success:false,message:`Sell order #${params.id} not found`};
+        const sell=S.sells[idx];
+        if(params.customer!==undefined)sell.customer=params.customer;
+        if(params.destination!==undefined)sell.destination=params.destination;
+        if(params.product!==undefined)sell.product=params.product;
+        if(params.price!==undefined)sell.price=parseFloat(params.price);
+        if(params.freight!==undefined)sell.freight=parseFloat(params.freight);
+        if(params.volume!==undefined)sell.volume=parseFloat(params.volume);
+        if(params.length!==undefined)sell.length=params.length;
+        if(params.shipWeek!==undefined)sell.shipWeek=params.shipWeek;
+        if(params.notes!==undefined)sell.notes=params.notes;
+        if(params.delivered!==undefined)sell.delivered=params.delivered==='true'||params.delivered===true;
+        save('sells',S.sells);
+        render();
+        return{success:true,message:`Updated sell order #${params.id}`,data:sell};
+      }
+      case 'mark_buy_shipped':{
+        const idx=S.buys.findIndex(b=>b.id==params.id);
+        if(idx<0)return{success:false,message:`Buy order #${params.id} not found`};
+        S.buys[idx].shipped=true;
+        save('buys',S.buys);
+        render();
+        return{success:true,message:`Marked buy order #${params.id} as shipped`};
+      }
+      case 'mark_sell_delivered':{
+        const idx=S.sells.findIndex(s=>s.id==params.id);
+        if(idx<0)return{success:false,message:`Sell order #${params.id} not found`};
+        S.sells[idx].delivered=true;
+        save('sells',S.sells);
+        render();
+        return{success:true,message:`Marked sell order #${params.id} as delivered`};
+      }
+      case 'delete_buy':{
+        const idx=S.buys.findIndex(b=>b.id==params.id);
+        if(idx<0)return{success:false,message:`Buy order #${params.id} not found`};
+        const deleted=S.buys.splice(idx,1)[0];
+        save('buys',S.buys);
+        render();
+        return{success:true,message:`Deleted buy order #${params.id}: ${deleted.volume} MBF ${deleted.product} from ${deleted.mill}`};
+      }
+      case 'delete_sell':{
+        const idx=S.sells.findIndex(s=>s.id==params.id);
+        if(idx<0)return{success:false,message:`Sell order #${params.id} not found`};
+        const deleted=S.sells.splice(idx,1)[0];
+        save('sells',S.sells);
+        render();
+        return{success:true,message:`Deleted sell order #${params.id}: ${deleted.volume} MBF ${deleted.product} to ${deleted.customer}`};
+      }
+      case 'delete_buys':{
+        let count=0;
+        if(params.all==='true'||params.all===true){
+          count=S.buys.length;
+          S.buys=[];
+        }else if(params.ids){
+          const ids=(Array.isArray(params.ids)?params.ids:params.ids.split(',')).map(id=>parseInt(id));
+          const before=S.buys.length;
+          S.buys=S.buys.filter(b=>!ids.includes(b.id));
+          count=before-S.buys.length;
+        }else{
+          const before=S.buys.length;
+          S.buys=S.buys.filter(b=>{
+            if(params.product&&b.product?.toLowerCase().includes(params.product.toLowerCase()))return false;
+            if(params.mill&&b.mill?.toLowerCase().includes(params.mill.toLowerCase()))return false;
+            return true;
+          });
+          count=before-S.buys.length;
+        }
+        save('buys',S.buys);
+        render();
+        return{success:true,message:`Deleted ${count} buy order(s)`};
+      }
+      case 'delete_sells':{
+        let count=0;
+        if(params.all==='true'||params.all===true){
+          count=S.sells.length;
+          S.sells=[];
+        }else if(params.ids){
+          const ids=(Array.isArray(params.ids)?params.ids:params.ids.split(',')).map(id=>parseInt(id));
+          const before=S.sells.length;
+          S.sells=S.sells.filter(s=>!ids.includes(s.id));
+          count=before-S.sells.length;
+        }else{
+          const before=S.sells.length;
+          S.sells=S.sells.filter(s=>{
+            if(params.product&&s.product?.toLowerCase().includes(params.product.toLowerCase()))return false;
+            if(params.customer&&s.customer?.toLowerCase().includes(params.customer.toLowerCase()))return false;
+            return true;
+          });
+          count=before-S.sells.length;
+        }
+        save('sells',S.sells);
+        render();
+        return{success:true,message:`Deleted ${count} sell order(s)`};
+      }
       case 'get_lanes':{
         return{success:true,data:S.lanes};
       }
@@ -7557,6 +7736,13 @@ function executeAITool(name,params){
         else S.lanes.push(lane);
         save('lanes',S.lanes);
         return{success:true,message:`Added lane: ${lane.origin} → ${lane.dest} (${lane.miles} mi)`,data:lane};
+      }
+      case 'delete_lane':{
+        const idx=S.lanes.findIndex(l=>l.origin?.toLowerCase()===params.origin?.toLowerCase()&&l.dest?.toLowerCase()===params.dest?.toLowerCase());
+        if(idx<0)return{success:false,message:`Lane ${params.origin} → ${params.dest} not found`};
+        const deleted=S.lanes.splice(idx,1)[0];
+        save('lanes',S.lanes);
+        return{success:true,message:`Deleted lane: ${deleted.origin} → ${deleted.dest}`};
       }
       case 'get_analytics':{
         const a=analytics();
@@ -7572,6 +7758,24 @@ function executeAITool(name,params){
           save('stateRates',S.stateRates);
         }
         return{success:true,message:'Freight settings updated',data:{freightBase:S.freightBase,shortHaulFloor:S.shortHaulFloor,stateRates:S.stateRates}};
+      }
+      case 'navigate':{
+        const validViews=['dashboard','leaderboard','insights','blotter','benchmark','risk','quotes','products','crm','rldata','settings'];
+        const view=params.view?.toLowerCase();
+        if(!validViews.includes(view))return{success:false,message:`Invalid view. Valid views: ${validViews.join(', ')}`};
+        S.view=view;
+        render();
+        return{success:true,message:`Navigated to ${view}`};
+      }
+      case 'clear_chat':{
+        S.aiMsgs=[];
+        SS('aiMsgs',S.aiMsgs);
+        renderAIPanel();
+        return{success:true,message:'Chat history cleared'};
+      }
+      case 'refresh':{
+        render();
+        return{success:true,message:'View refreshed'};
       }
       default:
         return{success:false,message:`Unknown tool: ${name}`};
@@ -7616,17 +7820,30 @@ async function sendAI(){
 
   const toolDefs=AI_TOOLS.map(t=>`- ${t.name}(${t.params.join(', ')}): ${t.desc}`).join('\n');
   
-  const ctx=`You are an AI trading assistant for SYP (Southern Yellow Pine) lumber trading at Buckeye Pacific. You can EXECUTE ACTIONS in the app using tools.
+  const ctx=`You are an AI trading assistant for SYP (Southern Yellow Pine) lumber trading at Buckeye Pacific. You have FULL CONTROL over the entire platform and can execute ANY action.
+
+CAPABILITIES:
+- CREATE, UPDATE, DELETE buy orders and sell orders
+- Manage customers and mills (add, update, delete)
+- Control the quote engine
+- Navigate between views
+- Update settings and freight rates
+- Access all trading data and analytics
 
 AVAILABLE TOOLS:
 ${toolDefs}
 
-TO USE A TOOL, respond with a JSON block like this:
+TO USE A TOOL, respond with a JSON block:
 \`\`\`tool
 {"tool":"tool_name","params":{"param1":"value1","param2":"value2"}}
 \`\`\`
 
-You can use multiple tools in one response. After each tool block, I'll show you the result.
+IMPORTANT WORKFLOW FOR DELETIONS:
+1. First use get_buys or get_sells to find the order IDs
+2. Then use delete_buy or delete_sell with the specific ID
+3. For bulk deletions, use delete_buys or delete_sells with criteria or IDs
+
+You can use multiple tools in one response.
 
 CURRENT STATE:
 - ${rlSummary}
@@ -7635,9 +7852,10 @@ CURRENT STATE:
 - Customers: ${custList}
 - Quote Engine Items: ${quoteItems}
 - Freight: Base $${S.freightBase}/load, Floor $${S.shortHaulFloor}/MBF
+- Buy orders: ${S.buys.length}, Sell orders: ${S.sells.length}
 
-When asked to create orders, quotes, or do anything - USE THE TOOLS. Don't just describe what you would do.
-Be proactive and actually execute the requested actions.`;
+ALWAYS use tools to execute actions. Never just describe what you would do - actually do it.
+When deleting, first search to find the correct IDs, then delete.`;
 
   await runAIWithTools(ctx,msg);
 }
