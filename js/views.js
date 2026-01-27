@@ -113,7 +113,7 @@ function render(){
           ${S.rl.length?`<div class="chart-container">${S.rl.slice(-8).map(r=>`<div class="chart-bar-group"><div class="chart-bars"><div class="chart-bar west" style="height:${Math.max(2,(r.west?.['2x4#2']||340)-340)*0.8}px"></div><div class="chart-bar central" style="height:${Math.max(2,(r.central?.['2x4#2']||340)-340)*0.8}px"></div><div class="chart-bar east" style="height:${Math.max(2,(r.east?.['2x4#2']||340)-340)*0.8}px"></div></div><span class="chart-label">${fmtD(r.date)}</span></div>`).join('')}</div><div class="chart-legend"><div class="legend-item"><div class="legend-dot west"></div><span class="legend-text">West</span></div><div class="legend-item"><div class="legend-dot central"></div><span class="legend-text">Central</span></div><div class="legend-item"><div class="legend-dot east"></div><span class="legend-text">East</span></div></div>`:'<div class="empty-state">No RL data yet</div>'}
         </div></div>
         <div class="card"><div class="card-header"><span class="card-title">REGION MIX</span></div><div class="card-body">
-          ${a.bVol?REGIONS.map(r=>{const pct=a.bVol?(a.byReg[r].vol/a.bVol*100):0;const col={west:'accent',central:'warn',east:'info'}[r];return`<div style="margin-bottom:16px"><div style="display:flex;justify-content:space-between;margin-bottom:4px"><span style="text-transform:uppercase;font-size:10px">${r}</span><span style="color:var(--muted);font-size:10px">${a.byReg[r].vol} MBF (${pct.toFixed(0)}%)</span></div><div class="progress-bar"><div class="progress-fill ${col}" style="width:${pct}%"></div></div></div>`}).join(''):'<div class="empty-state">No buys yet</div>'}
+          ${a.bVol?REGIONS.map(r=>{const pct=a.bVol?(a.byReg[r].vol/a.bVol*100):0;const col={west:'accent',central:'warn',east:'info'}[r];return`<div style="margin-bottom:16px"><div style="display:flex;justify-content:space-between;margin-bottom:4px"><span style="text-transform:uppercase;font-size:10px">${r}</span><span style="color:var(--muted);font-size:10px">${fmtN(a.byReg[r].vol)} MBF (${pct.toFixed(0)}%)</span></div><div class="progress-bar"><div class="progress-fill ${col}" style="width:${pct}%"></div></div></div>`}).join(''):'<div class="empty-state">No buys yet</div>'}
         </div></div>
       </div>
       <div class="grid-2">
@@ -148,7 +148,7 @@ function render(){
                       <span style="color:${i===0?'gold':i===1?'silver':i===2?'#cd7f32':'var(--muted)'};font-weight:700;width:18px">${i+1}</span>
                       <span style="font-weight:500">${p.product}</span>
                     </div>
-                    <span style="font-weight:600">${p.volume} MBF</span>
+                    <span style="font-weight:600">${fmtN(p.volume)} MBF</span>
                   </div>
                 `).join('')||'<div class="empty-state" style="padding:20px">No data</div>'}
               </div>
@@ -168,7 +168,7 @@ function render(){
                       </div>
                     </div>
                     <div style="text-align:right">
-                      <div style="font-weight:600">${c.volume} MBF</div>
+                      <div style="font-weight:600">${fmtN(c.volume)} MBF</div>
                       <div style="font-size:9px;color:var(--positive)">${fmt(c.profit)}</div>
                     </div>
                   </div>
@@ -183,28 +183,28 @@ function render(){
                 <div style="margin-bottom:12px">
                   <div style="display:flex;justify-content:space-between;margin-bottom:4px">
                     <span style="font-size:10px;color:var(--positive)">0-7 days</span>
-                    <span style="font-weight:600">${agingSummary.fresh} MBF</span>
+                    <span style="font-weight:600">${fmtN(agingSummary.fresh)} MBF</span>
                   </div>
                   <div class="progress-bar"><div class="progress-fill accent" style="width:${agingSummary.total?agingSummary.fresh/agingSummary.total*100:0}%"></div></div>
                 </div>
                 <div style="margin-bottom:12px">
                   <div style="display:flex;justify-content:space-between;margin-bottom:4px">
                     <span style="font-size:10px;color:var(--muted)">8-14 days</span>
-                    <span style="font-weight:600">${agingSummary.week} MBF</span>
+                    <span style="font-weight:600">${fmtN(agingSummary.week)} MBF</span>
                   </div>
                   <div class="progress-bar"><div class="progress-fill info" style="width:${agingSummary.total?agingSummary.week/agingSummary.total*100:0}%"></div></div>
                 </div>
                 <div style="margin-bottom:12px">
                   <div style="display:flex;justify-content:space-between;margin-bottom:4px">
                     <span style="font-size:10px;color:var(--warn)">15-30 days</span>
-                    <span style="font-weight:600">${agingSummary.twoWeek} MBF</span>
+                    <span style="font-weight:600">${fmtN(agingSummary.twoWeek)} MBF</span>
                   </div>
                   <div class="progress-bar"><div class="progress-fill warn" style="width:${agingSummary.total?agingSummary.twoWeek/agingSummary.total*100:0}%"></div></div>
                 </div>
                 <div>
                   <div style="display:flex;justify-content:space-between;margin-bottom:4px">
                     <span style="font-size:10px;color:var(--negative)">30+ days</span>
-                    <span style="font-weight:600;color:var(--negative)">${agingSummary.old} MBF</span>
+                    <span style="font-weight:600;color:var(--negative)">${fmtN(agingSummary.old)} MBF</span>
                   </div>
                   <div class="progress-bar"><div class="progress-fill" style="width:${agingSummary.total?agingSummary.old/agingSummary.total*100:0}%;background:var(--negative)"></div></div>
                 </div>
@@ -228,8 +228,8 @@ function render(){
                   return`
                   <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:2px">
                     <div style="display:flex;gap:2px;align-items:flex-end;height:100px">
-                      <div style="width:14px;background:var(--positive);border-radius:2px 2px 0 0;height:${buyH}px" title="Buy: ${w.buyVol} MBF"></div>
-                      <div style="width:14px;background:var(--accent);border-radius:2px 2px 0 0;height:${sellH}px" title="Sell: ${w.sellVol} MBF"></div>
+                      <div style="width:14px;background:var(--positive);border-radius:2px 2px 0 0;height:${buyH}px" title="Buy: ${fmtN(w.buyVol)} MBF"></div>
+                      <div style="width:14px;background:var(--accent);border-radius:2px 2px 0 0;height:${sellH}px" title="Sell: ${fmtN(w.sellVol)} MBF"></div>
                     </div>
                     <div style="font-size:8px;color:var(--muted);text-align:center">${w.label}</div>
                     <div style="font-size:9px;color:${w.profit>=0?'var(--positive)':'var(--negative)'}">${w.profit>=0?'+':''}${Math.round(w.profit/1000)}k</div>
@@ -255,7 +255,7 @@ function render(){
                     <tr>
                       <td class="bold">${p.product}</td>
                       <td class="right ${p.margin>=0?'positive':'negative'}">${fmt(Math.round(p.margin))}/MBF</td>
-                      <td class="right">${p.volume} MBF</td>
+                      <td class="right">${fmtN(p.volume)} MBF</td>
                       <td class="right ${p.profit>=0?'positive':'negative'} bold">${fmt(Math.round(p.profit))}</td>
                     </tr>
                   `).join('')||'<tr><td colspan="4" class="empty-state">No matched trades</td></tr>'}
@@ -272,7 +272,7 @@ function render(){
                     <tr>
                       <td class="bold">${p.product}</td>
                       <td class="right ${p.margin>=0?'positive':'negative'}">${fmt(Math.round(p.margin))}/MBF</td>
-                      <td class="right">${p.volume} MBF</td>
+                      <td class="right">${fmtN(p.volume)} MBF</td>
                       <td class="right ${p.profit>=0?'positive':'negative'} bold">${fmt(Math.round(p.profit))}</td>
                     </tr>
                   `).join('')||'<tr><td colspan="4" class="empty-state">All products profitable!</td></tr>'}
@@ -334,10 +334,10 @@ function render(){
 
       <!-- Department KPIs -->
       <div class="kpi-grid" style="margin-bottom:16px">
-        <div class="kpi"><div class="kpi-value">${deptStats.buyVol+deptStats.sellVol}</div><div class="kpi-label">DEPT VOLUME (MBF)</div></div>
+        <div class="kpi"><div class="kpi-value">${fmtN(deptStats.buyVol+deptStats.sellVol)}</div><div class="kpi-label">DEPT VOLUME (MBF)</div></div>
         <div class="kpi"><div class="kpi-value ${deptStats.profit>=0?'positive':'negative'}">${fmt(deptStats.profit,0)}</div><div class="kpi-label">DEPT PROFIT</div></div>
         <div class="kpi"><div class="kpi-value">${deptStats.trades}</div><div class="kpi-label">TOTAL TRADES</div></div>
-        <div class="kpi"><div class="kpi-value">${Math.round((deptStats.buyVol+deptStats.sellVol)/TRADERS.length)}</div><div class="kpi-label">AVG VOL/TRADER</div></div>
+        <div class="kpi"><div class="kpi-value">${fmtN(Math.round((deptStats.buyVol+deptStats.sellVol)/TRADERS.length))}</div><div class="kpi-label">AVG VOL/TRADER</div></div>
       </div>
 
       ${S.trader!=='Admin'?`
@@ -352,7 +352,7 @@ function render(){
             <div>
               <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:16px">
                 <div style="text-align:center;padding:12px;background:var(--panel-alt);border-radius:4px">
-                  <div style="font-size:20px;font-weight:700">${myStats.totalVol}</div>
+                  <div style="font-size:20px;font-weight:700">${fmtN(myStats.totalVol)}</div>
                   <div style="font-size:9px;color:var(--muted)">VOLUME (MBF)</div>
                   ${myGoals.volume?`<div style="margin-top:4px"><div class="progress-bar"><div class="progress-fill accent" style="width:${Math.min(100,myStats.totalVol/myGoals.volume*100)}%"></div></div><div style="font-size:8px;color:var(--muted)">${Math.round(myStats.totalVol/myGoals.volume*100)}% of ${myGoals.volume} goal</div></div>`:''}
                 </div>
@@ -478,7 +478,7 @@ function render(){
               ${traderStats.map(t=>`
                 <tr style="border-left:3px solid ${traderColor(t.name)}${t.name===S.trader?';background:var(--panel-alt)':''}">
                   <td class="bold">${t.name}${t.name===S.trader?' (you)':''}</td>
-                  <td class="right">${t.totalVol} <span style="color:var(--muted);font-size:9px">MBF</span></td>
+                  <td class="right">${fmtN(t.totalVol)} <span style="color:var(--muted);font-size:9px">MBF</span></td>
                   <td class="right">${t.trades}</td>
                   <td class="right ${t.margin>=0?'positive':'negative'}">${t.sellVol>0?fmt(t.margin)+'/M':'—'}</td>
                   <td class="right ${t.profit>=0?'positive':'negative'} bold">${t.sellVol>0?fmt(t.profit,0):'—'}</td>
@@ -491,7 +491,7 @@ function render(){
             <tfoot>
               <tr style="font-weight:700;border-top:2px solid var(--border)">
                 <td>DEPARTMENT</td>
-                <td class="right">${deptStats.buyVol+deptStats.sellVol} MBF</td>
+                <td class="right">${fmtN(deptStats.buyVol+deptStats.sellVol)} MBF</td>
                 <td class="right">${deptStats.trades}</td>
                 <td class="right">—</td>
                 <td class="right ${deptStats.profit>=0?'positive':'negative'}">${fmt(deptStats.profit,0)}</td>
@@ -763,7 +763,7 @@ function render(){
                   </div>
                 </div>
                 <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--muted)">
-                  <span>Avg Week: ${avgWeekly} MBF</span>
+                  <span>Avg Week: ${fmtN(avgWeekly)} MBF</span>
                   <span>B:${thisWeekBuys} S:${thisWeekSells}</span>
                 </div>`;
             })()}
@@ -990,7 +990,7 @@ function render(){
       <div class="kpi-grid">
         <div class="kpi"><div class="kpi-label">AVG vs MARKET</div><div><span class="kpi-value ${a.avgVsRL<=0?'positive':'negative'}">${a.avgVsRL<=0?'▼':'▲'} ${fmt(Math.abs(a.avgVsRL))}</span><span class="kpi-sub">/MBF</span></div></div>
         <div class="kpi"><div class="kpi-label">TOTAL IMPACT</div><div><span class="kpi-value ${totalImpact<=0?'positive':'negative'}">${totalImpact<=0?'':'+'} ${fmt(Math.abs(Math.round(totalImpact)))}</span><span class="kpi-sub">${totalImpact<=0?'saved':'over'}</span></div></div>
-        <div class="kpi"><div class="kpi-label">TRADES MATCHED</div><div><span class="kpi-value">${standardBench.filter(b=>b.rlP).length}/${standardBench.length}</span><span class="kpi-sub">${matchedVol} MBF</span></div></div>
+        <div class="kpi"><div class="kpi-label">TRADES MATCHED</div><div><span class="kpi-value">${standardBench.filter(b=>b.rlP).length}/${standardBench.length}</span><span class="kpi-sub">${fmtN(matchedVol)} MBF</span></div></div>
         <div class="kpi"><div class="kpi-label">MSR/2400 TRADES</div><div><span class="kpi-value accent">${msrBench.length}</span></div></div>
       </div>
 
@@ -1009,7 +1009,7 @@ function render(){
               </div>
               <div style="display:flex;justify-content:space-between;margin-bottom:8px">
                 <span style="color:var(--muted)">Volume</span>
-                <span>${d.vol} MBF</span>
+                <span>${fmtN(d.vol)} MBF</span>
               </div>
               <div style="display:flex;justify-content:space-between">
                 <span style="color:var(--muted)">Trades</span>
@@ -1183,10 +1183,10 @@ function render(){
 
     c.innerHTML=`
       <div class="kpi-grid">
-        <div class="kpi"><div class="kpi-label">NET POSITION</div><div><span class="kpi-value ${netPosition>0?'warn':netPosition<0?'negative':''}">${netPosition>0?'+':''}${netPosition} MBF</span><span class="kpi-sub">${netPosition>0?'long':netPosition<0?'short':'flat'}</span></div></div>
-        <div class="kpi"><div class="kpi-label">LONG EXPOSURE</div><div><span class="kpi-value ${totalLong>0?'warn':''}">${totalLong} MBF</span><span class="kpi-sub">${fmt(Math.round(longExposure))}</span></div></div>
-        <div class="kpi"><div class="kpi-label">SHORT EXPOSURE</div><div><span class="kpi-value ${totalShort>0?'negative':''}">${totalShort} MBF</span><span class="kpi-sub">${fmt(Math.round(shortExposure))}</span></div></div>
-        <div class="kpi"><div class="kpi-label">UNCOVERED SELLS</div><div><span class="kpi-value ${uncoveredVol>0?'negative':''}">${uncoveredVol} MBF</span><span class="kpi-sub">${uncoveredSells.length} orders</span></div></div>
+        <div class="kpi"><div class="kpi-label">NET POSITION</div><div><span class="kpi-value ${netPosition>0?'warn':netPosition<0?'negative':''}">${netPosition>0?'+':''}${fmtN(netPosition)} MBF</span><span class="kpi-sub">${netPosition>0?'long':netPosition<0?'short':'flat'}</span></div></div>
+        <div class="kpi"><div class="kpi-label">LONG EXPOSURE</div><div><span class="kpi-value ${totalLong>0?'warn':''}">${fmtN(totalLong)} MBF</span><span class="kpi-sub">${fmt(Math.round(longExposure))}</span></div></div>
+        <div class="kpi"><div class="kpi-label">SHORT EXPOSURE</div><div><span class="kpi-value ${totalShort>0?'negative':''}">${fmtN(totalShort)} MBF</span><span class="kpi-sub">${fmt(Math.round(shortExposure))}</span></div></div>
+        <div class="kpi"><div class="kpi-label">UNCOVERED SELLS</div><div><span class="kpi-value ${uncoveredVol>0?'negative':''}">${fmtN(uncoveredVol)} MBF</span><span class="kpi-sub">${uncoveredSells.length} orders</span></div></div>
       </div>
 
       <!-- What-If Analysis -->
@@ -1200,7 +1200,7 @@ function render(){
               return`<div style="padding:12px;background:var(--panel-alt);border-radius:4px;border:1px solid ${isGain?'var(--positive)':'var(--negative)'}">
                 <div style="font-size:10px;color:var(--muted);margin-bottom:4px">RL ${move>0?'+':''}${move}</div>
                 <div style="font-size:16px;font-weight:700;color:${isGain?'var(--positive)':'var(--negative)'}">${isGain?'+':''}${fmt(Math.round(impact))}</div>
-                <div style="font-size:9px;color:var(--muted)">${totalLong} MBF × $${Math.abs(move)}</div>
+                <div style="font-size:9px;color:var(--muted)">${fmtN(totalLong)} MBF × $${Math.abs(move)}</div>
               </div>`;
             }).join('')}
           </div>
@@ -1221,15 +1221,15 @@ function render(){
             <div class="card-body">
               <div style="display:flex;justify-content:space-between;margin-bottom:8px">
                 <span style="color:var(--muted)">Long</span>
-                <span class="warn">${d.long} MBF</span>
+                <span class="warn">${fmtN(d.long)} MBF</span>
               </div>
               <div style="display:flex;justify-content:space-between;margin-bottom:8px">
                 <span style="color:var(--muted)">Short</span>
-                <span class="negative">${d.short} MBF</span>
+                <span class="negative">${fmtN(d.short)} MBF</span>
               </div>
               <div style="display:flex;justify-content:space-between;padding-top:8px;border-top:1px solid var(--border)">
                 <span style="font-weight:600">Net</span>
-                <span class="bold ${net>0?'warn':net<0?'negative':''}">${net>0?'+':''}${net} MBF</span>
+                <span class="bold ${net>0?'warn':net<0?'negative':''}">${net>0?'+':''}${fmtN(net)} MBF</span>
               </div>
             </div>
           </div>`;
@@ -1262,7 +1262,7 @@ function render(){
               return`<tr>
                 <td class="bold">${p.product}</td>
                 <td>${p.length}</td>
-                <td class="right ${isLong?'warn':'negative'}">${isLong?'+':'-'}${p.net} MBF</td>
+                <td class="right ${isLong?'warn':'negative'}">${isLong?'+':'-'}${fmtN(p.net)} MBF</td>
                 <td class="right">${fmt(Math.round(exp))}</td>
                 <td class="right" style="color:${pct>30?'var(--negative)':pct>20?'var(--warn)':'var(--muted)'}">${pct.toFixed(1)}%</td>
               </tr>`;
@@ -1276,18 +1276,18 @@ function render(){
       <div class="grid-2">
         <div class="card"><div class="card-header"><span class="card-title warn">LONG POSITIONS</span><span style="color:var(--muted);font-size:10px">${longPos.length} products</span></div>
           <div style="overflow-x:auto;max-height:300px"><table><thead><tr><th>Product</th><th>Len</th><th class="right">Bought</th><th class="right">Sold</th><th class="right">Net</th><th class="right">Avg Cost</th><th class="right">Exposure</th><th></th></tr></thead><tbody>
-            ${longPos.length?longPos.sort((a,b)=>b.net-a.net).map(p=>{const prodEsc=(p.product||'').replace(/'/g,"\\'");const lenEsc=(p.length||'').replace(/'/g,"\\'");return`<tr><td class="bold">${p.product}</td><td>${p.length}</td><td class="right">${p.bought}</td><td class="right">${p.sold}</td><td class="right warn bold">${p.net}</td><td class="right">${fmt(Math.round(p.avgCost))}</td><td class="right">${fmt(Math.round(p.net*p.avgCost))}</td><td><button class="btn btn-primary btn-sm" onclick="sellPosition('${prodEsc}','${lenEsc}',${p.net})">Sell</button></td></tr>`}).join(''):'<tr><td colspan="8" class="empty-state">No long positions</td></tr>'}
+            ${longPos.length?longPos.sort((a,b)=>b.net-a.net).map(p=>{const prodEsc=(p.product||'').replace(/'/g,"\\'");const lenEsc=(p.length||'').replace(/'/g,"\\'");return`<tr><td class="bold">${p.product}</td><td>${p.length}</td><td class="right">${fmtN(p.bought)}</td><td class="right">${fmtN(p.sold)}</td><td class="right warn bold">${fmtN(p.net)}</td><td class="right">${fmt(Math.round(p.avgCost))}</td><td class="right">${fmt(Math.round(p.net*p.avgCost))}</td><td><button class="btn btn-primary btn-sm" onclick="sellPosition('${prodEsc}','${lenEsc}',${p.net})">Sell</button></td></tr>`}).join(''):'<tr><td colspan="8" class="empty-state">No long positions</td></tr>'}
           </tbody></table></div></div>
         <div class="card"><div class="card-header"><span class="card-title negative">SHORT POSITIONS</span><span style="color:var(--muted);font-size:10px">${shortPos.length} products</span></div>
           <div style="overflow-x:auto;max-height:300px"><table><thead><tr><th>Product</th><th>Len</th><th class="right">Bought</th><th class="right">Sold</th><th class="right">Net</th><th class="right">Avg Sell</th><th class="right">Exposure</th><th></th></tr></thead><tbody>
-            ${shortPos.length?shortPos.sort((a,b)=>b.net-a.net).map(p=>{const prodEsc=(p.product||'').replace(/'/g,"\\'");const lenEsc=(p.length||'').replace(/'/g,"\\'");return`<tr><td class="bold">${p.product}</td><td>${p.length}</td><td class="right">${p.bought}</td><td class="right">${p.sold}</td><td class="right negative bold">${p.net}</td><td class="right">${fmt(Math.round(p.avgSell))}</td><td class="right">${fmt(Math.round(p.net*p.avgSell))}</td><td><button class="btn btn-success btn-sm" onclick="coverPosition('${prodEsc}','${lenEsc}',${p.net})">Cover</button></td></tr>`}).join(''):'<tr><td colspan="8" class="empty-state">No short positions</td></tr>'}
+            ${shortPos.length?shortPos.sort((a,b)=>b.net-a.net).map(p=>{const prodEsc=(p.product||'').replace(/'/g,"\\'");const lenEsc=(p.length||'').replace(/'/g,"\\'");return`<tr><td class="bold">${p.product}</td><td>${p.length}</td><td class="right">${fmtN(p.bought)}</td><td class="right">${fmtN(p.sold)}</td><td class="right negative bold">${fmtN(p.net)}</td><td class="right">${fmt(Math.round(p.avgSell))}</td><td class="right">${fmt(Math.round(p.net*p.avgSell))}</td><td><button class="btn btn-success btn-sm" onclick="coverPosition('${prodEsc}','${lenEsc}',${p.net})">Cover</button></td></tr>`}).join(''):'<tr><td colspan="8" class="empty-state">No short positions</td></tr>'}
           </tbody></table></div></div>
       </div>
 
       <!-- Uncovered Sells -->
       ${uncoveredSells.length?`
       <div class="card" style="margin-top:16px;border-color:var(--negative)">
-        <div class="card-header" style="background:rgba(239,68,68,0.1)"><span class="card-title negative">UNCOVERED SELLS (Need Coverage)</span><span style="color:var(--negative);font-size:10px">${uncoveredVol} MBF at risk</span></div>
+        <div class="card-header" style="background:rgba(239,68,68,0.1)"><span class="card-title negative">UNCOVERED SELLS (Need Coverage)</span><span style="color:var(--negative);font-size:10px">${fmtN(uncoveredVol)} MBF at risk</span></div>
         <div style="overflow-x:auto;max-height:250px"><table><thead><tr><th>Order #</th><th>Date</th><th>Customer</th><th>Product</th><th>Len</th><th class="right">Volume</th><th class="right">Price</th><th></th></tr></thead><tbody>
           ${uncoveredSells.slice(0,10).map(s=>{
             const ord=String(s.orderNum||s.linkedPO||s.oc||'').trim();
@@ -1633,7 +1633,7 @@ function render(){
         <div class="kpi"><div class="kpi-label">TOTAL PROFIT</div><div><span class="kpi-value ${totalProfit>=0?'positive':'negative'}">${fmt(Math.round(totalProfit))}</span></div></div>
         <div class="kpi"><div class="kpi-label">BEST PRODUCT</div><div><span class="kpi-value positive" style="font-size:14px">${bestProduct?.product||'—'}</span><span class="kpi-sub">${bestProduct?fmt(Math.round(bestProduct.avgMargin))+'/MBF':''}</span></div></div>
         <div class="kpi"><div class="kpi-label">WORST PRODUCT</div><div><span class="kpi-value negative" style="font-size:14px">${worstProduct?.product||'—'}</span><span class="kpi-sub">${worstProduct?fmt(Math.round(worstProduct.avgMargin))+'/MBF':''}</span></div></div>
-        <div class="kpi"><div class="kpi-label">PRODUCTS TRADED</div><div><span class="kpi-value">${products.length}</span><span class="kpi-sub">${totalVolume} MBF</span></div></div>
+        <div class="kpi"><div class="kpi-label">PRODUCTS TRADED</div><div><span class="kpi-value">${products.length}</span><span class="kpi-sub">${fmtN(totalVolume)} MBF</span></div></div>
       </div>
 
       <!-- Margin Bar Chart -->
@@ -1687,9 +1687,9 @@ function render(){
         </tr></thead><tbody>
           ${filteredProducts.length?filteredProducts.map(p=>`<tr style="${selectedProd===p.product?'background:var(--panel-alt)':''}">
             <td class="bold">${p.product}</td>
-            <td class="right">${p.bVol} MBF</td>
-            <td class="right">${p.sVol} MBF</td>
-            <td class="right ${p.position>0?'warn':p.position<0?'negative':''} bold">${p.position>0?'+':''}${p.position} MBF</td>
+            <td class="right">${fmtN(p.bVol)} MBF</td>
+            <td class="right">${fmtN(p.sVol)} MBF</td>
+            <td class="right ${p.position>0?'warn':p.position<0?'negative':''} bold">${p.position>0?'+':''}${fmtN(p.position)} MBF</td>
             <td class="right">${p.bVol?fmt(Math.round(p.avgBuy)):'—'}</td>
             <td class="right">${p.sVol?fmt(Math.round(p.avgSell)):'—'}</td>
             <td class="right" style="color:var(--accent)">${p.rlPrice?fmt(p.rlPrice):'—'}</td>
@@ -2021,14 +2021,14 @@ function render(){
               const locs=c.locations||[c.destination].filter(Boolean);
               const trades=S.trader==='Admin'?S.sells.filter(s=>s.customer===c.name):S.sells.filter(s=>s.customer===c.name&&(s.trader===S.trader||!s.trader));
               const vol=trades.reduce((s,x)=>s+(x.volume||0),0);
-              return`<tr>${S.trader==='Admin'?`<td><span style="display:inline-block;width:18px;height:18px;border-radius:50%;background:${traderColor(c.trader||'Ian')};color:var(--bg);font-size:9px;font-weight:700;text-align:center;line-height:18px" title="${c.trader||'Ian'}">${traderInitial(c.trader||'Ian')}</span></td>`:''}<td class="bold">${c.name}</td><td style="font-size:10px">${locs.length?locs.join(', '):'—'}</td><td class="right">${trades.length}</td><td class="right">${vol} MBF</td><td style="white-space:nowrap"><button class="btn btn-default btn-sm" onclick="editCust('${c.name}')">Edit</button> <button class="btn btn-default btn-sm" onclick="deleteCust('${c.name}')" style="color:var(--negative)">×</button></td></tr>`;
+              return`<tr>${S.trader==='Admin'?`<td><span style="display:inline-block;width:18px;height:18px;border-radius:50%;background:${traderColor(c.trader||'Ian')};color:var(--bg);font-size:9px;font-weight:700;text-align:center;line-height:18px" title="${c.trader||'Ian'}">${traderInitial(c.trader||'Ian')}</span></td>`:''}<td class="bold">${c.name}</td><td style="font-size:10px">${locs.length?locs.join(', '):'—'}</td><td class="right">${trades.length}</td><td class="right">${fmtN(vol)} MBF</td><td style="white-space:nowrap"><button class="btn btn-default btn-sm" onclick="editCust('${c.name}')">Edit</button> <button class="btn btn-default btn-sm" onclick="deleteCust('${c.name}')" style="color:var(--negative)">×</button></td></tr>`;
             }).join(''):`<tr><td colspan="${S.trader==='Admin'?6:5}" class="empty-state">No customers yet</td></tr>`}
           </tbody></table></div></div>
         <div class="card" style="margin-top:16px"><div class="card-header"><span class="card-title warn">CUSTOMER PROFITABILITY</span></div>
           <div style="overflow-x:auto"><table><thead><tr><th>Customer</th><th class="right">Trades</th><th class="right">Volume</th><th class="right">Avg Margin/MBF</th></tr></thead><tbody>
             ${Object.keys(custMargins).length?Object.entries(custMargins).filter(([c,d])=>d.vol>0).sort((x,y)=>(y[1].marginVal/y[1].vol)-(x[1].marginVal/x[1].vol)).map(([c,d])=>{
               const avgMargin=d.vol>0?d.marginVal/d.vol:0;
-              return`<tr><td class="bold">${c}</td><td class="right">${d.n}</td><td class="right">${d.vol} MBF</td><td class="right ${avgMargin>=0?'positive':'negative'} bold">${fmt(Math.round(avgMargin))}</td></tr>`;
+              return`<tr><td class="bold">${c}</td><td class="right">${d.n}</td><td class="right">${fmtN(d.vol)} MBF</td><td class="right ${avgMargin>=0?'positive':'negative'} bold">${fmt(Math.round(avgMargin))}</td></tr>`;
             }).join(''):'<tr><td colspan="4" class="empty-state">No linked sales yet</td></tr>'}
           </tbody></table></div></div>`;
     }
@@ -2040,7 +2040,7 @@ function render(){
               const locs=m.locations||[m.origin].filter(Boolean);
               const trades=S.trader==='Admin'?S.buys.filter(b=>b.mill===m.name):S.buys.filter(b=>b.mill===m.name&&(b.trader===S.trader||!b.trader));
               const vol=trades.reduce((s,b)=>s+(b.volume||0),0);
-              return`<tr>${S.trader==='Admin'?`<td><span style="display:inline-block;width:18px;height:18px;border-radius:50%;background:${traderColor(m.trader||'Ian')};color:var(--bg);font-size:9px;font-weight:700;text-align:center;line-height:18px" title="${m.trader||'Ian'}">${traderInitial(m.trader||'Ian')}</span></td>`:''}<td class="bold">${m.name}</td><td style="font-size:10px">${locs.length?locs.join(', '):'—'}</td><td class="right">${trades.length}</td><td class="right">${vol} MBF</td><td style="white-space:nowrap"><button class="btn btn-default btn-sm" onclick="editMill('${m.name}')">Edit</button> <button class="btn btn-default btn-sm" onclick="deleteMill('${m.name}')" style="color:var(--negative)">×</button></td></tr>`;
+              return`<tr>${S.trader==='Admin'?`<td><span style="display:inline-block;width:18px;height:18px;border-radius:50%;background:${traderColor(m.trader||'Ian')};color:var(--bg);font-size:9px;font-weight:700;text-align:center;line-height:18px" title="${m.trader||'Ian'}">${traderInitial(m.trader||'Ian')}</span></td>`:''}<td class="bold">${m.name}</td><td style="font-size:10px">${locs.length?locs.join(', '):'—'}</td><td class="right">${trades.length}</td><td class="right">${fmtN(vol)} MBF</td><td style="white-space:nowrap"><button class="btn btn-default btn-sm" onclick="editMill('${m.name}')">Edit</button> <button class="btn btn-default btn-sm" onclick="deleteMill('${m.name}')" style="color:var(--negative)">×</button></td></tr>`;
             }).join(''):`<tr><td colspan="${S.trader==='Admin'?6:5}" class="empty-state">No mills yet</td></tr>`}
           </tbody></table></div></div>`;
     }

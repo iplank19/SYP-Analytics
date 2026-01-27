@@ -605,7 +605,7 @@ function toggleBuyOptions(){
         document.getElementById('m-basePrice').value=basePrice;
         calcMSRPremium();
         const srcInfo=document.getElementById('msr-source');
-        if(srcInfo)srcInfo.textContent=`RL ${latestRL.date} | ${region} | ${source} = $${basePrice}`;
+        if(srcInfo)srcInfo.textContent=`RL ${latestRL.date} | ${region} | ${source} = ${fmt(basePrice)}`;
       }
     }
   }
@@ -657,7 +657,7 @@ function calcTallyTotal(){
       const baseEl=document.getElementById(`tally-base-${len}`);
       const premEl=document.getElementById(`tally-prem-${len}`);
       if(baseEl&&basePrice){
-        baseEl.textContent='$'+basePrice;
+        baseEl.textContent=fmt(basePrice);
         if(premEl&&price>0){
           const prem=price-basePrice;
           premEl.textContent=(prem>=0?'+':'')+fmt(prem);
@@ -673,7 +673,7 @@ function calcTallyTotal(){
     }
   });
   
-  document.getElementById('tally-total-vol').textContent=totalVol>0?totalVol.toFixed(2):'—';
+  document.getElementById('tally-total-vol').textContent=totalVol>0?fmtN(totalVol):'—';
   document.getElementById('tally-avg-price').textContent=totalVol>0?fmt(Math.round(totalVal/totalVol)):'—';
   document.getElementById('tally-total-val').textContent=totalVal>0?fmt(Math.round(totalVal)):'—';
   
@@ -693,7 +693,7 @@ function calcTallyTotal(){
   
   // Update main volume and price fields
   if(totalVol>0){
-    document.getElementById('m-volume').value=totalVol.toFixed(2);
+    document.getElementById('m-volume').value=fmtN(totalVol);
     document.getElementById('m-price-std').value=Math.round(totalVal/totalVol);
     // For MSR RL, also update the hidden price field
     if(isMSR){
@@ -726,11 +726,11 @@ function calcMixedTallyTotal(){
   const volTotalEl=document.getElementById('tally-total-vol');
   const avgEl=document.getElementById('tally-avg-price');
   const valTotalEl=document.getElementById('tally-total-val');
-  if(volTotalEl)volTotalEl.textContent=totalVol>0?totalVol.toFixed(2):'—';
+  if(volTotalEl)volTotalEl.textContent=totalVol>0?fmtN(totalVol):'—';
   if(avgEl)avgEl.textContent=totalVol>0?fmt(Math.round(totalVal/totalVol)):'—';
   if(valTotalEl)valTotalEl.textContent=totalVal>0?fmt(Math.round(totalVal)):'—';
   if(totalVol>0){
-    document.getElementById('m-volume').value=totalVol.toFixed(2);
+    document.getElementById('m-volume').value=fmtN(totalVol);
     document.getElementById('m-price-std').value=Math.round(totalVal/totalVol);
   }
 }
@@ -811,7 +811,7 @@ function toggleSellOptions(){
         document.getElementById('m-basePrice').value=basePrice;
         calcSellMSRPremium();
         const srcInfo=document.getElementById('msr-source-sell');
-        if(srcInfo)srcInfo.textContent=`RL ${latestRL.date} | ${region} | ${source} = $${basePrice}`;
+        if(srcInfo)srcInfo.textContent=`RL ${latestRL.date} | ${region} | ${source} = ${fmt(basePrice)}`;
       }
     }
   }
@@ -871,7 +871,7 @@ function calcSellTallyTotal(){
       const baseEl=document.getElementById(`tally-base-${len}`);
       const premEl=document.getElementById(`tally-prem-${len}`);
       if(baseEl&&basePrice){
-        baseEl.textContent='$'+basePrice;
+        baseEl.textContent=fmt(basePrice);
         if(premEl&&price>0){
           const prem=price-basePrice;
           premEl.textContent=(prem>=0?'+':'')+fmt(prem);
@@ -887,7 +887,7 @@ function calcSellTallyTotal(){
     }
   });
   
-  document.getElementById('tally-total-vol').textContent=totalVol>0?totalVol.toFixed(2):'—';
+  document.getElementById('tally-total-vol').textContent=totalVol>0?fmtN(totalVol):'—';
   document.getElementById('tally-avg-price').textContent=totalVol>0?fmt(Math.round(totalVal/totalVol)):'—';
   document.getElementById('tally-total-val').textContent=totalVal>0?fmt(Math.round(totalVal)):'—';
   
@@ -907,7 +907,7 @@ function calcSellTallyTotal(){
   
   // Update main volume and price fields
   if(totalVol>0){
-    document.getElementById('m-volume').value=totalVol.toFixed(2);
+    document.getElementById('m-volume').value=fmtN(totalVol);
     const avgPrice=Math.round(totalVal/totalVol);
     const stdPriceEl=document.getElementById('m-price-std');
     if(stdPriceEl)stdPriceEl.value=avgPrice;
@@ -971,7 +971,7 @@ function showSellModal(s=null){
       <div class="form-grid">
         <div class="form-group"><label class="form-label">Order #</label>
           <input type="text" id="m-orderNum" value="${s?.orderNum||s?.linkedPO||s?.oc||''}" placeholder="e.g. 70123" list="order-list-sell" onchange="onSellOrderChange();updateSellCalc()">
-          <datalist id="order-list-sell">${availBuys.map(b=>`<option value="${b.ord}">${b.ord} - ${b.product} ${b.length||'RL'} from ${b.mill} | ${b.avail} MBF avail</option>`).join('')}</datalist>
+          <datalist id="order-list-sell">${availBuys.map(b=>`<option value="${b.ord}">${b.ord} - ${b.product} ${b.length||'RL'} from ${b.mill} | ${fmtN(b.avail)} MBF avail</option>`).join('')}</datalist>
         </div>
         <div class="form-group"><label class="form-label">Date</label><input type="date" id="m-date" value="${s?.date||today()}"></div>
         <div class="form-group"><label class="form-label">Customer</label><input type="text" id="m-cust" value="${s?.customer||''}" list="cust-list" placeholder="Type or select..." onchange="autoFillDest()"><datalist id="cust-list">${custList.map(c=>`<option value="${c}">`).join('')}</datalist></div>
@@ -1385,7 +1385,7 @@ function updateSellCalc(){
       <div style="font-weight:600;color:var(--negative);margin-bottom:12px">⚠️ SHORT POSITION (No matching Buy)</div>
       <table style="width:100%;font-size:11px">
         <tr><td style="color:var(--muted)">Sell Price (DLVD)</td><td class="right accent">${fmt(sellPrice)}/MBF</td></tr>
-        <tr><td style="color:var(--muted)">- Freight (${fmt(sellFreight)} ÷ ${volume||'?'} MBF)</td><td class="right warn">${volume>0?fmt(Math.round(sellFrtPerMBF)):'—'}/MBF</td></tr>
+        <tr><td style="color:var(--muted)">- Freight (${fmt(sellFreight)} ÷ ${volume?fmtN(volume):'?'} MBF)</td><td class="right warn">${volume>0?fmt(Math.round(sellFrtPerMBF)):'—'}/MBF</td></tr>
         <tr style="border-top:1px solid var(--border)"><td style="font-weight:600">FOB Price</td><td class="right bold">${volume>0?fmt(Math.round(fob)):'—'}/MBF</td></tr>
         <tr><td style="font-weight:600">Total Value</td><td class="right bold">${volume>0?fmt(Math.round(fob*volume)):'—'}</td></tr>
       </table>
@@ -1404,7 +1404,7 @@ function updateSellCalc(){
       <tr style="border-top:1px solid var(--border)"><td style="font-weight:600">Total Cost</td><td class="right bold">${fmt(Math.round(totalCost))}/MBF</td></tr>
       <tr><td colspan="2" style="height:8px"></td></tr>
       <tr><td style="color:var(--muted)">Sell Price (DLVD)</td><td class="right accent">${fmt(sellPrice)}/MBF</td></tr>
-      <tr><td style="color:var(--muted)">- Sell Freight (${fmt(sellFreight)} ÷ ${volume||'?'} MBF)</td><td class="right warn">${volume>0?fmt(Math.round(sellFrtPerMBF)):'—'}/MBF</td></tr>
+      <tr><td style="color:var(--muted)">- Sell Freight (${fmt(sellFreight)} ÷ ${volume?fmtN(volume):'?'} MBF)</td><td class="right warn">${volume>0?fmt(Math.round(sellFrtPerMBF)):'—'}/MBF</td></tr>
       <tr style="border-top:1px solid var(--border)"><td style="font-weight:600">FOB Price</td><td class="right bold">${volume>0?fmt(Math.round(fob)):'—'}/MBF</td></tr>
       <tr><td colspan="2" style="height:8px"></td></tr>
       <tr style="background:var(--panel)"><td style="font-weight:600">MARGIN</td><td class="right ${margin>=0?'positive':'negative'} bold">${volume>0?fmt(Math.round(margin)):'—'}/MBF (${marginPct.toFixed(1)}%)</td></tr>

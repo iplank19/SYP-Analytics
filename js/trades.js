@@ -448,7 +448,7 @@ function linkShortToPO(sellId){
           <div><span style="color:var(--muted)">OC:</span> ${sell.oc||'—'}</div>
           <div><span style="color:var(--muted)">Customer:</span> ${sell.customer||'—'}</div>
           <div><span style="color:var(--muted)">Product:</span> ${sell.product} ${sell.length||'RL'}</div>
-          <div><span style="color:var(--muted)">Volume:</span> ${sell.volume} MBF</div>
+          <div><span style="color:var(--muted)">Volume:</span> ${fmtN(sell.volume)} MBF</div>
           <div><span style="color:var(--muted)">Price:</span> ${fmt(sell.price)} DLVD</div>
         </div>
       </div>
@@ -456,7 +456,7 @@ function linkShortToPO(sellId){
         <label class="form-label">Select PO to Cover</label>
         <select id="link-po" style="width:100%">
           <option value="">— Select PO —</option>
-          ${availPOs.map(b=>`<option value="${b.po}">${b.po} | ${b.product} ${b.length||'RL'} | ${b.mill} | ${fmt(b.price)} | ${b.avail} MBF avail</option>`).join('')}
+          ${availPOs.map(b=>`<option value="${b.po}">${b.po} | ${b.product} ${b.length||'RL'} | ${b.mill} | ${fmt(b.price)} | ${fmtN(b.avail)} MBF avail</option>`).join('')}
         </select>
       </div>
       ${availPOs.length===0?'<div style="color:var(--negative);font-size:11px;margin-top:8px">No POs with available volume. Create a buy first.</div>':''}
