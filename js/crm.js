@@ -256,7 +256,7 @@ async function convertProspect(id){
     if(!S.customers)S.customers=[];
     if(!S.customers.find(c=>c.name===p.company_name)){
       S.customers.push({name:p.company_name,destination:p.address||'',trader:S.trader});
-      saveAllLocal();
+      await saveAllLocal();
     }
     closeModal();loadCRMProspects();
     alert('Prospect converted! They have been added to your Customers list.');
