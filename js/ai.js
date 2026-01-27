@@ -522,89 +522,142 @@ async function runAIWithTools(systemCtx,userMsg,depth=0){
   render();
 }
 
-// Parse CSV order data using Claude AI
-async function parseOrderCSV(csvText){
-  if(!S.apiKey){throw new Error('Add API key in Settings first')}
-  const systemPrompt=`You are a lumber trade data parser. Parse the CSV order data and return a JSON array.
+// Deterministic CSV order parser — no AI, instant, free, never fails
+function parseOrderCSV(csvText){
+  const WEST_STATES=new Set(['TX','AR','LA','OK','NM','CO','AZ','UT','NV','CA','OR','WA','ID','MT','WY']);
+  const EAST_STATES=new Set(['NC','SC','GA','FL','VA','MD','DE','NJ','NY','PA','CT','MA','ME','NH','VT','RI','WV','DC']);
+  // Everything else = central
 
-RULES:
-1. Group rows by Order # — multiple rows with the same Order # are line items on one truckload.
-2. For each unique Order #, produce ONE object with sell and buy sides.
-3. Product mapping from "Product Description" + "Product Detail":
-   - "K.D. SYP #2" + "2 X 4 10'" → product "2x4#2", length "10"
-   - "K.D. SYP #1" + "2 X 10 16'" → product "2x10#1", length "16"
-   - "K.D. SYP #2 PRIME" → treat as #2 grade
-   - "K.D. SYP CLEAR" + "2 X 10 14'" → product "2x10 CLEAR", length "14"
-   - General pattern: take dimension from Product Detail (e.g. "2 X 4" → "2x4"), grade from Product Description (#1, #2, #3, CLEAR)
-4. Tally parsing:
-   - Simple number like "17" → volume = 17
-   - Fraction like "5/14" → volume = 5 (first number is MBF, second is units/bundles — ignore second)
-   - "40/18" → volume = 40
-   - Empty "" → volume = 0
-5. When grouping multiple rows into one order, build items array with each line item's length, price, and volume.
-   If all items share the same product dimension (e.g. all 2x4), use that product. If mixed dimensions, note in the product field.
-6. Destination = "CITY, ST" from Ship To City + Ship To State
-7. Origin = "CITY, ST" from Ship From City + Ship From State
-8. Region: Determine from Ship To State:
-   - West: TX, AR, LA, OK, NM, CO
-   - East: NC, SC, GA, FL, VA, MD, DE, NJ, NY, PA, CT, MA
-   - Central: IL, IN, OH, MI, KY, TN, AL, MS, MO, WI, MN, IA
-9. Status classification:
-   - "matched" = has both Customer AND Mill data
-   - "short" = has Customer but Mill is empty
-   - "long" = has Mill but Customer is empty
-10. Seller is the trader who owns the sell side. Buyer is the trader who owns the buy side.
-
-Return ONLY a JSON array, no markdown, no explanation. Format:
-[{
-  "orderNum": "70264",
-  "status": "matched",
-  "sell": {
-    "trader": "Ian Plank",
-    "customer": "BEAR CREEK TRUSS INC",
-    "destination": "TUSCOLA, IL",
-    "product": "2x4#1",
-    "region": "central",
-    "items": [{"length": "10", "price": 483, "volume": 17}]
-  },
-  "buy": {
-    "trader": "Ian Plank",
-    "mill": "POTLATCHDELTIC OLA",
-    "origin": "OLA, AR",
-    "product": "2x4#1",
-    "region": "central",
-    "items": [{"length": "10", "price": null, "volume": 17}]
+  function getRegion(st){
+    st=(st||'').trim().toUpperCase();
+    if(WEST_STATES.has(st))return 'west';
+    if(EAST_STATES.has(st))return 'east';
+    return 'central';
   }
-}]
 
-If buy side has no data (mill is empty), set buy to null.
-If sell side has no data (customer is empty), set sell to null.
-Buy price is always null (not in the CSV).`;
+  function parseProduct(desc,detail){
+    // desc: "K.D. SYP #2", "K.D. SYP #1", "K.D. SYP #2 PRIME", "K.D. SYP CLEAR"
+    // detail: "2 X 4 10'", "2 X 10 16'"
+    let grade='#2';
+    if(/CLEAR/i.test(desc))grade='CLEAR';
+    else if(/#1/i.test(desc))grade='#1';
+    else if(/#3/i.test(desc))grade='#3';
+    else if(/#2/i.test(desc))grade='#2';
 
-  const res=await fetch('https://api.anthropic.com/v1/messages',{
-    method:'POST',
-    headers:{'Content-Type':'application/json','x-api-key':S.apiKey,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
-    body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:8192,system:systemPrompt,messages:[{role:'user',content:csvText}]})
-  });
-  const data=await res.json();
-  const text=data.content?.[0]?.text||'';
-  if(data.error)throw new Error(data.error.message);
-  // Extract JSON from response (might be wrapped in markdown code block)
-  const jsonMatch=text.match(/\[[\s\S]*\]/);
-  if(!jsonMatch)throw new Error('AI did not return valid JSON');
-  let jsonStr=jsonMatch[0];
-  // Clean common AI artifacts that break JSON
-  jsonStr=jsonStr.replace(/,\s*}/g,'}').replace(/,\s*\]/g,']'); // trailing commas
-  jsonStr=jsonStr.replace(/\n/g,' '); // newlines inside strings
-  try{
-    return JSON.parse(jsonStr);
-  }catch(e){
-    // Try to find the error location and show context
-    const pos=e.message.match(/position (\d+)/)?.[1];
-    if(pos){
-      const ctx=jsonStr.substring(Math.max(0,pos-50),Math.min(jsonStr.length,parseInt(pos)+50));
-      throw new Error(`JSON parse error near: ...${ctx}...`);
+    const dimMatch=(detail||'').match(/(\d+)\s*X\s*(\d+)/i);
+    const lenMatch=(detail||'').match(/(\d+)'/);
+    const dim=dimMatch?`${dimMatch[1]}x${dimMatch[2]}`:'2x4';
+    const length=lenMatch?lenMatch[1]:'';
+    const product=grade==='CLEAR'?`${dim} CLEAR`:`${dim}${grade}`;
+    return{product,length};
+  }
+
+  function parseTally(val){
+    // "17" → 17, "5/14" → 5, "40/18" → 40, "" → 0
+    val=(val||'').replace(/"/g,'').trim();
+    if(!val)return 0;
+    const slashMatch=val.match(/^(\d+)\//);
+    if(slashMatch)return parseFloat(slashMatch[1])||0;
+    return parseFloat(val)||0;
+  }
+
+  function parsePrice(val){
+    return parseFloat((val||'').replace(/[$,]/g,''))||0;
+  }
+
+  // Parse CSV — handle quoted fields
+  function parseCSVRow(line){
+    const fields=[];
+    let current='',inQuotes=false;
+    for(let i=0;i<line.length;i++){
+      const ch=line[i];
+      if(ch==='"'){inQuotes=!inQuotes;continue}
+      if(ch===','&&!inQuotes){fields.push(current.trim());current='';continue}
+      current+=ch;
     }
-    throw e;
+    fields.push(current.trim());
+    return fields;
   }
+
+  const lines=csvText.split('\n').map(l=>l.replace(/\r/g,'')).filter(l=>l.trim());
+  if(lines.length<2)throw new Error('CSV has no data rows');
+
+  // Skip header
+  const header=lines[0].toLowerCase();
+  const hasHeader=header.includes('order');
+  const dataLines=hasHeader?lines.slice(1):lines;
+
+  // Check if there's a "Buy Price" or "FOB" column (future-proof)
+  const headerFields=hasHeader?parseCSVRow(lines[0]):[];
+  const buyPriceIdx=headerFields.findIndex(h=>/buy.*price|fob.*price|mill.*price/i.test(h));
+
+  // Parse rows
+  const rows=dataLines.map(line=>{
+    const f=parseCSVRow(line);
+    if(f.length<13)return null;// skip malformed
+    const{product,length}=parseProduct(f[6],f[7]);
+    return{
+      orderNum:f[0],
+      seller:f[1],
+      customer:f[2],
+      shipToState:f[3],
+      shipToCity:f[4],
+      sellPrice:parsePrice(f[5]),
+      product,
+      length,
+      volume:parseTally(f[8]),
+      mill:f[9],
+      shipFromState:f[10],
+      shipFromCity:f[11],
+      buyer:f[12],
+      buyPrice:buyPriceIdx>=0?parsePrice(f[buyPriceIdx]):0
+    };
+  }).filter(Boolean);
+
+  // Group by Order #
+  const groups=new Map();
+  rows.forEach(r=>{
+    if(!groups.has(r.orderNum))groups.set(r.orderNum,{rows:[],seller:r.seller,customer:r.customer,shipToState:r.shipToState,shipToCity:r.shipToCity,mill:r.mill,shipFromState:r.shipFromState,shipFromCity:r.shipFromCity,buyer:r.buyer});
+    const g=groups.get(r.orderNum);
+    g.rows.push(r);
+    // Fill in blanks from other rows in same order
+    if(!g.mill&&r.mill)g.mill=r.mill;
+    if(!g.buyer&&r.buyer)g.buyer=r.buyer;
+    if(!g.customer&&r.customer)g.customer=r.customer;
+    if(!g.seller&&r.seller)g.seller=r.seller;
+    if(!g.shipFromState&&r.shipFromState)g.shipFromState=r.shipFromState;
+    if(!g.shipFromCity&&r.shipFromCity)g.shipFromCity=r.shipFromCity;
+    if(!g.shipToState&&r.shipToState)g.shipToState=r.shipToState;
+    if(!g.shipToCity&&r.shipToCity)g.shipToCity=r.shipToCity;
+  });
+
+  // Build output
+  const orders=[];
+  groups.forEach((g,orderNum)=>{
+    const hasMill=!!g.mill;
+    const hasCustomer=!!g.customer;
+    const status=hasMill&&hasCustomer?'matched':hasCustomer?'short':'long';
+
+    // Determine primary product (most common dimension across items)
+    const products=g.rows.map(r=>r.product);
+    const primary=products.sort((a,b)=>products.filter(p=>p===b).length-products.filter(p=>p===a).length)[0];
+
+    const items=g.rows.map(r=>({length:r.length,price:r.sellPrice,volume:r.volume,buyPrice:r.buyPrice}));
+    const sellRegion=getRegion(g.shipToState);
+    const buyRegion=getRegion(g.shipFromState);
+    const destination=g.shipToCity&&g.shipToState?`${g.shipToCity}, ${g.shipToState}`.trim():'';
+    const origin=g.shipFromCity&&g.shipFromState?`${g.shipFromCity}, ${g.shipFromState}`.trim():'';
+
+    const order={orderNum,status};
+    if(hasCustomer){
+      order.sell={trader:g.seller||'',customer:g.customer,destination,product:primary,region:sellRegion,items:items.map(it=>({length:it.length,price:it.price,volume:it.volume}))};
+    }else{order.sell=null}
+    if(hasMill){
+      order.buy={trader:g.buyer||g.seller||'',mill:g.mill,origin,product:primary,region:buyRegion,items:items.map(it=>({length:it.length,price:it.buyPrice||0,volume:it.volume}))};
+    }else{order.buy=null}
+
+    orders.push(order);
+  });
+
+  return orders;
 }

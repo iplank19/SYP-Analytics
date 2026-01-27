@@ -1657,19 +1657,13 @@ function showImportModal(){
 async function processCSVImport(event){
   const file=event.target.files[0];
   if(!file)return;
-  const body=document.getElementById('import-body');
-  body.innerHTML=`<div style="text-align:center;padding:60px 20px">
-    <div class="skeleton" style="width:200px;height:20px;margin:0 auto 16px"></div>
-    <div style="font-size:13px;font-weight:600">Parsing ${file.name}...</div>
-    <div style="font-size:11px;color:var(--muted);margin-top:8px">AI is grouping orders and classifying positions</div>
-  </div>`;
   try{
     const csvText=await file.text();
-    const orders=await parseOrderCSV(csvText);
+    const orders=parseOrderCSV(csvText);
     window._importOrders=orders;
     showImportPreview(orders);
   }catch(e){
-    body.innerHTML=`<div style="text-align:center;padding:40px;color:var(--negative)">
+    document.getElementById('import-body').innerHTML=`<div style="text-align:center;padding:40px;color:var(--negative)">
       <div style="font-size:14px;font-weight:600;margin-bottom:8px">Parse Error</div>
       <div style="font-size:11px">${e.message}</div>
       <button class="btn btn-default" onclick="showImportModal()" style="margin-top:16px">Try Again</button>
@@ -1712,24 +1706,29 @@ function showImportPreview(orders){
           <th>Product</th>
           <th>Vol</th>
           <th>Sell $</th>
+          <th>Buy $</th>
         </tr></thead>
         <tbody>
           ${orders.map((o,i)=>{
             const sell=o.sell||{};
             const buy=o.buy||{};
-            const totalVol=(sell.items||buy.items||[]).reduce((s,it)=>s+it.volume,0);
-            const prices=(sell.items||[]).map(it=>'$'+it.price).join(', ');
+            const items=sell.items||buy.items||[];
+            const totalVol=items.reduce((s,it)=>s+(it.volume||0),0);
+            const sellPrices=[...new Set((sell.items||[]).map(it=>it.price).filter(p=>p>0))].map(p=>'$'+p).join(', ');
+            const buyPrices=[...new Set((buy.items||[]).map(it=>it.price).filter(p=>p>0))].map(p=>'$'+p).join(', ');
+            const lenSummary=items.length>1?'RL ('+items.length+')':items[0]?.length||'—';
             return`<tr>
               <td><input type="checkbox" class="import-check" data-idx="${i}" checked></td>
               <td style="font-weight:600">${o.orderNum}</td>
               <td>${statusBadge(o.status)}</td>
-              <td>${sell.trader||'—'}</td>
+              <td>${sell.trader?TRADER_MAP[sell.trader]||sell.trader:'—'}</td>
               <td style="font-size:10px">${sell.customer||'—'}</td>
-              <td>${buy.trader||'—'}</td>
+              <td>${buy.trader?TRADER_MAP[buy.trader]||buy.trader:'—'}</td>
               <td style="font-size:10px">${buy.mill||'—'}</td>
-              <td>${sell.product||buy.product||'—'}</td>
+              <td>${sell.product||buy.product||'—'} <span style="color:var(--muted);font-size:9px">${lenSummary}</span></td>
               <td>${totalVol}</td>
-              <td>${prices||'—'}</td>
+              <td>${sellPrices||'—'}</td>
+              <td>${buyPrices||'—'}</td>
             </tr>`;
           }).join('')}
         </tbody>
@@ -1828,7 +1827,7 @@ function confirmImportOrders(){
         region:o.buy.region||'',
         product:o.buy.product||'',
         length:items.length===1?items[0].length:'RL',
-        price:0,// Buy price not in CSV yet
+        price:totalVol>0?Math.round(items.reduce((s,it)=>s+(it.volume||0)*(it.price||0),0)/totalVol):0,
         volume:totalVol,
         notes:'CSV Import',
         trader:mapTrader(o.buy.trader),
