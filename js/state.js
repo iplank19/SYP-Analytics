@@ -70,7 +70,8 @@ const fmtD=d=>d?new Date(d+'T00:00:00').toLocaleDateString('en-US',{month:'short
 const today=()=>new Date().toISOString().split('T')[0];
 
 // Migrate legacy first-name trader values to new "First L" format
-(function migrateTraderNames(){
+// Called on load and after each loadAllLocal()/cloud sync
+function migrateTraderNames(){
   let changed=false;
   // Migrate current login
   const nt=normalizeTrader(S.trader);
@@ -81,7 +82,8 @@ const today=()=>new Date().toISOString().split('T')[0];
   S.mills.forEach(m=>{const n=normalizeTrader(m.trader);if(n&&n!==m.trader){m.trader=n;changed=true;}});
   S.customers.forEach(c=>{const n=normalizeTrader(c.trader);if(n&&n!==c.trader){c.trader=n;changed=true;}});
   if(changed){SS('buys',S.buys);SS('sells',S.sells);SS('mills',S.mills);SS('customers',S.customers);}
-})();
+}
+migrateTraderNames();
 const genId=()=>{const id=S.nextId++;SS('nextId',S.nextId);return id};
 
 

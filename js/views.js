@@ -1129,20 +1129,6 @@ function render(){
     const shortExposure=shortPos.reduce((s,p)=>s+p.net*p.avgSell,0);
     const netPosition=totalLong-totalShort;
 
-    // Exposure by Region - DEPT WIDE
-    const regionExposure={west:{long:0,short:0,longVal:0,shortVal:0},central:{long:0,short:0,longVal:0,shortVal:0},east:{long:0,short:0,longVal:0,shortVal:0}};
-    deptBuys.forEach(b=>{
-      const r=b.region||'west';
-      regionExposure[r].long+=b.volume||0;
-      regionExposure[r].longVal+=(b.price||0)*(b.volume||0);
-    });
-    deptSells.forEach(s=>{
-      const r=s.region||'west';
-      regionExposure[r].short+=s.volume||0;
-      const frtMBF=s.volume>0?(s.freight||0)/s.volume:0;
-      regionExposure[r].shortVal+=((s.price||0)-frtMBF)*(s.volume||0);
-    });
-
     // Concentration risk - find largest position
     const allPos=[...longPos,...shortPos].sort((a,b)=>(b.net*b.avgCost||b.net*b.avgSell)-(a.net*a.avgCost||a.net*a.avgSell));
     const largestPos=allPos[0];
@@ -1163,32 +1149,6 @@ function render(){
         <div class="kpi"><div class="kpi-label">LONG EXPOSURE</div><div><span class="kpi-value ${totalLong>0?'warn':''}">${fmtN(totalLong)} MBF</span><span class="kpi-sub">${fmt(Math.round(longExposure))}</span></div></div>
         <div class="kpi"><div class="kpi-label">SHORT EXPOSURE</div><div><span class="kpi-value ${totalShort>0?'negative':''}">${fmtN(totalShort)} MBF</span><span class="kpi-sub">${fmt(Math.round(shortExposure))}</span></div></div>
         <div class="kpi"><div class="kpi-label">UNCOVERED SELLS</div><div><span class="kpi-value ${uncoveredVol>0?'negative':''}">${fmtN(uncoveredVol)} MBF</span><span class="kpi-sub">${uncoveredSells.length} orders</span></div></div>
-      </div>
-
-      <!-- Regional Exposure -->
-      <div class="grid-3" style="margin-bottom:16px">
-        ${['west','central','east'].map(r=>{
-          const d=regionExposure[r];
-          const net=d.long-d.short;
-          const color=r==='west'?'accent':r==='central'?'warn':'info';
-          return`<div class="card">
-            <div class="card-header"><span class="card-title" style="color:var(--${color});text-transform:uppercase">${r}</span></div>
-            <div class="card-body">
-              <div style="display:flex;justify-content:space-between;margin-bottom:8px">
-                <span style="color:var(--muted)">Long</span>
-                <span class="warn">${fmtN(d.long)} MBF</span>
-              </div>
-              <div style="display:flex;justify-content:space-between;margin-bottom:8px">
-                <span style="color:var(--muted)">Short</span>
-                <span class="negative">${fmtN(d.short)} MBF</span>
-              </div>
-              <div style="display:flex;justify-content:space-between;padding-top:8px;border-top:1px solid var(--border)">
-                <span style="font-weight:600">Net</span>
-                <span class="bold ${net>0?'warn':net<0?'negative':''}">${net>0?'+':''}${fmtN(net)} MBF</span>
-              </div>
-            </div>
-          </div>`;
-        }).join('')}
       </div>
 
       <!-- Concentration Risk -->

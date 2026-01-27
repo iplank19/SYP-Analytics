@@ -224,7 +224,8 @@ async function init(){
   
   await initDB();
   await loadAllLocal();
-  
+  migrateTraderNames();
+
   // Init Supabase (uses hardcoded defaults if not overridden)
   const sbUrl=LS('supabaseUrl','')||DEFAULT_SUPABASE_URL;
   const sbKey=LS('supabaseKey','')||DEFAULT_SUPABASE_KEY;
@@ -235,6 +236,7 @@ async function init(){
       const result=await cloudSync('pull');
       if(result.success){
         await loadAllLocal(); // Reload with cloud data
+        migrateTraderNames();
         console.log('Cloud sync: pulled latest data');
       }
     }catch(e){
