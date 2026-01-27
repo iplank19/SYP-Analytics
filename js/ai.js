@@ -675,18 +675,22 @@ function parseOrderCSV(csvText){
     const products=g.rows.map(r=>r.product);
     const primary=products.sort((a,b)=>products.filter(p=>p===b).length-products.filter(p=>p===a).length)[0];
 
-    const items=g.rows.map(r=>({length:r.length,price:r.sellPrice,volume:r.volume,units:r.units,buyPrice:r.buyPrice}));
+    const items=g.rows.map(r=>({product:r.product,length:r.length,price:r.sellPrice,volume:r.volume,units:r.units,buyPrice:r.buyPrice}));
     const sellRegion=getRegion(g.shipToState);
     const buyRegion=getRegion(g.shipFromState);
     const destination=g.shipToCity&&g.shipToState?`${g.shipToCity}, ${g.shipToState}`.trim():'';
     const origin=g.shipFromCity&&g.shipFromState?`${g.shipFromCity}, ${g.shipFromState}`.trim():'';
 
+    // Detect multi-product orders (e.g. 2x4 + 2x6 on one truck)
+    const uniqueProducts=[...new Set(g.rows.map(r=>r.product))];
+    const productLabel=uniqueProducts.length>1?uniqueProducts.join(' / '):primary;
+
     const order={orderNum,status};
     if(hasCustomer){
-      order.sell={trader:g.seller||'',customer:g.customer,destination,product:primary,region:sellRegion,items:items.map(it=>({length:it.length,price:it.price,volume:it.volume,units:it.units}))};
+      order.sell={trader:g.seller||'',customer:g.customer,destination,product:productLabel,region:sellRegion,items:items.map(it=>({product:it.product,length:it.length,price:it.price,volume:it.volume,units:it.units}))};
     }else{order.sell=null}
     if(hasMill){
-      order.buy={trader:g.buyer||g.seller||'',mill:g.mill,origin,product:primary,region:buyRegion,items:items.map(it=>({length:it.length,price:it.buyPrice||0,volume:it.volume,units:it.units}))};
+      order.buy={trader:g.buyer||g.seller||'',mill:g.mill,origin,product:productLabel,region:buyRegion,items:items.map(it=>({product:it.product,length:it.length,price:it.buyPrice||0,volume:it.volume,units:it.units}))};
     }else{order.buy=null}
 
     orders.push(order);

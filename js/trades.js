@@ -14,15 +14,33 @@ function saveBuy(id){
   // Check for tally data (if checkbox is checked OR if RL is selected and tally fields have data)
   if(useTallyCheckbox||isRL){
     const tempTally={};
-    ['8','10','12','14','16','18','20'].forEach(len=>{
-      const vol=parseFloat(document.getElementById(`tally-vol-${len}`)?.value)||0;
-      const tallyPrice=parseFloat(document.getElementById(`tally-price-${len}`)?.value)||0;
-      if(vol>0&&tallyPrice>0){
-        tempTally[len]={vol,price:tallyPrice};
+    // Check for mixed-product tally rows first
+    let mi=0;
+    while(document.getElementById(`tally-vol-mixed-${mi}`)){
+      const el=document.getElementById(`tally-vol-mixed-${mi}`);
+      const pEl=document.getElementById(`tally-price-mixed-${mi}`);
+      const key=el.dataset.tkey||`item-${mi}`;
+      const vol=parseFloat(el.value)||0;
+      const tallyPrice=parseFloat(pEl?.value)||0;
+      if(vol>0){
+        tempTally[key]={vol,price:tallyPrice};
         tallyTotalVol+=vol;
         tallyTotalVal+=vol*tallyPrice;
       }
-    });
+      mi++;
+    }
+    // Standard length rows (only if no mixed rows found)
+    if(mi===0){
+      ['8','10','12','14','16','18','20'].forEach(len=>{
+        const vol=parseFloat(document.getElementById(`tally-vol-${len}`)?.value)||0;
+        const tallyPrice=parseFloat(document.getElementById(`tally-price-${len}`)?.value)||0;
+        if(vol>0&&tallyPrice>0){
+          tempTally[len]={vol,price:tallyPrice};
+          tallyTotalVol+=vol;
+          tallyTotalVal+=vol*tallyPrice;
+        }
+      });
+    }
     if(Object.keys(tempTally).length>0){
       tally=tempTally;
     }
@@ -122,15 +140,33 @@ function saveSell(id){
   // Check for tally data (if checkbox is checked OR if RL is selected and tally fields have data)
   if(useTallyCheckbox||isRL){
     const tempTally={};
-    ['8','10','12','14','16','18','20'].forEach(len=>{
-      const vol=parseFloat(document.getElementById(`tally-vol-${len}`)?.value)||0;
-      const tallyPrice=parseFloat(document.getElementById(`tally-price-${len}`)?.value)||0;
-      if(vol>0&&tallyPrice>0){
-        tempTally[len]={vol,price:tallyPrice};
+    // Check for mixed-product tally rows first
+    let mi=0;
+    while(document.getElementById(`tally-vol-mixed-${mi}`)){
+      const el=document.getElementById(`tally-vol-mixed-${mi}`);
+      const pEl=document.getElementById(`tally-price-mixed-${mi}`);
+      const key=el.dataset.tkey||`item-${mi}`;
+      const vol=parseFloat(el.value)||0;
+      const tallyPrice=parseFloat(pEl?.value)||0;
+      if(vol>0){
+        tempTally[key]={vol,price:tallyPrice};
         tallyTotalVol+=vol;
         tallyTotalVal+=vol*tallyPrice;
       }
-    });
+      mi++;
+    }
+    // Standard length rows (only if no mixed rows found)
+    if(mi===0){
+      ['8','10','12','14','16','18','20'].forEach(len=>{
+        const vol=parseFloat(document.getElementById(`tally-vol-${len}`)?.value)||0;
+        const tallyPrice=parseFloat(document.getElementById(`tally-price-${len}`)?.value)||0;
+        if(vol>0&&tallyPrice>0){
+          tempTally[len]={vol,price:tallyPrice};
+          tallyTotalVol+=vol;
+          tallyTotalVal+=vol*tallyPrice;
+        }
+      });
+    }
     if(Object.keys(tempTally).length>0){
       tally=tempTally;
     }
