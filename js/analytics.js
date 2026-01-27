@@ -30,9 +30,8 @@ function calcTopProducts(buys,sells){
     const buy=ord?buyByOrder[ord]:null;
     if(buy){
       const buyCost=buy.price||0;
-      const buyFrtPerMBF=buy.volume>0?(buy.freight||0)/buy.volume:0;
       const sellFob=(s.price||0)-frtPerMBF;
-      products[p].profit+=(sellFob-buyCost-buyFrtPerMBF)*(s.volume||0);
+      products[p].profit+=(sellFob-buyCost)*(s.volume||0);
     }
   });
 
@@ -71,9 +70,8 @@ function calcTopCustomers(sells){
     const buy=ord?buyByOrder[ord]:null;
     if(buy){
       const buyCost=buy.price||0;
-      const buyFrtPerMBF=buy.volume>0?(buy.freight||0)/buy.volume:0;
       const sellFob=(s.price||0)-frtPerMBF;
-      customers[c].profit+=(sellFob-buyCost-buyFrtPerMBF)*(s.volume||0);
+      customers[c].profit+=(sellFob-buyCost)*(s.volume||0);
     }
   });
 
@@ -193,9 +191,8 @@ function calcWeeklyPerformance(allBuys,allSells){
       const buy=ord?buyByOrder[ord]:null;
       if(buy){
         const frtPerMBF=s.volume>0?(s.freight||0)/s.volume:0;
-        const buyFrtPerMBF=buy.volume>0?(buy.freight||0)/buy.volume:0;
         const sellFob=(s.price||0)-frtPerMBF;
-        profit+=(sellFob-(buy.price||0)-buyFrtPerMBF)*(s.volume||0);
+        profit+=(sellFob-(buy.price||0))*(s.volume||0);
       }
     });
 
@@ -235,8 +232,7 @@ function analytics(){
     const ord=String(s.orderNum||s.linkedPO||s.oc||'').trim();
     const buy=ord?buyByOrder[ord]:null;
     if(buy){
-      const buyFrtPerMBF=buy.volume>0?(buy.freight||0)/buy.volume:0;
-      const totalBuyCost=((buy.price||0)+buyFrtPerMBF)*(s.volume||0);
+      const totalBuyCost=(buy.price||0)*(s.volume||0);
       const sellFrtPerMBF=s.volume>0?(s.freight||0)/s.volume:0;
       const sellFOB=((s.price||0)-sellFrtPerMBF)*(s.volume||0);
       matchedProfit+=sellFOB-totalBuyCost;

@@ -86,10 +86,10 @@ function saveBuy(id){
     volume:volume, // Use calculated volume
     notes:document.getElementById('m-notes').value,
     trader:S.trader==='Admin'?(document.getElementById('m-trader')?.value||'Ian'):S.trader, // Admin assigns to trader, otherwise current trader
-    // Freight fields (for DLVD buys)
-    miles:parseFloat(document.getElementById('m-miles')?.value)||0,
-    rate:parseFloat(document.getElementById('m-rate')?.value)||S.flatRate||3.50,
-    freight:parseFloat(document.getElementById('m-freight')?.value)||0,
+    // Freight lives on the sell (OC) side only
+    miles:0,
+    rate:0,
+    freight:0,
     // MSR fields
     basePrice:isMSR?parseFloat(document.getElementById('m-basePrice').value)||0:null,
     msrPremium:isMSR?parseFloat(document.getElementById('m-msrPremium').value)||0:null,

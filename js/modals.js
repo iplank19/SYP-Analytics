@@ -113,15 +113,8 @@ function showBuyModal(b=null){
         </div>
       </div>
       
-      <div style="margin-top:16px;padding:16px;background:var(--panel-alt);border:1px solid var(--border)">
-        <div style="font-weight:600;color:var(--warn);margin-bottom:12px">FREIGHT (Optional - for DLVD buys)</div>
-        <div class="form-grid">
-          <div class="form-group"><label class="form-label">Miles</label><div style="display:flex;gap:4px"><input type="number" id="m-miles" value="${b?.miles||''}" style="flex:1" onchange="calcBuyFreight()"><button class="btn btn-default btn-sm" onclick="calcBuyMileage()">🔍</button></div></div>
-          <div class="form-group"><label class="form-label">Rate ($/mile)</label><input type="number" id="m-rate" value="${b?.rate||S.flatRate||3.50}" step="0.01" onchange="calcBuyFreight()"></div>
-          <div class="form-group"><label class="form-label">Freight ($/load)</label><input type="number" id="m-freight" value="${b?.freight||''}"></div>
-          <div class="form-group"><label class="form-label">$/MBF</label><input type="text" id="m-freightMBF" value="" readonly style="opacity:0.7"></div>
-        </div>
-        <div id="buy-mileage-status" style="font-size:10px;color:var(--muted);margin-top:8px"></div>
+      <div style="margin-top:12px;padding:8px 12px;background:var(--panel-alt);border:1px solid var(--border);font-size:10px;color:var(--muted)">
+        Freight is entered on the sell (OC) side and applies to the matched trade.
       </div>
       
       <div class="form-group" style="margin-top:12px"><label class="form-label">Notes</label><textarea id="m-notes">${b?.notes||''}</textarea></div>
@@ -680,7 +673,7 @@ function calcTallyTotal(){
     }
   });
   
-  document.getElementById('tally-total-vol').textContent=totalVol>0?totalVol.toFixed(1):'—';
+  document.getElementById('tally-total-vol').textContent=totalVol>0?totalVol.toFixed(2):'—';
   document.getElementById('tally-avg-price').textContent=totalVol>0?fmt(Math.round(totalVal/totalVol)):'—';
   document.getElementById('tally-total-val').textContent=totalVal>0?fmt(Math.round(totalVal)):'—';
   
@@ -700,7 +693,7 @@ function calcTallyTotal(){
   
   // Update main volume and price fields
   if(totalVol>0){
-    document.getElementById('m-volume').value=totalVol.toFixed(1);
+    document.getElementById('m-volume').value=totalVol.toFixed(2);
     document.getElementById('m-price-std').value=Math.round(totalVal/totalVol);
     // For MSR RL, also update the hidden price field
     if(isMSR){
@@ -894,7 +887,7 @@ function calcSellTallyTotal(){
     }
   });
   
-  document.getElementById('tally-total-vol').textContent=totalVol>0?totalVol.toFixed(1):'—';
+  document.getElementById('tally-total-vol').textContent=totalVol>0?totalVol.toFixed(2):'—';
   document.getElementById('tally-avg-price').textContent=totalVol>0?fmt(Math.round(totalVal/totalVol)):'—';
   document.getElementById('tally-total-val').textContent=totalVal>0?fmt(Math.round(totalVal)):'—';
   
@@ -914,7 +907,7 @@ function calcSellTallyTotal(){
   
   // Update main volume and price fields
   if(totalVol>0){
-    document.getElementById('m-volume').value=totalVol.toFixed(1);
+    document.getElementById('m-volume').value=totalVol.toFixed(2);
     const avgPrice=Math.round(totalVal/totalVol);
     const stdPriceEl=document.getElementById('m-price-std');
     if(stdPriceEl)stdPriceEl.value=avgPrice;

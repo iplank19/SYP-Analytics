@@ -87,10 +87,10 @@ function render(){
     }
     c.innerHTML=`
       <div class="kpi-grid">
-        <div class="kpi"><div class="kpi-label">BUY VOLUME</div><div><span class="kpi-value">${a.bVol} MBF</span><span class="kpi-sub">${fmt(a.bVal)}</span></div></div>
-        <div class="kpi"><div class="kpi-label">SELL VOLUME</div><div><span class="kpi-value">${a.sVol} MBF</span><span class="kpi-sub">${fmt(a.sVal)}</span></div></div>
-        <div class="kpi"><div class="kpi-label">MATCHED VOL</div><div><span class="kpi-value">${a.matchedVol} MBF</span></div></div>
-        <div class="kpi"><div class="kpi-label">OPEN POSITION</div><div><span class="kpi-value ${a.inv>0?'warn':a.inv<0?'negative':''}">${a.inv} MBF</span><span class="kpi-sub">${a.inv>0?'long':a.inv<0?'short':'flat'}</span></div></div>
+        <div class="kpi"><div class="kpi-label">BUY VOLUME</div><div><span class="kpi-value">${fmtN(a.bVol)} MBF</span><span class="kpi-sub">${fmt(a.bVal)}</span></div></div>
+        <div class="kpi"><div class="kpi-label">SELL VOLUME</div><div><span class="kpi-value">${fmtN(a.sVol)} MBF</span><span class="kpi-sub">${fmt(a.sVal)}</span></div></div>
+        <div class="kpi"><div class="kpi-label">MATCHED VOL</div><div><span class="kpi-value">${fmtN(a.matchedVol)} MBF</span></div></div>
+        <div class="kpi"><div class="kpi-label">OPEN POSITION</div><div><span class="kpi-value ${a.inv>0?'warn':a.inv<0?'negative':''}">${fmtN(a.inv)} MBF</span><span class="kpi-sub">${a.inv>0?'long':a.inv<0?'short':'flat'}</span></div></div>
         <div class="kpi"><div class="kpi-label">MARGIN (MATCHED)</div><div><span class="kpi-value ${a.margin>=0?'positive':'negative'}">${fmt(Math.round(a.margin))}</span><span class="kpi-sub">${fmtPct(a.marginPct)}</span></div></div>
         <div class="kpi"><div class="kpi-label">REALIZED PROFIT</div><div><span class="kpi-value ${a.profit>=0?'positive':'negative'}">${fmt(Math.round(a.profit))}</span></div></div>
       </div>
@@ -100,7 +100,7 @@ function render(){
           <div style="display:flex;justify-content:space-between"><span style="color:var(--muted)">Total Impact</span><span style="font-weight:600;color:${a.totVsRL<=0?'var(--positive)':'var(--negative)'}">${fmt(Math.abs(Math.round(a.totVsRL)))} ${a.totVsRL<=0?'saved':'over'}</span></div>
         </div></div>
         <div class="card"><div class="card-header"><span class="card-title">INVENTORY</span></div><div class="card-body">
-          <div style="display:flex;justify-content:space-between;margin-bottom:12px"><span style="color:var(--muted)">Open Volume</span><span style="font-size:18px;font-weight:700;color:${a.inv>0?'var(--warn)':'var(--text)'}">${a.inv} MBF</span></div>
+          <div style="display:flex;justify-content:space-between;margin-bottom:12px"><span style="color:var(--muted)">Open Volume</span><span style="font-size:18px;font-weight:700;color:${a.inv>0?'var(--warn)':'var(--text)'}">${fmtN(a.inv)} MBF</span></div>
           <div style="display:flex;justify-content:space-between"><span style="color:var(--muted)">Est. Value</span><span style="font-weight:600">${fmt(Math.round(a.inv*a.avgB))}</span></div>
         </div></div>
         <div class="card"><div class="card-header"><span class="card-title warn">FREIGHT</span></div><div class="card-body">
@@ -118,10 +118,10 @@ function render(){
       </div>
       <div class="grid-2">
         <div class="card"><div class="card-header"><span class="card-title positive">RECENT BUYS</span></div>
-          ${a.buys.length?a.buys.slice(0,5).map(b=>`<div class="activity-item"><div><div class="activity-main">${b.product} @ ${fmt(b.price)}</div><div class="activity-sub">${b.mill} • ${b.date}</div></div><div class="activity-right"><div class="activity-value positive">${b.volume} MBF</div><span class="badge ${b.shipped?'badge-success':'badge-pending'}">${b.shipped?'Shipped':'Pending'}</span></div></div>`).join(''):'<div class="empty-state">No buys yet</div>'}
+          ${a.buys.length?a.buys.slice(0,5).map(b=>`<div class="activity-item"><div><div class="activity-main">${b.product} @ ${fmt(b.price)}</div><div class="activity-sub">${b.mill} • ${b.date}</div></div><div class="activity-right"><div class="activity-value positive">${fmtN(b.volume)} MBF</div><span class="badge ${b.shipped?'badge-success':'badge-pending'}">${b.shipped?'Shipped':'Pending'}</span></div></div>`).join(''):'<div class="empty-state">No buys yet</div>'}
         </div>
         <div class="card"><div class="card-header"><span class="card-title">RECENT SELLS</span></div>
-          ${a.sells.length?a.sells.slice(0,5).map(x=>`<div class="activity-item"><div><div class="activity-main">${x.product} @ ${fmt(x.price)} DLVD</div><div class="activity-sub">${x.customer} • ${x.destination}</div></div><div class="activity-right"><div class="activity-value accent">${x.volume} MBF</div><span class="badge ${x.delivered?'badge-success':'badge-pending'}">${x.delivered?'Delivered':'Pending'}</span></div></div>`).join(''):'<div class="empty-state">No sells yet</div>'}
+          ${a.sells.length?a.sells.slice(0,5).map(x=>`<div class="activity-item"><div><div class="activity-main">${x.product} @ ${fmt(x.price)} DLVD</div><div class="activity-sub">${x.customer} • ${x.destination}</div></div><div class="activity-right"><div class="activity-value accent">${fmtN(x.volume)} MBF</div><span class="badge ${x.delivered?'badge-success':'badge-pending'}">${x.delivered?'Delivered':'Pending'}</span></div></div>`).join(''):'<div class="empty-state">No sells yet</div>'}
         </div>
       </div>
 
@@ -413,10 +413,10 @@ function render(){
                   <span style="font-size:16px;font-weight:700;color:${i===0?'gold':i===1?'silver':i===2?'#cd7f32':'var(--muted)'};width:24px">${i+1}</span>
                   <div>
                     <div style="font-weight:600">${t.name}${t.name===S.trader?' ⭐':''}</div>
-                    <div style="font-size:10px;color:var(--muted)">B:${t.buyVol} S:${t.sellVol}</div>
+                    <div style="font-size:10px;color:var(--muted)">B:${fmtN(t.buyVol)} S:${fmtN(t.sellVol)}</div>
                   </div>
                 </div>
-                <span style="font-weight:700;font-size:14px">${t.totalVol} MBF</span>
+                <span style="font-weight:700;font-size:14px">${fmtN(t.totalVol)} MBF</span>
               </div>`).join('')}
           </div>
         </div>
@@ -920,7 +920,7 @@ function render(){
       </div>
       <div class="card"><div class="card-header"><span class="card-title positive">${S.trader==='Admin'?'ALL BUYS':'MY BUYS'}</span><span style="color:var(--muted);font-size:10px;margin-left:8px">${filteredBuys.length} trades</span><button class="btn btn-default btn-sm" onclick="expCSV('buys')">Export CSV</button></div>
         <div style="overflow-x:auto"><table><thead><tr>${S.trader==='Admin'?'<th>👤</th>':''}<th ${sortClick('orderNum')}>Order # ${sortIcon('orderNum')}</th><th ${sortClick('date')}>Date ${sortIcon('date')}</th><th class="right" title="Days since purchase">Age</th><th ${sortClick('mill')}>Mill ${sortIcon('mill')}</th><th>Origin</th><th>Reg</th><th ${sortClick('product')}>Product ${sortIcon('product')}</th><th>Len</th><th class="right" ${sortClick('price')}>Price ${sortIcon('price')}</th><th class="right">Frt</th><th class="right" ${sortClick('volume')}>Vol ${sortIcon('volume')}</th><th class="right">Sold</th><th class="right">Avail</th><th></th></tr></thead><tbody>
-          ${filteredBuys.length?filteredBuys.map(b=>{const ord=String(b.orderNum||b.po||'').trim();const sold=orderSold[ord]||0;const avail=(b.volume||0)-sold;const buyFrtMBF=b.volume>0?(b.freight||0)/b.volume:0;const age=calcAge(b.date);const ageColor=age>30?'var(--negative)':age>14?'var(--warn)':'var(--muted)';const linkedSells=ord?sellByOrder[ord]||[]:[];const coworkerSells=linkedSells.filter(s=>s.trader&&s.trader!==b.trader);return`<tr>${S.trader==='Admin'?`<td><span style="display:inline-block;width:20px;height:20px;border-radius:50%;background:${traderColor(b.trader||'Ian')};color:var(--bg);font-size:10px;font-weight:700;text-align:center;line-height:20px" title="${b.trader||'Ian'}">${traderInitial(b.trader||'Ian')}</span></td>`:''}<td class="bold accent">${ord||'—'}${coworkerSells.length?` <span style="font-size:9px;color:var(--info)" title="Sold by: ${coworkerSells.map(s=>s.trader).join(', ')}">→${coworkerSells.map(s=>traderInitial(s.trader)).join(',')}</span>`:''}</td><td>${fmtD(b.date)}</td><td class="right" style="color:${ageColor};font-size:10px" title="${age} days old">${age}d</td><td>${b.mill||'—'}</td><td>${b.origin||'—'}</td><td style="text-transform:capitalize">${b.region}</td><td class="bold">${b.product}${b.msrPremium?' <span style="color:var(--accent);font-size:9px">+'+b.msrPremium+'</span>':''}</td><td>${b.length||'RL'}${b.tally?' <span style="color:var(--warn);font-size:9px">T</span>':''}</td><td class="right positive">${fmt(b.price)}${b.freight?' <span style="color:var(--muted);font-size:9px">FOB</span>':''}</td><td class="right ${b.freight?'warn':''}">${b.freight?fmt(b.freight):'—'}</td><td class="right">${b.volume}</td><td class="right ${sold>0?'warn':''}">${sold}</td><td class="right ${avail>0?'positive':''}">${avail}</td><td><div class="action-buttons"><button class="btn btn-default btn-sm" onclick="editBuy(${b.id})">Edit</button><button class="btn btn-default btn-sm" onclick="dupBuy(${b.id})">⧉</button><button class="btn btn-danger btn-sm" onclick="delBuy(${b.id})">×</button></div></td></tr>`}).join(''):`<tr><td colspan="${S.trader==='Admin'?15:14}" class="empty-state">No buys</td></tr>`}
+          ${filteredBuys.length?filteredBuys.map(b=>{const ord=String(b.orderNum||b.po||'').trim();const sold=orderSold[ord]||0;const avail=(b.volume||0)-sold;const buyFrtMBF=b.volume>0?(b.freight||0)/b.volume:0;const age=calcAge(b.date);const ageColor=age>30?'var(--negative)':age>14?'var(--warn)':'var(--muted)';const linkedSells=ord?sellByOrder[ord]||[]:[];const coworkerSells=linkedSells.filter(s=>s.trader&&s.trader!==b.trader);return`<tr>${S.trader==='Admin'?`<td><span style="display:inline-block;width:20px;height:20px;border-radius:50%;background:${traderColor(b.trader||'Ian')};color:var(--bg);font-size:10px;font-weight:700;text-align:center;line-height:20px" title="${b.trader||'Ian'}">${traderInitial(b.trader||'Ian')}</span></td>`:''}<td class="bold accent">${ord||'—'}${coworkerSells.length?` <span style="font-size:9px;color:var(--info)" title="Sold by: ${coworkerSells.map(s=>s.trader).join(', ')}">→${coworkerSells.map(s=>traderInitial(s.trader)).join(',')}</span>`:''}</td><td>${fmtD(b.date)}</td><td class="right" style="color:${ageColor};font-size:10px" title="${age} days old">${age}d</td><td>${b.mill||'—'}</td><td>${b.origin||'—'}</td><td style="text-transform:capitalize">${b.region}</td><td class="bold">${b.product}${b.msrPremium?' <span style="color:var(--accent);font-size:9px">+'+b.msrPremium+'</span>':''}</td><td>${b.length||'RL'}${b.tally?' <span style="color:var(--warn);font-size:9px">T</span>':''}</td><td class="right positive">${fmt(b.price)}${b.freight?' <span style="color:var(--muted);font-size:9px">FOB</span>':''}</td><td class="right ${b.freight?'warn':''}">${b.freight?fmt(b.freight):'—'}</td><td class="right">${fmtN(b.volume)}</td><td class="right ${sold>0?'warn':''}">${fmtN(sold)}</td><td class="right ${avail>0?'positive':''}">${fmtN(avail)}</td><td><div class="action-buttons"><button class="btn btn-default btn-sm" onclick="editBuy(${b.id})">Edit</button><button class="btn btn-default btn-sm" onclick="dupBuy(${b.id})">⧉</button><button class="btn btn-danger btn-sm" onclick="delBuy(${b.id})">×</button></div></td></tr>`}).join(''):`<tr><td colspan="${S.trader==='Admin'?15:14}" class="empty-state">No buys</td></tr>`}
         </tbody></table></div></div>
       <div class="card"><div class="card-header"><span class="card-title">${S.trader==='Admin'?'ALL SELLS':'MY SELLS'}</span><span style="color:var(--muted);font-size:10px;margin-left:8px">${filteredSells.length} trades</span><button class="btn btn-default btn-sm" onclick="expCSV('sells')">Export CSV</button></div>
         <div style="overflow-x:auto"><table><thead><tr>${S.trader==='Admin'?'<th>👤</th>':''}<th ${sortClick('orderNum')}>Order # ${sortIcon('orderNum')}</th><th ${sortClick('date')}>Date ${sortIcon('date')}</th><th ${sortClick('customer')}>Customer ${sortIcon('customer')}</th><th>Dest</th><th ${sortClick('product')}>Product ${sortIcon('product')}</th><th>Len</th><th class="right" ${sortClick('price')}>DLVD ${sortIcon('price')}</th><th class="right">Frt</th><th class="right">Frt/MBF</th><th class="right">Margin</th><th class="right" ${sortClick('volume')}>Vol ${sortIcon('volume')}</th><th class="right">Profit</th><th></th></tr></thead><tbody>
@@ -928,15 +928,13 @@ function render(){
             const ord=String(x.orderNum||x.linkedPO||x.oc||'').trim();
             const buy=ord?buyByOrder[ord]:null;
             const buyCost=buy?.price||0;
-            const buyFrtPerMBF=buy?.volume>0?(buy?.freight||0)/buy.volume:0;
             const sellFrtPerMBF=x.volume>0?(x.freight||0)/x.volume:0;
             const fob=(x.price||0)-sellFrtPerMBF;
-            const totalCost=buyCost+buyFrtPerMBF; // Include buy freight in cost
-            const margin=buy?fob-totalCost:null;
+            const margin=buy?fob-buyCost:null;
             const profit=margin!==null?margin*(x.volume||0):null;
             const isShort=!buy;
             const crossTrader=buy&&buy.trader!==x.trader;
-            return`<tr>${S.trader==='Admin'?`<td><span style="display:inline-block;width:20px;height:20px;border-radius:50%;background:${traderColor(x.trader||'Ian')};color:var(--bg);font-size:10px;font-weight:700;text-align:center;line-height:20px" title="${x.trader||'Ian'}">${traderInitial(x.trader||'Ian')}</span></td>`:''}<td class="bold ${isShort?'negative':'accent'}">${ord||'—'}${isShort?' <span style="font-size:9px">(SHORT)</span>':''}${crossTrader?` <span style="font-size:9px;color:${traderColor(buy.trader)}" title="Sourced from ${buy.trader}">←${traderInitial(buy.trader)}</span>`:''}</td><td>${fmtD(x.date)}</td><td>${x.customer||'—'}</td><td>${x.destination||'—'}</td><td class="bold">${x.product}${x.msrPremium?' <span style="color:var(--accent);font-size:9px">+'+x.msrPremium+'</span>':''}</td><td>${x.length||'RL'}${x.tally?' <span style="color:var(--warn);font-size:9px">T</span>':''}</td><td class="right accent">${fmt(x.price)}</td><td class="right warn">${fmt(x.freight)}</td><td class="right" style="color:var(--muted)">${fmt(Math.round(sellFrtPerMBF))}</td><td class="right ${margin===null?'':margin>=0?'positive':'negative'} bold">${margin!==null?fmt(Math.round(margin)):'—'}</td><td class="right">${x.volume}</td><td class="right ${profit===null?'':profit>=0?'positive':'negative'} bold">${profit!==null?fmt(Math.round(profit)):'—'}</td><td><div class="action-buttons"><button class="btn btn-default btn-sm" onclick="editSell(${x.id})">Edit</button><button class="btn btn-default btn-sm" onclick="dupSell(${x.id})">⧉</button><button class="btn btn-danger btn-sm" onclick="delSell(${x.id})">×</button></div></td></tr>`}).join(''):`<tr><td colspan="${S.trader==='Admin'?14:13}" class="empty-state">No sells</td></tr>`}
+            return`<tr>${S.trader==='Admin'?`<td><span style="display:inline-block;width:20px;height:20px;border-radius:50%;background:${traderColor(x.trader||'Ian')};color:var(--bg);font-size:10px;font-weight:700;text-align:center;line-height:20px" title="${x.trader||'Ian'}">${traderInitial(x.trader||'Ian')}</span></td>`:''}<td class="bold ${isShort?'negative':'accent'}">${ord||'—'}${isShort?' <span style="font-size:9px">(SHORT)</span>':''}${crossTrader?` <span style="font-size:9px;color:${traderColor(buy.trader)}" title="Sourced from ${buy.trader}">←${traderInitial(buy.trader)}</span>`:''}</td><td>${fmtD(x.date)}</td><td>${x.customer||'—'}</td><td>${x.destination||'—'}</td><td class="bold">${x.product}${x.msrPremium?' <span style="color:var(--accent);font-size:9px">+'+x.msrPremium+'</span>':''}</td><td>${x.length||'RL'}${x.tally?' <span style="color:var(--warn);font-size:9px">T</span>':''}</td><td class="right accent">${fmt(x.price)}</td><td class="right warn">${fmt(x.freight)}</td><td class="right" style="color:var(--muted)">${fmt(Math.round(sellFrtPerMBF))}</td><td class="right ${margin===null?'':margin>=0?'positive':'negative'} bold">${margin!==null?fmt(Math.round(margin)):'—'}</td><td class="right">${fmtN(x.volume)}</td><td class="right ${profit===null?'':profit>=0?'positive':'negative'} bold">${profit!==null?fmt(Math.round(profit)):'—'}</td><td><div class="action-buttons"><button class="btn btn-default btn-sm" onclick="editSell(${x.id})">Edit</button><button class="btn btn-default btn-sm" onclick="dupSell(${x.id})">⧉</button><button class="btn btn-danger btn-sm" onclick="delSell(${x.id})">×</button></div></td></tr>`}).join(''):`<tr><td colspan="${S.trader==='Admin'?14:13}" class="empty-state">No sells</td></tr>`}
         </tbody></table></div></div>`;
   }
   else if(S.view==='benchmark'){
@@ -1063,7 +1061,7 @@ function render(){
                 </div>
                 <div class="activity-right">
                   <div class="activity-value positive">▼ ${fmt(Math.abs(b.diff))}</div>
-                  <div style="font-size:9px;color:var(--muted)">${b.volume} MBF</div>
+                  <div style="font-size:9px;color:var(--muted)">${fmtN(b.volume)} MBF</div>
                 </div>
               </div>
             `).join(''):'<div class="empty-state">No matched buys</div>'}
@@ -1080,7 +1078,7 @@ function render(){
                 </div>
                 <div class="activity-right">
                   <div class="activity-value negative">▲ +${fmt(b.diff)}</div>
-                  <div style="font-size:9px;color:var(--muted)">${b.volume} MBF</div>
+                  <div style="font-size:9px;color:var(--muted)">${fmtN(b.volume)} MBF</div>
                 </div>
               </div>
             `).join(''):'<div class="empty-state" style="padding:20px;color:var(--positive)">All buys at or below market!</div>'}
@@ -1110,13 +1108,13 @@ function render(){
 
       <div class="card"><div class="card-header"><span class="card-title">STANDARD GRADES vs RANDOM LENGTHS</span><span style="color:var(--muted);font-size:10px">${filteredBench.length} trades • Latest RL: ${a.latestRL?.date||'None'}</span></div>
         <div style="overflow-x:auto"><table><thead><tr><th ${benchSortClick('date')}>Date ${benchSortIcon('date')}</th><th ${benchSortClick('mill')}>Mill ${benchSortIcon('mill')}</th><th ${benchSortClick('product')}>Product ${benchSortIcon('product')}</th><th>Len</th><th ${benchSortClick('region')}>Region ${benchSortIcon('region')}</th><th class="right" ${benchSortClick('price')}>Your Price ${benchSortIcon('price')}</th><th class="right">RL #1</th><th class="right" ${benchSortClick('diff')}>Diff ${benchSortIcon('diff')}</th><th class="right" ${benchSortClick('volume')}>Volume ${benchSortIcon('volume')}</th></tr></thead><tbody>
-          ${filteredBench.length?filteredBench.map(b=>`<tr><td>${fmtD(b.date)}</td><td>${b.mill||'—'}</td><td class="bold">${b.product}</td><td>${b.length||'RL'}</td><td style="text-transform:capitalize">${b.region}</td><td class="right">${fmt(b.price)}</td><td class="right" style="color:var(--muted)">${b.rlP?fmt(b.rlP):'<span style="color:var(--negative)">No match</span>'}</td><td class="right ${b.diff==null?'':b.diff<=0?'positive':'negative'} bold">${b.diff!=null?`${b.diff<=0?'':'+'}${fmt(b.diff)}`:'—'}</td><td class="right">${b.volume} MBF</td></tr>`).join(''):'<tr><td colspan="9" class="empty-state">No trades match filters</td></tr>'}
+          ${filteredBench.length?filteredBench.map(b=>`<tr><td>${fmtD(b.date)}</td><td>${b.mill||'—'}</td><td class="bold">${b.product}</td><td>${b.length||'RL'}</td><td style="text-transform:capitalize">${b.region}</td><td class="right">${fmt(b.price)}</td><td class="right" style="color:var(--muted)">${b.rlP?fmt(b.rlP):'<span style="color:var(--negative)">No match</span>'}</td><td class="right ${b.diff==null?'':b.diff<=0?'positive':'negative'} bold">${b.diff!=null?`${b.diff<=0?'':'+'}${fmt(b.diff)}`:'—'}</td><td class="right">${fmtN(b.volume)} MBF</td></tr>`).join(''):'<tr><td colspan="9" class="empty-state">No trades match filters</td></tr>'}
         </tbody></table></div>
         ${standardBench.some(b=>!b.rlP)?`<div style="padding:12px;color:var(--muted);font-size:10px;border-top:1px solid var(--border)">💡 "No match" means the product/length/region combo wasn't found in RL data.</div>`:''}
       </div>
       ${msrBench.length?`<div class="card" style="margin-top:16px"><div class="card-header"><span class="card-title accent">MSR / 2400f TRADES (Premium over #1)</span></div>
         <div style="overflow-x:auto"><table><thead><tr><th>Date</th><th>Mill</th><th>Product</th><th>Len</th><th>Region</th><th class="right">Your Price</th><th class="right">Base #1</th><th class="right">Premium</th><th class="right">Volume</th></tr></thead><tbody>
-          ${msrBench.map(b=>`<tr><td>${fmtD(b.date)}</td><td>${b.mill||'—'}</td><td class="bold accent">${b.product}</td><td>${b.length||'RL'}</td><td style="text-transform:capitalize">${b.region}</td><td class="right">${fmt(b.price)}</td><td class="right" style="color:var(--muted)">${b.basePrice?fmt(b.basePrice):(b.rlP?fmt(b.rlP):'—')}</td><td class="right accent bold">${b.msrPremium?'+'+fmt(b.msrPremium):(b.rlP?'+'+fmt(b.price-b.rlP):'—')}</td><td class="right">${b.volume} MBF</td></tr>`).join('')}
+          ${msrBench.map(b=>`<tr><td>${fmtD(b.date)}</td><td>${b.mill||'—'}</td><td class="bold accent">${b.product}</td><td>${b.length||'RL'}</td><td style="text-transform:capitalize">${b.region}</td><td class="right">${fmt(b.price)}</td><td class="right" style="color:var(--muted)">${b.basePrice?fmt(b.basePrice):(b.rlP?fmt(b.rlP):'—')}</td><td class="right accent bold">${b.msrPremium?'+'+fmt(b.msrPremium):(b.rlP?'+'+fmt(b.price-b.rlP):'—')}</td><td class="right">${fmtN(b.volume)} MBF</td></tr>`).join('')}
         </tbody></table></div>
         <div style="padding:12px;color:var(--muted);font-size:10px;border-top:1px solid var(--border)">MSR/2400 prices shown as premium over #1 base price. These do not affect market comparison metrics.</div>
       </div>`:''}`
@@ -1299,7 +1297,7 @@ function render(){
               <td>${s.customer||'—'}</td>
               <td class="bold">${s.product}</td>
               <td>${s.length||'RL'}</td>
-              <td class="right">${s.volume} MBF</td>
+              <td class="right">${fmtN(s.volume)} MBF</td>
               <td class="right">${fmt(s.price)}</td>
               <td><button class="btn btn-success btn-sm" onclick="coverSell(${s.id})">Cover</button></td>
             </tr>`;
@@ -1715,7 +1713,7 @@ function render(){
               <h4 style="color:var(--positive);margin-bottom:8px;font-size:12px">BUYS (${selectedData.buys.length})</h4>
               <div style="max-height:200px;overflow-y:auto">
                 <table style="font-size:10px"><thead><tr><th>Date</th><th>Mill</th><th class="right">Price</th><th class="right">Vol</th></tr></thead><tbody>
-                  ${selectedData.buys.length?selectedData.buys.map(b=>`<tr><td>${fmtD(b.date)}</td><td>${b.mill||'—'}</td><td class="right">${fmt(b.price)}</td><td class="right">${b.volume}</td></tr>`).join(''):'<tr><td colspan="4" class="empty-state">No buys</td></tr>'}
+                  ${selectedData.buys.length?selectedData.buys.map(b=>`<tr><td>${fmtD(b.date)}</td><td>${b.mill||'—'}</td><td class="right">${fmt(b.price)}</td><td class="right">${fmtN(b.volume)}</td></tr>`).join(''):'<tr><td colspan="4" class="empty-state">No buys</td></tr>'}
                 </tbody></table>
               </div>
             </div>
@@ -1723,7 +1721,7 @@ function render(){
               <h4 style="color:var(--accent);margin-bottom:8px;font-size:12px">SELLS (${selectedData.sells.length})</h4>
               <div style="max-height:200px;overflow-y:auto">
                 <table style="font-size:10px"><thead><tr><th>Date</th><th>Customer</th><th class="right">Price</th><th class="right">Vol</th></tr></thead><tbody>
-                  ${selectedData.sells.length?selectedData.sells.map(s=>`<tr><td>${fmtD(s.date)}</td><td>${s.customer||'—'}</td><td class="right">${fmt(s.price)}</td><td class="right">${s.volume}</td></tr>`).join(''):'<tr><td colspan="4" class="empty-state">No sells</td></tr>'}
+                  ${selectedData.sells.length?selectedData.sells.map(s=>`<tr><td>${fmtD(s.date)}</td><td>${s.customer||'—'}</td><td class="right">${fmt(s.price)}</td><td class="right">${fmtN(s.volume)}</td></tr>`).join(''):'<tr><td colspan="4" class="empty-state">No sells</td></tr>'}
                 </tbody></table>
               </div>
             </div>
