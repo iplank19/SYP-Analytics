@@ -10,23 +10,30 @@ async function loadCRMData(){
 
     const traderParam=trader && trader!=='Admin'?'?trader='+trader:'';
 
-    const[prospectsRes,dashRes,customersRes,millsRes]=await Promise.all([
+    const[prospectsResult,dashResult,customersResult,millsResult]=await Promise.allSettled([
       fetch('/api/crm/prospects?'+params),
       fetch('/api/crm/dashboard?trader='+trader),
       fetch('/api/crm/customers'+traderParam),
       fetch('/api/crm/mills'+traderParam)
     ]);
-    S.crmProspects=await prospectsRes.json();
-    const dash=await dashRes.json();
-    S.crmStats=dash.stats||{};
-    S.crmOverdue=dash.overdue||[];
-    S.crmRecent=dash.recent_touches||[];
-    S.crmStaleCritical=dash.stale_critical||[];
-    S.crmStaleWarning=dash.stale_warning||[];
-    S.crmNeverContacted=dash.never_contacted||[];
+    // Extract successful responses, use defaults for failures
+    if(prospectsResult.status==='fulfilled'){
+      S.crmProspects=await prospectsResult.value.json();
+    }else{S.crmProspects=S.crmProspects||[];console.warn('CRM prospects fetch failed:',prospectsResult.reason)}
+    if(dashResult.status==='fulfilled'){
+      const dash=await dashResult.value.json();
+      S.crmStats=dash.stats||{};
+      S.crmOverdue=dash.overdue||[];
+      S.crmRecent=dash.recent_touches||[];
+      S.crmStaleCritical=dash.stale_critical||[];
+      S.crmStaleWarning=dash.stale_warning||[];
+      S.crmNeverContacted=dash.never_contacted||[];
+    }else{console.warn('CRM dashboard fetch failed:',dashResult.reason)}
     // Load customers and mills from cloud DB, merging with in-memory data
-    const serverCustomers=await customersRes.json();
-    const serverMills=await millsRes.json();
+    const serverCustomers=customersResult.status==='fulfilled'?await customersResult.value.json():[];
+    const serverMills=millsResult.status==='fulfilled'?await millsResult.value.json():[];
+    if(customersResult.status==='rejected')console.warn('CRM customers fetch failed:',customersResult.reason);
+    if(millsResult.status==='rejected')console.warn('CRM mills fetch failed:',millsResult.reason);
     // Parse locations if stored as JSON string
     serverCustomers.forEach(c=>{if(typeof c.locations==='string')try{c.locations=JSON.parse(c.locations)}catch(e){}});
     serverMills.forEach(m=>{if(typeof m.products==='string')try{m.products=JSON.parse(m.products)}catch(e){}});

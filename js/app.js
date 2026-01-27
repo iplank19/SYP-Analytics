@@ -191,6 +191,7 @@ async function impData(e){
       if(d.stateRates){S.stateRates=d.stateRates}
       if(d.freightBase!==undefined){S.freightBase=d.freightBase}
       if(d.shortHaulFloor!==undefined){S.shortHaulFloor=d.shortHaulFloor}
+      migrateTraderNames();
       await saveAllLocal();
       alert('Imported! All data including quote engine settings restored.');
       render();

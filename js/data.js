@@ -188,7 +188,7 @@ async function cloudSync(action='push'){
         const d=rows[0].data;
         S.buys=d.buys||[];
         S.sells=d.sells||[];
-        S.rl=d.rl||[];
+        S.rl=(d.rl||[]).sort((a,b)=>new Date(a.date)-new Date(b.date));
         S.customers=d.customers||[];
         S.mills=d.mills||[];
         S.nextId=d.nextId||1;

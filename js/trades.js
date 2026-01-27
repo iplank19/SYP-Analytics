@@ -1,5 +1,5 @@
 // SYP Analytics - Trade CRUD & Blotter Functions
-function saveBuy(id){
+async function saveBuy(id){
   const product=document.getElementById('m-product').value;
   const isMSR=product.toUpperCase().includes('MSR')||product.toUpperCase().includes('2400');
   const lengthVal=document.getElementById('m-length').value;
@@ -20,8 +20,10 @@ function saveBuy(id){
       const el=document.getElementById(`tally-vol-mixed-${mi}`);
       const pEl=document.getElementById(`tally-price-mixed-${mi}`);
       const key=el.dataset.tkey||`item-${mi}`;
-      const vol=parseFloat(el.value)||0;
-      const tallyPrice=parseFloat(pEl?.value)||0;
+      const rawVol=parseFloat(el.value);
+      const rawPrice=parseFloat(pEl?.value);
+      const vol=isNaN(rawVol)?0:rawVol;
+      const tallyPrice=isNaN(rawPrice)?0:rawPrice;
       if(vol>0){
         tempTally[key]={vol,price:tallyPrice};
         tallyTotalVol+=vol;
@@ -32,9 +34,11 @@ function saveBuy(id){
     // Standard length rows (only if no mixed rows found)
     if(mi===0){
       ['8','10','12','14','16','18','20'].forEach(len=>{
-        const vol=parseFloat(document.getElementById(`tally-vol-${len}`)?.value)||0;
-        const tallyPrice=parseFloat(document.getElementById(`tally-price-${len}`)?.value)||0;
-        if(vol>0&&tallyPrice>0){
+        const rawVol=parseFloat(document.getElementById(`tally-vol-${len}`)?.value);
+        const rawPrice=parseFloat(document.getElementById(`tally-price-${len}`)?.value);
+        const vol=isNaN(rawVol)?0:rawVol;
+        const tallyPrice=isNaN(rawPrice)?0:rawPrice;
+        if(vol>0){
           tempTally[len]={vol,price:tallyPrice};
           tallyTotalVol+=vol;
           tallyTotalVal+=vol*tallyPrice;
@@ -45,12 +49,12 @@ function saveBuy(id){
       tally=tempTally;
     }
   }
-  
+
   // Get price/volume from appropriate field, or calculate from tally
   let price, volume;
   if(tally&&tallyTotalVol>0){
     // Use tally totals - this takes priority
-    price=Math.round(tallyTotalVal/tallyTotalVol);
+    price=tallyTotalVol>0?Math.round(tallyTotalVal/tallyTotalVol):0;
     volume=tallyTotalVol;
   }else if(isMSR){
     price=parseFloat(document.getElementById('m-price').value)||0;
@@ -109,11 +113,11 @@ function saveBuy(id){
     b.id=genId();
     S.buys.unshift(b)
   }
-  
-  saveAllLocal();closeModal();render();
+
+  await saveAllLocal();closeModal();render();
 }
 
-function saveSell(id){
+async function saveSell(id){
   const customer=document.getElementById('m-cust').value;
   const destination=document.getElementById('m-dest').value;
   
@@ -146,8 +150,10 @@ function saveSell(id){
       const el=document.getElementById(`tally-vol-mixed-${mi}`);
       const pEl=document.getElementById(`tally-price-mixed-${mi}`);
       const key=el.dataset.tkey||`item-${mi}`;
-      const vol=parseFloat(el.value)||0;
-      const tallyPrice=parseFloat(pEl?.value)||0;
+      const rawVol=parseFloat(el.value);
+      const rawPrice=parseFloat(pEl?.value);
+      const vol=isNaN(rawVol)?0:rawVol;
+      const tallyPrice=isNaN(rawPrice)?0:rawPrice;
       if(vol>0){
         tempTally[key]={vol,price:tallyPrice};
         tallyTotalVol+=vol;
@@ -158,9 +164,11 @@ function saveSell(id){
     // Standard length rows (only if no mixed rows found)
     if(mi===0){
       ['8','10','12','14','16','18','20'].forEach(len=>{
-        const vol=parseFloat(document.getElementById(`tally-vol-${len}`)?.value)||0;
-        const tallyPrice=parseFloat(document.getElementById(`tally-price-${len}`)?.value)||0;
-        if(vol>0&&tallyPrice>0){
+        const rawVol=parseFloat(document.getElementById(`tally-vol-${len}`)?.value);
+        const rawPrice=parseFloat(document.getElementById(`tally-price-${len}`)?.value);
+        const vol=isNaN(rawVol)?0:rawVol;
+        const tallyPrice=isNaN(rawPrice)?0:rawPrice;
+        if(vol>0){
           tempTally[len]={vol,price:tallyPrice};
           tallyTotalVol+=vol;
           tallyTotalVal+=vol*tallyPrice;
@@ -171,13 +179,13 @@ function saveSell(id){
       tally=tempTally;
     }
   }
-  
+
   // Get price from appropriate field, or calculate from tally
   let price;
   let volume;
   if(tally&&tallyTotalVol>0){
     // Use tally totals - this takes priority
-    price=Math.round(tallyTotalVal/tallyTotalVol);
+    price=tallyTotalVol>0?Math.round(tallyTotalVal/tallyTotalVol):0;
     volume=tallyTotalVol;
   }else if(isMSR){
     price=parseFloat(document.getElementById('m-price').value)||0;
@@ -228,17 +236,17 @@ function saveSell(id){
     s.id=genId();
     S.sells.unshift(s)
   }
-  saveAllLocal();closeModal();render();
+  await saveAllLocal();closeModal();render();
 }
 
-function saveRL(){
+async function saveRL(){
   const date=document.getElementById('rl-date').value;
   if(!date){alert('Enter date');return}
   const rl={date,west:{},central:{},east:{}};
   REGIONS.forEach(r=>{['2x4','2x6','2x8','2x10','2x12'].forEach(s=>{const v=parseFloat(document.getElementById(`rl-${r}-${s}`).value);if(v)rl[r][`${s}#2`]=v})});
   const i=S.rl.findIndex(r=>r.date===date);
   if(i>=0)S.rl[i]=rl;else{S.rl.push(rl);S.rl.sort((a,b)=>new Date(a.date)-new Date(b.date))}
-  saveAllLocal();closeModal();render();
+  await saveAllLocal();closeModal();render();
 }
 
 async function saveCust(oldName){
@@ -342,9 +350,9 @@ function editBuy(id){showBuyModal(S.buys.find(b=>b.id===id))}
 function editSell(id){showSellModal(S.sells.find(s=>s.id===id))}
 function dupBuy(id){const b=S.buys.find(x=>x.id===id);if(b)showBuyModal({...b,id:null,date:today()})}
 function dupSell(id){const s=S.sells.find(x=>x.id===id);if(s)showSellModal({...s,id:null,date:today()})}
-function delBuy(id){if(!confirm('Delete?'))return;S.buys=S.buys.filter(b=>b.id!==id);saveAllLocal();render()}
-function delSell(id){if(!confirm('Delete?'))return;S.sells=S.sells.filter(s=>s.id!==id);saveAllLocal();render()}
-function delRL(d){if(!confirm('Delete?'))return;S.rl=S.rl.filter(r=>r.date!==d);saveAllLocal();render()}
+async function delBuy(id){if(!confirm('Delete?'))return;S.buys=S.buys.filter(b=>b.id!==id);await saveAllLocal();render()}
+async function delSell(id){if(!confirm('Delete?'))return;S.sells=S.sells.filter(s=>s.id!==id);await saveAllLocal();render()}
+async function delRL(d){if(!confirm('Delete?'))return;S.rl=S.rl.filter(r=>r.date!==d);await saveAllLocal();render()}
 
 // Blotter sorting and filtering
 function setBlotterFilter(key,val){
@@ -468,13 +476,13 @@ function linkShortToPO(sellId){
   </div></div>`;
 }
 
-function confirmLinkShort(sellId){
+async function confirmLinkShort(sellId){
   const po=document.getElementById('link-po').value;
   if(!po){alert('Select a PO');return}
   const idx=S.sells.findIndex(s=>s.id===sellId);
   if(idx>=0){
     S.sells[idx].linkedPO=po;
-    saveAllLocal();
+    await saveAllLocal();
     closeModal();
     render();
   }

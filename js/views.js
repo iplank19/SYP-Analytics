@@ -30,6 +30,8 @@ function renderMkt(){
 }
 
 function go(v){
+  // Clear any pending blotter search timeout
+  if(window._blotterSearchTimeout){clearTimeout(window._blotterSearchTimeout);window._blotterSearchTimeout=null;}
   const content=document.getElementById('content');
   if(content)content.classList.add('fading');
   setTimeout(()=>{

@@ -1066,7 +1066,7 @@ function onPOChange(){
 }
 
 // Create PO from OC modal - saves the current OC first, then opens buy modal
-function createPOFromOC(){
+async function createPOFromOC(){
   // First save the current sell
   const product=document.getElementById('m-product')?.value||'';
   const isMSR=product.toUpperCase().includes('MSR')||product.toUpperCase().includes('2400');
@@ -1125,7 +1125,7 @@ function createPOFromOC(){
   
   S.sells.unshift(s);
   S.pendingOCId=s.id; // Store the sell ID so we can link it when PO is saved
-  saveAllLocal();
+  await saveAllLocal();
   
   // Now open buy modal with pre-filled data
   showBuyModal({
@@ -1138,7 +1138,7 @@ function createPOFromOC(){
 }
 
 // Create OC from PO modal - saves the current PO first, then opens sell modal linked to it
-function createOCFromPO(){
+async function createOCFromPO(){
   // First save the current buy
   const product=document.getElementById('m-product')?.value||'';
   const isMSR=product.toUpperCase().includes('MSR')||product.toUpperCase().includes('2400');
@@ -1191,8 +1191,8 @@ function createOCFromPO(){
   };
   
   S.buys.unshift(b);
-  saveAllLocal();
-  
+  await saveAllLocal();
+
   // Now open sell modal with pre-filled data linked to this PO
   showSellModal({
     linkedPO:po,
@@ -1654,7 +1654,7 @@ IMPORTANT:
 function parseText(){aiParsePDF(document.getElementById('pdf-text')?.value||'')}
 async function aiParsePDF(text){if(text)alert('Please use the PDF upload button instead.')}
 
-function saveParsedRL(){
+async function saveParsedRL(){
   if(!parsedRL)return;
   parsedRL.date=document.getElementById('parsed-date').value;
   if(!parsedRL.date){alert('Enter a date');return}
@@ -1679,7 +1679,7 @@ function saveParsedRL(){
   
   const i=S.rl.findIndex(r=>r.date===parsedRL.date);
   if(i>=0)S.rl[i]=parsedRL;else{S.rl.push(parsedRL);S.rl.sort((a,b)=>new Date(a.date)-new Date(b.date))}
-  saveAllLocal();closeModal();render();
+  await saveAllLocal();closeModal();render();
 }
 
 // ==================== CSV ORDER IMPORT ====================
@@ -2052,6 +2052,7 @@ async function confirmImportOrders(){
   if(newCustomers.size&&typeof syncCustomersToServer==='function')syncCustomersToServer([...newCustomers.values()]);
   if(newMills.size&&typeof syncMillsToServer==='function')syncMillsToServer([...newMills.values()]);
 
+  migrateTraderNames();
   await saveAllLocal();
   window._importOrders=null;
   window._importChecked=null;
