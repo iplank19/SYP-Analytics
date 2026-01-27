@@ -1934,7 +1934,7 @@ async function confirmImportOrders(){
 
   orders.forEach((o,i)=>{
     if(!checked.has(i))return;
-    const mapTrader=name=>TRADER_MAP[name]||name||'Ian';
+    const mapTrader=name=>{const m=TRADER_MAP[name];if(m)return m;if(TRADERS.includes(name))return name;return'Admin';};
 
     const orderFreight=freightByOrder[String(o.orderNum)]||0;
     const orderMiles=milesByOrder[String(o.orderNum)]||0;
@@ -2026,9 +2026,9 @@ async function confirmImportOrders(){
         volume:totalVol,
         notes:'CSV Import',
         trader:mapTrader(o.buy.trader),
-        miles:orderMiles,
+        miles:0,
         rate:S.flatRate||3.50,
-        freight:orderFreight,
+        freight:0,
         tally:tally
       };
       if(buy.volume>0){S.buys.unshift(buy);buyCount++}
@@ -2040,7 +2040,7 @@ async function confirmImportOrders(){
   const newMills=new Map();// name → {origin, trader}
   orders.forEach((o,i)=>{
     if(!checked.has(i))return;
-    const mapTrader=name=>TRADER_MAP[name]||name||'Ian';
+    const mapTrader=name=>{const m=TRADER_MAP[name];if(m)return m;if(TRADERS.includes(name))return name;return'Admin';};
     if(o.sell&&o.sell.customer){
       const trader=mapTrader(o.sell.trader);
       const name=o.sell.customer;
