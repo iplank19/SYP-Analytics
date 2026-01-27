@@ -291,14 +291,13 @@ async function loadAllLocal(){
 async function syncCustomersToServer(customers){
   if(!customers||!customers.length)return;
   try{
-    // Get existing server customers
-    const traderParam=S.trader&&S.trader!=='Admin'?'?trader='+S.trader:'';
-    const res=await fetch('/api/crm/customers'+traderParam);
+    // Check against ALL server customers (no trader filter) to prevent cross-trader dupes
+    const res=await fetch('/api/crm/customers');
     const existing=await res.json();
     const existingNames=new Set(existing.map(c=>c.name));
     // Insert any customers not already in SQLite
     for(const c of customers){
-      if(!existingNames.has(c.name)){
+      if(c.name&&!existingNames.has(c.name)){
         await fetch('/api/crm/customers',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(c)});
       }
     }
@@ -308,12 +307,12 @@ async function syncCustomersToServer(customers){
 async function syncMillsToServer(mills){
   if(!mills||!mills.length)return;
   try{
-    const traderParam=S.trader&&S.trader!=='Admin'?'?trader='+S.trader:'';
-    const res=await fetch('/api/crm/mills'+traderParam);
+    // Check against ALL server mills (no trader filter) to prevent cross-trader dupes
+    const res=await fetch('/api/crm/mills');
     const existing=await res.json();
     const existingNames=new Set(existing.map(m=>m.name));
     for(const m of mills){
-      if(!existingNames.has(m.name)){
+      if(m.name&&!existingNames.has(m.name)){
         await fetch('/api/crm/mills',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(m)});
       }
     }

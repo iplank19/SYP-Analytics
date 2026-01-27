@@ -37,13 +37,17 @@ async function loadCRMData(){
     // Parse locations if stored as JSON string
     serverCustomers.forEach(c=>{if(typeof c.locations==='string')try{c.locations=JSON.parse(c.locations)}catch(e){}});
     serverMills.forEach(m=>{if(typeof m.products==='string')try{m.products=JSON.parse(m.products)}catch(e){}});
+    // Deduplicate server results by name (Admin gets all traders, may have dupes)
+    const dedupeByName=arr=>{const seen=new Set();return arr.filter(x=>{if(!x.name||seen.has(x.name))return false;seen.add(x.name);return true})};
+    const uniqueServerCusts=dedupeByName(serverCustomers);
+    const uniqueServerMills=dedupeByName(serverMills);
     // Merge: use server data as base, add any in-memory entries not on server
-    const serverCustNames=new Set(serverCustomers.map(c=>c.name));
-    const serverMillNames=new Set(serverMills.map(m=>m.name));
+    const serverCustNames=new Set(uniqueServerCusts.map(c=>c.name));
+    const serverMillNames=new Set(uniqueServerMills.map(m=>m.name));
     const extraCusts=(S.customers||[]).filter(c=>c.name&&!serverCustNames.has(c.name));
     const extraMills=(S.mills||[]).filter(m=>m.name&&!serverMillNames.has(m.name));
-    S.customers=serverCustomers.concat(extraCusts);
-    S.mills=serverMills.concat(extraMills);
+    S.customers=uniqueServerCusts.concat(extraCusts);
+    S.mills=uniqueServerMills.concat(extraMills);
     // Sync any missing entries back to server
     if(extraCusts.length&&typeof syncCustomersToServer==='function')syncCustomersToServer(extraCusts);
     if(extraMills.length&&typeof syncMillsToServer==='function')syncMillsToServer(extraMills);

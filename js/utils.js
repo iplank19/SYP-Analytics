@@ -131,14 +131,15 @@ function allData(){
   return{buys:S.buys,sells:S.sells};
 }
 
-// Get current trader's CRM only (Admin sees all)
+// Get current trader's CRM only (Admin sees all), deduplicated by name
+function dedupeByName(arr){const seen=new Set();return arr.filter(x=>{if(!x.name||seen.has(x.name))return false;seen.add(x.name);return true})}
 function myMills(){
-  if(S.trader==='Admin')return S.mills;
-  return S.mills.filter(m=>m.trader===S.trader||!m.trader);
+  if(S.trader==='Admin')return dedupeByName(S.mills);
+  return dedupeByName(S.mills.filter(m=>m.trader===S.trader||!m.trader));
 }
 function myCustomers(){
-  if(S.trader==='Admin')return S.customers;
-  return S.customers.filter(c=>c.trader===S.trader||!c.trader);
+  if(S.trader==='Admin')return dedupeByName(S.customers);
+  return dedupeByName(S.customers.filter(c=>c.trader===S.trader||!c.trader));
 }
 
 // Check if current user is admin
