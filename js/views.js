@@ -1579,8 +1579,7 @@ function render(){
 
       if(buy){
         const buyCost=buy.price||0;
-        const buyFrtPerMBF=buy.volume>0?(buy.freight||0)/buy.volume:0;
-        const margin=fob-buyCost-buyFrtPerMBF;
+        const margin=fob-buyCost;
         prodData[prod].marginVol+=s.volume||0;
         prodData[prod].marginVal+=margin*(s.volume||0);
         prodData[prod].profit+=margin*(s.volume||0);
@@ -1809,11 +1808,9 @@ function render(){
       const ord=String(s.orderNum||s.linkedPO||s.oc||'').trim();
       const buy=ord?buyByOrder[ord]:null;
       const buyCost=buy?.price||0;
-      const buyFrtPerMBF=buy?.volume>0?(buy?.freight||0)/buy.volume:0;
-      const totalCost=buyCost+buyFrtPerMBF;
       const sellFrtPerMBF=s.volume>0?(s.freight||0)/s.volume:0;
       const fob=(s.price||0)-sellFrtPerMBF;
-      const margin=buy?(fob-totalCost):null;
+      const margin=buy?(fob-buyCost):null;
 
       if(!custMargins[s.customer])custMargins[s.customer]={vol:0,marginVal:0,n:0};
       custMargins[s.customer].n++;

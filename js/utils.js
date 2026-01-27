@@ -34,9 +34,10 @@ function calcTraderStats(trader,buys,sells){
   const avgBuy=buyVol>0?buyVal/buyVol:0;
   const avgSellFOB=sellVol>0?sellFOB/sellVol:0;
 
-  // Build buy lookup by order number for matched-pair calculations
+  // Build buy lookup from ALL department buys for cross-trader matching
+  // A sell by trader A may be matched to a buy by trader B (same order number)
   const buyByOrder={};
-  buys.forEach(b=>{
+  S.buys.forEach(b=>{
     const ord=String(b.orderNum||b.po||'').trim();
     if(ord)buyByOrder[ord]=b;
   });

@@ -1363,12 +1363,10 @@ function updateSellCalc(){
   const buy=orderNumStr?S.buys.find(b=>String(b.orderNum||b.po||'').trim()===orderNumStr):null;
   
   const buyPrice=buy?.price||0;
-  const buyFrtPerMBF=buy?.volume>0?(buy?.freight||0)/buy.volume:0;
-  const totalCost=buyPrice+buyFrtPerMBF;
-  
-  const margin=fob-totalCost;
+
+  const margin=fob-buyPrice;
   const totalProfit=margin*volume;
-  const marginPct=totalCost>0?(margin/totalCost)*100:0;
+  const marginPct=buyPrice>0?(margin/buyPrice)*100:0;
   
   const calcDiv=document.getElementById('sell-calc');
   if(!calcDiv)return;
@@ -1400,14 +1398,12 @@ function updateSellCalc(){
     <div style="font-weight:600;color:var(--accent);margin-bottom:12px">PROFIT CALCULATION</div>
     <table style="width:100%;font-size:11px">
       <tr><td style="color:var(--muted)">Buy Price (FOB)</td><td class="right">${fmt(buyPrice)}/MBF</td></tr>
-      ${buyFrtPerMBF?`<tr><td style="color:var(--muted)">+ Buy Freight</td><td class="right warn">${fmt(Math.round(buyFrtPerMBF))}/MBF</td></tr>`:''}
-      <tr style="border-top:1px solid var(--border)"><td style="font-weight:600">Total Cost</td><td class="right bold">${fmt(Math.round(totalCost))}/MBF</td></tr>
       <tr><td colspan="2" style="height:8px"></td></tr>
       <tr><td style="color:var(--muted)">Sell Price (DLVD)</td><td class="right accent">${fmt(sellPrice)}/MBF</td></tr>
-      <tr><td style="color:var(--muted)">- Sell Freight (${fmt(sellFreight)} ÷ ${volume?fmtN(volume):'?'} MBF)</td><td class="right warn">${volume>0?fmt(Math.round(sellFrtPerMBF)):'—'}/MBF</td></tr>
-      <tr style="border-top:1px solid var(--border)"><td style="font-weight:600">FOB Price</td><td class="right bold">${volume>0?fmt(Math.round(fob)):'—'}/MBF</td></tr>
+      <tr><td style="color:var(--muted)">- Freight (${fmt(sellFreight)} ÷ ${volume?fmtN(volume):'?'} MBF)</td><td class="right warn">${volume>0?fmt(Math.round(sellFrtPerMBF)):'—'}/MBF</td></tr>
+      <tr style="border-top:1px solid var(--border)"><td style="font-weight:600">Sell FOB</td><td class="right bold">${volume>0?fmt(Math.round(fob)):'—'}/MBF</td></tr>
       <tr><td colspan="2" style="height:8px"></td></tr>
-      <tr style="background:var(--panel)"><td style="font-weight:600">MARGIN</td><td class="right ${margin>=0?'positive':'negative'} bold">${volume>0?fmt(Math.round(margin)):'—'}/MBF (${marginPct.toFixed(1)}%)</td></tr>
+      <tr style="background:var(--panel)"><td style="font-weight:600">MARGIN (FOB - Buy)</td><td class="right ${margin>=0?'positive':'negative'} bold">${volume>0?fmt(Math.round(margin)):'—'}/MBF (${marginPct.toFixed(1)}%)</td></tr>
       <tr style="background:var(--panel)"><td style="font-weight:600">TOTAL PROFIT</td><td class="right ${totalProfit>=0?'positive':'negative'} bold">${volume>0?fmt(Math.round(totalProfit)):'—'}</td></tr>
     </table>
   `;

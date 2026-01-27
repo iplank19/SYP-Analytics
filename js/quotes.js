@@ -1793,7 +1793,7 @@ function calcAvgHistoricalMargin(){
     const buy=ord?buyByOrder[ord]:null;
     if(buy){
       const fob=(s.price||0)-(s.volume>0?(s.freight||0)/s.volume:0);
-      const cost=(buy.price||0)+(buy.volume>0?(buy.freight||0)/buy.volume:0);
+      const cost=buy.price||0;
       totalMargin+=fob-cost;
       count++;
     }
