@@ -626,7 +626,7 @@ function render(){
                     <div style="text-align:center;padding:12px">
                       <div style="font-size:48px;margin-bottom:8px">${trendIcon}</div>
                       <div style="font-size:24px;font-weight:700;color:${trendColor}">${trend}</div>
-                      <div style="font-size:11px;color:var(--muted);margin-top:4px">Avg WoW: ${avgChg>=0?'+':''}$${Math.round(avgChg)}</div>
+                      <div style="font-size:11px;color:var(--muted);margin-top:4px">Avg WoW: ${avgChg>=0?'+':''}${fmt(Math.round(avgChg))}</div>
                       ${trend4wk?`<div style="font-size:10px;color:var(--muted);margin-top:2px">4-Week: ${trend4wk}</div>`:''}
                     </div>`;
                 })()}
@@ -641,9 +641,9 @@ function render(){
                 <div style="padding:12px;border-bottom:1px solid var(--border)">
                   <div style="font-size:10px;color:var(--muted);margin-bottom:8px">RANDOM LENGTHS ${latestRL.date}</div>
                   <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;text-align:center">
-                    <div><div style="color:var(--accent);font-weight:700;font-size:16px">$${latestRL.west?.['2x4#2']||'—'}</div><div style="font-size:9px;color:var(--muted)">West 2x4</div></div>
-                    <div><div style="color:var(--warn);font-weight:700;font-size:16px">$${latestRL.central?.['2x4#2']||'—'}</div><div style="font-size:9px;color:var(--muted)">Central 2x4</div></div>
-                    <div><div style="color:var(--info);font-weight:700;font-size:16px">$${latestRL.east?.['2x4#2']||'—'}</div><div style="font-size:9px;color:var(--muted)">East 2x4</div></div>
+                    <div><div style="color:var(--accent);font-weight:700;font-size:16px">${fmt(latestRL.west?.['2x4#2'])}</div><div style="font-size:9px;color:var(--muted)">West 2x4</div></div>
+                    <div><div style="color:var(--warn);font-weight:700;font-size:16px">${fmt(latestRL.central?.['2x4#2'])}</div><div style="font-size:9px;color:var(--muted)">Central 2x4</div></div>
+                    <div><div style="color:var(--info);font-weight:700;font-size:16px">${fmt(latestRL.east?.['2x4#2'])}</div><div style="font-size:9px;color:var(--muted)">East 2x4</div></div>
                   </div>
                 </div>
                 ${wowChanges.length?`
@@ -651,7 +651,7 @@ function render(){
                     <div style="font-size:10px;color:var(--muted);margin-bottom:8px">WEEK-OVER-WEEK</div>
                     ${wowChanges.slice(0,4).map(c=>`<div style="display:flex;justify-content:space-between;margin-bottom:4px;font-size:11px">
                       <span style="text-transform:capitalize">${c.region} ${c.prod}</span>
-                      <span style="color:${c.chg>0?'var(--positive)':'var(--negative)'};font-weight:600">${c.chg>0?'+':''}$${c.chg}</span>
+                      <span style="color:${c.chg>0?'var(--positive)':'var(--negative)'};font-weight:600">${c.chg>0?'+':''}${fmt(c.chg)}</span>
                     </div>`).join('')}
                   </div>
                 `:''}
@@ -683,12 +683,12 @@ function render(){
                   <div style="text-align:center;margin-bottom:12px">
                     <div style="font-size:10px;color:var(--muted)">BEST VALUE</div>
                     <div style="font-size:24px;font-weight:700;color:${best.color}">${best.name}</div>
-                    <div style="font-size:14px;color:var(--positive)">$${savings} cheaper than ${worst.name}</div>
+                    <div style="font-size:14px;color:var(--positive)">${fmt(savings)} cheaper than ${worst.name}</div>
                   </div>
                   <div style="font-size:11px">
                     ${regions.map((r,i)=>`<div style="display:flex;justify-content:space-between;padding:6px 0;${i<regions.length-1?'border-bottom:1px solid var(--border)':''}">
                       <span style="color:${r.color}">${i+1}. ${r.name}</span>
-                      <span style="font-weight:600">$${r.price}</span>
+                      <span style="font-weight:600">${fmt(r.price)}</span>
                     </div>`).join('')}
                   </div>`;
               })()}
@@ -726,7 +726,7 @@ function render(){
               return`
                 <div style="text-align:center;margin-bottom:12px">
                   <div style="font-size:10px;color:var(--muted)">THIS WEEK</div>
-                  <div style="font-size:28px;font-weight:700">${thisWeekTotal} <span style="font-size:14px;color:var(--muted)">MBF</span></div>
+                  <div style="font-size:28px;font-weight:700">${fmtN(thisWeekTotal)} <span style="font-size:14px;color:var(--muted)">MBF</span></div>
                   <div style="font-size:12px;color:${statusColor};font-weight:600">${status}</div>
                 </div>
                 <div style="margin-bottom:8px">
@@ -740,7 +740,7 @@ function render(){
                 </div>
                 <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--muted)">
                   <span>Avg Week: ${fmtN(avgWeekly)} MBF</span>
-                  <span>B:${thisWeekBuys} S:${thisWeekSells}</span>
+                  <span>B:${fmtN(thisWeekBuys)} S:${fmtN(thisWeekSells)}</span>
                 </div>`;
             })()}
           </div>
@@ -749,7 +749,7 @@ function render(){
         <div class="card">
           <div class="card-header"><span class="card-title">📐 KEY SPREADS</span></div>
           <div class="card-body" style="padding:0">
-            ${spreads.length?spreads.map(s=>`<div class="activity-item"><span style="text-transform:capitalize">${s.region} ${s.spread}</span><span style="font-weight:600">$${s.val}</span></div>`).join(''):'<div class="empty-state">No spread data</div>'}
+            ${spreads.length?spreads.map(s=>`<div class="activity-item"><span style="text-transform:capitalize">${s.region} ${s.spread}</span><span style="font-weight:600">${fmt(s.val)}</span></div>`).join(''):'<div class="empty-state">No spread data</div>'}
           </div>
         </div>
       </div>
@@ -1165,27 +1165,6 @@ function render(){
         <div class="kpi"><div class="kpi-label">UNCOVERED SELLS</div><div><span class="kpi-value ${uncoveredVol>0?'negative':''}">${fmtN(uncoveredVol)} MBF</span><span class="kpi-sub">${uncoveredSells.length} orders</span></div></div>
       </div>
 
-      <!-- What-If Analysis -->
-      <div class="card" style="margin-bottom:16px">
-        <div class="card-header"><span class="card-title">WHAT-IF ANALYSIS</span><span style="color:var(--muted);font-size:10px">Impact of market moves on long position</span></div>
-        <div class="card-body">
-          <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px;text-align:center">
-            ${[-50,-25,-10,10,25,50].map(move=>{
-              const impact=totalLong*move;
-              const isGain=(move>0);
-              return`<div style="padding:12px;background:var(--panel-alt);border-radius:4px;border:1px solid ${isGain?'var(--positive)':'var(--negative)'}">
-                <div style="font-size:10px;color:var(--muted);margin-bottom:4px">RL ${move>0?'+':''}${move}</div>
-                <div style="font-size:16px;font-weight:700;color:${isGain?'var(--positive)':'var(--negative)'}">${isGain?'+':''}${fmt(Math.round(impact))}</div>
-                <div style="font-size:9px;color:var(--muted)">${fmtN(totalLong)} MBF × $${Math.abs(move)}</div>
-              </div>`;
-            }).join('')}
-          </div>
-          <div style="margin-top:12px;padding:10px;background:var(--bg);border-radius:4px;font-size:11px;color:var(--muted)">
-            💡 <strong>Long positions</strong> gain value when market rises, lose when it falls. <strong>Short positions</strong> are the opposite.
-          </div>
-        </div>
-      </div>
-
       <!-- Regional Exposure -->
       <div class="grid-3" style="margin-bottom:16px">
         ${['west','central','east'].map(r=>{
@@ -1224,7 +1203,7 @@ function render(){
           <div style="margin-bottom:12px">
             <div style="display:flex;justify-content:space-between;margin-bottom:4px">
               <span style="color:var(--muted);font-size:11px">Top position: <strong>${largestPos?.product||'—'} ${largestPos?.length||''}</strong></span>
-              <span style="font-size:11px;color:${concentrationPct>50?'var(--negative)':concentrationPct>30?'var(--warn)':'var(--muted)'}">${concentrationPct.toFixed(1)}% of exposure</span>
+              <span style="font-size:11px;color:${concentrationPct>50?'var(--negative)':concentrationPct>30?'var(--warn)':'var(--muted)'}">${fmtN(concentrationPct)}% of exposure</span>
             </div>
             <div class="progress-bar" style="height:8px">
               <div class="progress-fill" style="width:${Math.min(100,concentrationPct)}%;background:${concentrationPct>50?'var(--negative)':concentrationPct>30?'var(--warn)':'var(--accent)'}"></div>
@@ -1240,7 +1219,7 @@ function render(){
                 <td>${p.length}</td>
                 <td class="right ${isLong?'warn':'negative'}">${isLong?'+':'-'}${fmtN(p.net)} MBF</td>
                 <td class="right">${fmt(Math.round(exp))}</td>
-                <td class="right" style="color:${pct>30?'var(--negative)':pct>20?'var(--warn)':'var(--muted)'}">${pct.toFixed(1)}%</td>
+                <td class="right" style="color:${pct>30?'var(--negative)':pct>20?'var(--warn)':'var(--muted)'}">${fmtN(pct)}%</td>
               </tr>`;
             }).join('')}
           </tbody></table>
@@ -1739,27 +1718,21 @@ function render(){
 
       <!-- Region Breakdown -->
       <div class="card" style="margin-top:16px">
-        <div class="card-header"><span class="card-title">BY PRODUCT & REGION</span></div>
+        <div class="card-header"><span class="card-title">PURCHASES BY PRODUCT & REGION</span></div>
         <div class="card-body">
           ${(()=>{
             const byProdReg={};
             a.buys.forEach(b=>{
               const key=`${b.product}|${b.region||'west'}`;
-              if(!byProdReg[key])byProdReg[key]={product:b.product,region:b.region||'west',bVol:0,sVol:0};
-              byProdReg[key].bVol+=b.volume||0;
+              if(!byProdReg[key])byProdReg[key]={product:b.product,region:b.region||'west',vol:0};
+              byProdReg[key].vol+=b.volume||0;
             });
-            a.sells.forEach(s=>{
-              const key=`${s.product}|${s.region||'west'}`;
-              if(!byProdReg[key])byProdReg[key]={product:s.product,region:s.region||'west',bVol:0,sVol:0};
-              byProdReg[key].sVol+=s.volume||0;
-            });
-            const list=Object.values(byProdReg).sort((a,b)=>(b.bVol+b.sVol)-(a.bVol+a.sVol)).slice(0,15);
+            const list=Object.values(byProdReg).sort((a,b)=>b.vol-a.vol).slice(0,15);
             if(!list.length)return'<div class="empty-state">No data</div>';
-            return`<table style="font-size:11px"><thead><tr><th>Product</th><th>Region</th><th class="right">Buy Vol</th><th class="right">Sell Vol</th><th class="right">Net</th></tr></thead><tbody>
+            return`<table style="font-size:11px"><thead><tr><th>Product</th><th>Region</th><th class="right">Volume</th></tr></thead><tbody>
               ${list.map(r=>{
-                const net=r.bVol-r.sVol;
                 const regColor=r.region==='west'?'accent':r.region==='central'?'warn':'info';
-                return`<tr><td class="bold">${r.product}</td><td style="color:var(--${regColor});text-transform:capitalize">${r.region}</td><td class="right">${r.bVol}</td><td class="right">${r.sVol}</td><td class="right ${net>0?'warn':net<0?'negative':''}">${net>0?'+':''}${net}</td></tr>`;
+                return`<tr><td class="bold">${r.product}</td><td style="color:var(--${regColor});text-transform:capitalize">${r.region}</td><td class="right">${fmtN(r.vol)} MBF</td></tr>`;
               }).join('')}
             </tbody></table>`;
           })()}
