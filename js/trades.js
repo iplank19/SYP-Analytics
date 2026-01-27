@@ -85,7 +85,7 @@ function saveBuy(id){
     price:price,
     volume:volume, // Use calculated volume
     notes:document.getElementById('m-notes').value,
-    trader:S.trader==='Admin'?(document.getElementById('m-trader')?.value||'Ian'):S.trader, // Admin assigns to trader, otherwise current trader
+    trader:S.trader==='Admin'?(document.getElementById('m-trader')?.value||'Ian P'):S.trader, // Admin assigns to trader, otherwise current trader
     // Freight lives on the sell (OC) side only
     miles:0,
     rate:0,
@@ -103,7 +103,7 @@ function saveBuy(id){
     if(existing&&!canEdit(existing)){alert('You can only edit your own trades');return}
     const i=S.buys.findIndex(x=>x.id===id);
     // Admin can reassign trader, otherwise preserve original trader
-    const assignedTrader=S.trader==='Admin'?(document.getElementById('m-trader')?.value||existing?.trader||'Ian'):(existing?.trader||S.trader);
+    const assignedTrader=S.trader==='Admin'?(document.getElementById('m-trader')?.value||existing?.trader||'Ian P'):(existing?.trader||S.trader);
     if(i>=0)S.buys[i]={...b,id,trader:assignedTrader}
   }else{
     b.id=genId();
@@ -206,7 +206,7 @@ function saveSell(id){
     volume:volume, // Use calculated volume (from tally or field)
     notes:document.getElementById('m-notes').value,
     delivered:document.getElementById('m-delivered')?.checked||false,
-    trader:S.trader==='Admin'?(document.getElementById('m-trader')?.value||'Ian'):S.trader, // Admin assigns to trader, otherwise current trader
+    trader:S.trader==='Admin'?(document.getElementById('m-trader')?.value||'Ian P'):S.trader, // Admin assigns to trader, otherwise current trader
     // MSR fields
     basePrice:isMSR?parseFloat(document.getElementById('m-basePrice').value)||0:null,
     msrPremium:isMSR?parseFloat(document.getElementById('m-msrPremium').value)||0:null,
@@ -222,7 +222,7 @@ function saveSell(id){
     if(existing&&!canEdit(existing)){alert('You can only edit your own trades');return}
     const i=S.sells.findIndex(x=>x.id===id);
     // Admin can reassign trader, otherwise preserve original trader
-    const assignedTrader=S.trader==='Admin'?(document.getElementById('m-trader')?.value||existing?.trader||'Ian'):(existing?.trader||S.trader);
+    const assignedTrader=S.trader==='Admin'?(document.getElementById('m-trader')?.value||existing?.trader||'Ian P'):(existing?.trader||S.trader);
     if(i>=0)S.sells[i]={...s,id,trader:assignedTrader}
   }else{
     s.id=genId();
@@ -243,7 +243,7 @@ function saveRL(){
 
 async function saveCust(oldName){
   const locations=[...document.querySelectorAll('.cust-loc')].map(el=>el.value.trim()).filter(Boolean);
-  const assignedTrader=S.trader==='Admin'?(document.getElementById('m-trader')?.value||'Ian'):S.trader;
+  const assignedTrader=S.trader==='Admin'?(document.getElementById('m-trader')?.value||'Ian P'):S.trader;
   const c={name:document.getElementById('m-name').value,contact:document.getElementById('m-contact')?.value||'',phone:document.getElementById('m-phone')?.value||'',email:document.getElementById('m-email')?.value||'',locations:locations,destination:locations[0]||'',notes:document.getElementById('m-terms')?.value||'',trader:assignedTrader};
   if(!c.name){alert('Enter name');return}
   try{
@@ -268,7 +268,7 @@ function showMillModal(m=null){
     <div class="modal-body">
       ${S.trader==='Admin'?`<div style="margin-bottom:16px;padding:12px;background:rgba(245,166,35,0.1);border:1px solid #f5a623;border-radius:4px">
         <div class="form-group" style="margin:0"><label class="form-label" style="color:#f5a623;font-weight:600">🔑 Assign to Trader</label>
-        <select id="m-trader" style="width:200px">${TRADERS.map(t=>`<option value="${t}" ${(mill?.trader||'Ian')===t?'selected':''}>${t}</option>`).join('')}</select></div>
+        <select id="m-trader" style="width:200px">${TRADERS.map(t=>`<option value="${t}" ${(mill?.trader||'Ian P')===t?'selected':''}>${t}</option>`).join('')}</select></div>
       </div>`:''}
       <div class="form-group"><label class="form-label">Mill Name</label><input type="text" id="m-name" value="${mill?.name||''}"></div>
       <div class="form-group">
@@ -297,7 +297,7 @@ function addMillLocation(){
 
 async function saveMill(oldName){
   const locations=[...document.querySelectorAll('.mill-loc')].map(el=>el.value.trim()).filter(Boolean);
-  const assignedTrader=S.trader==='Admin'?(document.getElementById('m-trader')?.value||'Ian'):S.trader;
+  const assignedTrader=S.trader==='Admin'?(document.getElementById('m-trader')?.value||'Ian P'):S.trader;
   const m={name:document.getElementById('m-name').value,location:locations[0]||'',products:locations,contact:document.getElementById('m-contact').value,phone:document.getElementById('m-phone').value,notes:document.getElementById('m-notes').value,trader:assignedTrader};
   if(!m.name){alert('Enter name');return}
   try{

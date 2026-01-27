@@ -153,12 +153,12 @@ function canEdit(trade){
 
 // Get trader color for display
 function traderColor(t){
-  const colors={'Admin':'#f5a623','Ian':'var(--accent)','Aubrey':'#f5a623','Hunter':'#4a9eff','Sawyer':'#a855f7','Jackson':'#ec4899','John':'#14b8a6'};
+  const colors={'Admin':'#f5a623','Ian P':'var(--accent)','Aubrey M':'#f5a623','Hunter S':'#4a9eff','Sawyer R':'#a855f7','Jackson M':'#ec4899','John W':'#14b8a6'};
   return colors[t]||'var(--muted)';
 }
 
 // Get trader initials for badges
 function traderInitial(t){
   if(t==='Admin')return '★';
-  return t?t.charAt(0).toUpperCase():'?';
+  return t?t.split(' ').map(w=>w.charAt(0)).join('').toUpperCase():'?';
 }

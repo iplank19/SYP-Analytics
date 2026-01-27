@@ -18,9 +18,14 @@ const LS=(k,d)=>{try{const v=localStorage.getItem('syp_'+k);return v?JSON.parse(
 const SS=(k,v)=>{try{localStorage.setItem('syp_'+k,JSON.stringify(v))}catch{}};
 
 // Traders in department
-const TRADERS=['Ian','Aubrey','Hunter','Sawyer','Jackson','John'];
+const TRADERS=['Ian P','Aubrey M','Hunter S','Sawyer R','Jackson M','John W'];
 const ALL_LOGINS=['Admin',...TRADERS]; // Admin + all traders for login
-const TRADER_MAP={'Ian Plank':'Ian','Aubrey Milligan':'Aubrey','Sawyer Rapp':'Sawyer','Jackson McCormick':'Jackson','Hunter Sweet':'Hunter','John Edwards':'John'};
+// CSV full names → trader profiles. John Edwards is NOT John W — his trades go to Admin.
+const TRADER_MAP={'Ian Plank':'Ian P','Aubrey Milligan':'Aubrey M','Sawyer Rapp':'Sawyer R','Jackson McCormick':'Jackson M','Hunter Sweet':'Hunter S'};
+// Legacy first-name-only → new format (for migrating old data)
+const LEGACY_TRADER={'Ian':'Ian P','Aubrey':'Aubrey M','Hunter':'Hunter S','Sawyer':'Sawyer R','Jackson':'Jackson M'};
+// Normalize any trader value to current format
+function normalizeTrader(t){if(!t)return t;if(TRADERS.includes(t)||t==='Admin')return t;return LEGACY_TRADER[t]||TRADER_MAP[t]||null;}
 
 let S={
   view:'dashboard',
@@ -49,7 +54,7 @@ let S={
   freightBase:LS('freightBase',450),
   singleQuoteCustomer:'',
   chartProduct:'2x4#2',
-  trader:LS('trader','Ian'),
+  trader:LS('trader','Ian P'),
   // Leaderboard & Goals
   leaderboardPeriod:LS('leaderboardPeriod','30d'),
   traderGoals:LS('traderGoals',{}),
@@ -63,6 +68,20 @@ const fmtN=v=>v!=null&&!isNaN(v)?parseFloat(Number(v).toFixed(2)):'—';// max 2
 const fmtPct=v=>v!=null&&!isNaN(v)?`${v>=0?'+':''}${Number(v).toFixed(1)}%`:'—';
 const fmtD=d=>d?new Date(d+'T00:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric'}):'—';
 const today=()=>new Date().toISOString().split('T')[0];
+
+// Migrate legacy first-name trader values to new "First L" format
+(function migrateTraderNames(){
+  let changed=false;
+  // Migrate current login
+  const nt=normalizeTrader(S.trader);
+  if(nt&&nt!==S.trader){S.trader=nt;SS('trader',nt);changed=true;}
+  // Migrate trade data
+  S.buys.forEach(b=>{const n=normalizeTrader(b.trader);if(n&&n!==b.trader){b.trader=n;changed=true;}});
+  S.sells.forEach(s=>{const n=normalizeTrader(s.trader);if(n&&n!==s.trader){s.trader=n;changed=true;}});
+  S.mills.forEach(m=>{const n=normalizeTrader(m.trader);if(n&&n!==m.trader){m.trader=n;changed=true;}});
+  S.customers.forEach(c=>{const n=normalizeTrader(c.trader);if(n&&n!==c.trader){c.trader=n;changed=true;}});
+  if(changed){SS('buys',S.buys);SS('sells',S.sells);SS('mills',S.mills);SS('customers',S.customers);}
+})();
 const genId=()=>{const id=S.nextId++;SS('nextId',S.nextId);return id};
 
 

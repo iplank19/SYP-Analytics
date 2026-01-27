@@ -24,8 +24,8 @@ function exportLeaderboardReport(){
   const allSells=S.sells.filter(s=>inR(s.date));
 
   const traderStats=TRADERS.map(t=>{
-    const buys=allBuys.filter(b=>b.trader===t||(!b.trader&&t==='Ian'));
-    const sells=allSells.filter(s=>s.trader===t||(!s.trader&&t==='Ian'));
+    const buys=allBuys.filter(b=>b.trader===t||(!b.trader&&t==='Ian P'));
+    const sells=allSells.filter(s=>s.trader===t||(!s.trader&&t==='Ian P'));
     return calcTraderStats(t,buys,sells);
   });
 
@@ -289,7 +289,7 @@ function showLoginScreen(){
 }
 
 async function doLogin(){
-  const trader=document.getElementById('login-trader')?.value||'Ian';
+  const trader=document.getElementById('login-trader')?.value||'Ian P';
   const input=document.getElementById('login-password')?.value||'';
   const errEl=document.getElementById('login-error');
 
@@ -332,7 +332,7 @@ async function doLogin(){
 }
 
 async function setupTraderPassword(){
-  const trader=document.getElementById('login-trader')?.value||'Ian';
+  const trader=document.getElementById('login-trader')?.value||'Ian P';
   const pwd=document.getElementById('new-password')?.value||'';
   const errEl=document.getElementById('login-error');
 

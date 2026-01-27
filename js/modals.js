@@ -49,7 +49,7 @@ function showBuyModal(b=null){
     <div class="modal-body">
       ${S.trader==='Admin'?`<div style="margin-bottom:16px;padding:12px;background:rgba(245,166,35,0.1);border:1px solid #f5a623;border-radius:4px">
         <div class="form-group" style="margin:0"><label class="form-label" style="color:#f5a623;font-weight:600">🔑 Assign to Trader</label>
-        <select id="m-trader" style="width:200px">${TRADERS.map(t=>`<option value="${t}" ${(b?.trader||'Ian')===t?'selected':''}>${t}</option>`).join('')}</select></div>
+        <select id="m-trader" style="width:200px">${TRADERS.map(t=>`<option value="${t}" ${(b?.trader||'Ian P')===t?'selected':''}>${t}</option>`).join('')}</select></div>
       </div>`:''}
       <div class="form-grid">
         <div class="form-group"><label class="form-label">Order #</label>
@@ -966,7 +966,7 @@ function showSellModal(s=null){
     <div class="modal-body">
       ${S.trader==='Admin'?`<div style="margin-bottom:16px;padding:12px;background:rgba(245,166,35,0.1);border:1px solid #f5a623;border-radius:4px">
         <div class="form-group" style="margin:0"><label class="form-label" style="color:#f5a623;font-weight:600">🔑 Assign to Trader</label>
-        <select id="m-trader" style="width:200px">${TRADERS.map(t=>`<option value="${t}" ${(s?.trader||'Ian')===t?'selected':''}>${t}</option>`).join('')}</select></div>
+        <select id="m-trader" style="width:200px">${TRADERS.map(t=>`<option value="${t}" ${(s?.trader||'Ian P')===t?'selected':''}>${t}</option>`).join('')}</select></div>
       </div>`:''}
       <div class="form-grid">
         <div class="form-group"><label class="form-label">Order #</label>
