@@ -584,7 +584,7 @@ Buy price is always null (not in the CSV).`;
   const res=await fetch('https://api.anthropic.com/v1/messages',{
     method:'POST',
     headers:{'Content-Type':'application/json','x-api-key':S.apiKey,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
-    body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:4096,system:systemPrompt,messages:[{role:'user',content:csvText}]})
+    body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:8192,system:systemPrompt,messages:[{role:'user',content:csvText}]})
   });
   const data=await res.json();
   const text=data.content?.[0]?.text||'';
@@ -592,5 +592,19 @@ Buy price is always null (not in the CSV).`;
   // Extract JSON from response (might be wrapped in markdown code block)
   const jsonMatch=text.match(/\[[\s\S]*\]/);
   if(!jsonMatch)throw new Error('AI did not return valid JSON');
-  return JSON.parse(jsonMatch[0]);
+  let jsonStr=jsonMatch[0];
+  // Clean common AI artifacts that break JSON
+  jsonStr=jsonStr.replace(/,\s*}/g,'}').replace(/,\s*\]/g,']'); // trailing commas
+  jsonStr=jsonStr.replace(/\n/g,' '); // newlines inside strings
+  try{
+    return JSON.parse(jsonStr);
+  }catch(e){
+    // Try to find the error location and show context
+    const pos=e.message.match(/position (\d+)/)?.[1];
+    if(pos){
+      const ctx=jsonStr.substring(Math.max(0,pos-50),Math.min(jsonStr.length,parseInt(pos)+50));
+      throw new Error(`JSON parse error near: ...${ctx}...`);
+    }
+    throw e;
+  }
 }

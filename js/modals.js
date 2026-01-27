@@ -1841,10 +1841,41 @@ function confirmImportOrders(){
     }
   });
 
+  // Auto-add new customers and mills to CRM for each trader
+  const newCustomers=new Map();// name → {destination, trader}
+  const newMills=new Map();// name → {origin, trader}
+  orders.forEach((o,i)=>{
+    if(!checked.has(i))return;
+    const mapTrader=name=>TRADER_MAP[name]||name||'Ian';
+    if(o.sell&&o.sell.customer){
+      const trader=mapTrader(o.sell.trader);
+      const name=o.sell.customer;
+      if(!S.customers.find(c=>c.name===name)&&!newCustomers.has(name)){
+        newCustomers.set(name,{name,destination:o.sell.destination||'',trader,contact:'',phone:'',email:'',locations:[o.sell.destination||''].filter(Boolean),notes:''});
+      }
+    }
+    if(o.buy&&o.buy.mill){
+      const trader=mapTrader(o.buy.trader);
+      const name=o.buy.mill;
+      if(!S.mills.find(m=>m.name===name)&&!newMills.has(name)){
+        newMills.set(name,{name,location:o.buy.origin||'',trader,contact:'',phone:'',email:'',products:[o.buy.origin||''].filter(Boolean),notes:''});
+      }
+    }
+  });
+  // Add to local state
+  newCustomers.forEach(c=>{S.customers.push(c)});
+  newMills.forEach(m=>{S.mills.push(m)});
+  // Sync to server
+  if(newCustomers.size&&typeof syncCustomersToServer==='function')syncCustomersToServer([...newCustomers.values()]);
+  if(newMills.size&&typeof syncMillsToServer==='function')syncMillsToServer([...newMills.values()]);
+
   saveAllLocal();
   closeModal();
   render();
-  showToast(`Imported ${sellCount} sells and ${buyCount} buys`,'positive');
+  let msg=`Imported ${sellCount} sells and ${buyCount} buys`;
+  if(newCustomers.size)msg+=`, ${newCustomers.size} new customers`;
+  if(newMills.size)msg+=`, ${newMills.size} new mills`;
+  showToast(msg,'positive');
 }
 
 // ==================== CRM FUNCTIONS ====================
