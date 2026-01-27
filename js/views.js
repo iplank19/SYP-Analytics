@@ -892,7 +892,10 @@ function render(){
     c.innerHTML=`
       <div style="margin-bottom:12px;padding:8px 12px;background:var(--panel);border-left:3px solid ${traderColor(S.trader)};font-size:12px;display:flex;justify-content:space-between;align-items:center">
         <div><strong>${S.trader==='Admin'?'🔑 All Traders':S.trader+"'s Trade Blotter"}</strong> <span style="color:var(--muted)">— ${filteredBuys.length} buys, ${filteredSells.length} sells</span></div>
-        ${S.trader!=='Admin'?`<div style="font-size:10px;color:var(--muted)">📊 See Risk & Leaderboard for dept-wide data</div>`:''}
+        <div style="display:flex;align-items:center;gap:8px">
+          ${S.trader==='Admin'?'<button class="btn btn-default btn-sm" onclick="showImportModal()">📥 Import CSV</button>':''}
+          ${S.trader!=='Admin'?`<span style="font-size:10px;color:var(--muted)">📊 See Risk & Leaderboard for dept-wide data</span>`:''}
+        </div>
       </div>
       <div class="card" style="margin-bottom:16px;padding:12px">
         <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center">

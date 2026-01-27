@@ -20,6 +20,7 @@ const SS=(k,v)=>{try{localStorage.setItem('syp_'+k,JSON.stringify(v))}catch{}};
 // Traders in department
 const TRADERS=['Ian','Aubrey','Hunter','Sawyer','Jackson','John'];
 const ALL_LOGINS=['Admin',...TRADERS]; // Admin + all traders for login
+const TRADER_MAP={'Ian Plank':'Ian','Aubrey Milligan':'Aubrey','Sawyer Rapp':'Sawyer','Jackson McCormick':'Jackson','Hunter Sweet':'Hunter','John Edwards':'John'};
 
 let S={
   view:'dashboard',

@@ -521,3 +521,76 @@ async function runAIWithTools(systemCtx,userMsg,depth=0){
   SS('aiMsgs',S.aiMsgs);
   render();
 }
+
+// Parse CSV order data using Claude AI
+async function parseOrderCSV(csvText){
+  if(!S.apiKey){throw new Error('Add API key in Settings first')}
+  const systemPrompt=`You are a lumber trade data parser. Parse the CSV order data and return a JSON array.
+
+RULES:
+1. Group rows by Order # — multiple rows with the same Order # are line items on one truckload.
+2. For each unique Order #, produce ONE object with sell and buy sides.
+3. Product mapping from "Product Description" + "Product Detail":
+   - "K.D. SYP #2" + "2 X 4 10'" → product "2x4#2", length "10"
+   - "K.D. SYP #1" + "2 X 10 16'" → product "2x10#1", length "16"
+   - "K.D. SYP #2 PRIME" → treat as #2 grade
+   - "K.D. SYP CLEAR" + "2 X 10 14'" → product "2x10 CLEAR", length "14"
+   - General pattern: take dimension from Product Detail (e.g. "2 X 4" → "2x4"), grade from Product Description (#1, #2, #3, CLEAR)
+4. Tally parsing:
+   - Simple number like "17" → volume = 17
+   - Fraction like "5/14" → volume = 5 (first number is MBF, second is units/bundles — ignore second)
+   - "40/18" → volume = 40
+   - Empty "" → volume = 0
+5. When grouping multiple rows into one order, build items array with each line item's length, price, and volume.
+   If all items share the same product dimension (e.g. all 2x4), use that product. If mixed dimensions, note in the product field.
+6. Destination = "CITY, ST" from Ship To City + Ship To State
+7. Origin = "CITY, ST" from Ship From City + Ship From State
+8. Region: Determine from Ship To State:
+   - West: TX, AR, LA, OK, NM, CO
+   - East: NC, SC, GA, FL, VA, MD, DE, NJ, NY, PA, CT, MA
+   - Central: IL, IN, OH, MI, KY, TN, AL, MS, MO, WI, MN, IA
+9. Status classification:
+   - "matched" = has both Customer AND Mill data
+   - "short" = has Customer but Mill is empty
+   - "long" = has Mill but Customer is empty
+10. Seller is the trader who owns the sell side. Buyer is the trader who owns the buy side.
+
+Return ONLY a JSON array, no markdown, no explanation. Format:
+[{
+  "orderNum": "70264",
+  "status": "matched",
+  "sell": {
+    "trader": "Ian Plank",
+    "customer": "BEAR CREEK TRUSS INC",
+    "destination": "TUSCOLA, IL",
+    "product": "2x4#1",
+    "region": "central",
+    "items": [{"length": "10", "price": 483, "volume": 17}]
+  },
+  "buy": {
+    "trader": "Ian Plank",
+    "mill": "POTLATCHDELTIC OLA",
+    "origin": "OLA, AR",
+    "product": "2x4#1",
+    "region": "central",
+    "items": [{"length": "10", "price": null, "volume": 17}]
+  }
+}]
+
+If buy side has no data (mill is empty), set buy to null.
+If sell side has no data (customer is empty), set sell to null.
+Buy price is always null (not in the CSV).`;
+
+  const res=await fetch('https://api.anthropic.com/v1/messages',{
+    method:'POST',
+    headers:{'Content-Type':'application/json','x-api-key':S.apiKey,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
+    body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:4096,system:systemPrompt,messages:[{role:'user',content:csvText}]})
+  });
+  const data=await res.json();
+  const text=data.content?.[0]?.text||'';
+  if(data.error)throw new Error(data.error.message);
+  // Extract JSON from response (might be wrapped in markdown code block)
+  const jsonMatch=text.match(/\[[\s\S]*\]/);
+  if(!jsonMatch)throw new Error('AI did not return valid JSON');
+  return JSON.parse(jsonMatch[0]);
+}

@@ -1634,4 +1634,217 @@ function saveParsedRL(){
   saveAllLocal();closeModal();render();
 }
 
+// ==================== CSV ORDER IMPORT ====================
+
+function showImportModal(){
+  document.getElementById('modal').innerHTML=`<div class="modal-overlay" onclick="closeModal()"><div class="modal wide" onclick="event.stopPropagation()">
+    <div class="modal-header"><span class="modal-title">📥 IMPORT ORDERS (CSV)</span><button class="modal-close" onclick="closeModal()">×</button></div>
+    <div class="modal-body" id="import-body">
+      <div style="text-align:center;padding:40px 20px">
+        <div style="font-size:14px;font-weight:600;margin-bottom:12px">Upload Daily Order CSV</div>
+        <div style="font-size:11px;color:var(--muted);margin-bottom:20px">AI will parse orders, group by Order #, and identify matched/short/long positions.</div>
+        <div style="margin-bottom:16px">
+          <label class="form-label">Order Date</label>
+          <input type="date" id="import-date" value="${today()}" style="padding:8px;width:200px">
+        </div>
+        <input type="file" id="import-file" accept=".csv" style="display:none" onchange="processCSVImport(event)">
+        <button class="btn btn-primary" onclick="document.getElementById('import-file').click()" style="padding:12px 32px;font-size:13px">Choose CSV File</button>
+      </div>
+    </div>
+  </div></div>`;
+}
+
+async function processCSVImport(event){
+  const file=event.target.files[0];
+  if(!file)return;
+  const body=document.getElementById('import-body');
+  body.innerHTML=`<div style="text-align:center;padding:60px 20px">
+    <div class="skeleton" style="width:200px;height:20px;margin:0 auto 16px"></div>
+    <div style="font-size:13px;font-weight:600">Parsing ${file.name}...</div>
+    <div style="font-size:11px;color:var(--muted);margin-top:8px">AI is grouping orders and classifying positions</div>
+  </div>`;
+  try{
+    const csvText=await file.text();
+    const orders=await parseOrderCSV(csvText);
+    window._importOrders=orders;
+    showImportPreview(orders);
+  }catch(e){
+    body.innerHTML=`<div style="text-align:center;padding:40px;color:var(--negative)">
+      <div style="font-size:14px;font-weight:600;margin-bottom:8px">Parse Error</div>
+      <div style="font-size:11px">${e.message}</div>
+      <button class="btn btn-default" onclick="showImportModal()" style="margin-top:16px">Try Again</button>
+    </div>`;
+  }
+}
+
+function showImportPreview(orders){
+  const matched=orders.filter(o=>o.status==='matched').length;
+  const short_=orders.filter(o=>o.status==='short').length;
+  const long_=orders.filter(o=>o.status==='long').length;
+  const importDate=document.getElementById('import-date')?.value||today();
+
+  const statusBadge=s=>({matched:'<span class="badge badge-success">MATCHED</span>',short:'<span class="badge badge-negative">SHORT</span>',long:'<span class="badge badge-pending">LONG</span>'}[s]||s);
+
+  const body=document.getElementById('import-body');
+  body.innerHTML=`
+    <div style="display:flex;gap:16px;margin-bottom:16px;flex-wrap:wrap">
+      <div class="kpi" style="flex:1;min-width:100px"><div class="kpi-label">TOTAL ORDERS</div><div class="kpi-value">${orders.length}</div></div>
+      <div class="kpi" style="flex:1;min-width:100px"><div class="kpi-label">MATCHED</div><div class="kpi-value" style="color:var(--positive)">${matched}</div></div>
+      <div class="kpi" style="flex:1;min-width:100px"><div class="kpi-label">SHORT</div><div class="kpi-value" style="color:var(--negative)">${short_}</div></div>
+      <div class="kpi" style="flex:1;min-width:100px"><div class="kpi-label">LONG</div><div class="kpi-value" style="color:var(--warn)">${long_}</div></div>
+    </div>
+    <div style="margin-bottom:8px;display:flex;justify-content:space-between;align-items:center">
+      <label style="font-size:11px;display:flex;align-items:center;gap:4px;cursor:pointer">
+        <input type="checkbox" id="import-all" checked onchange="toggleImportAll(this.checked)"> Select All
+      </label>
+      <span style="font-size:10px;color:var(--muted)">Date: ${importDate}</span>
+    </div>
+    <div style="max-height:400px;overflow:auto">
+      <table>
+        <thead><tr>
+          <th style="width:30px"></th>
+          <th>Order #</th>
+          <th>Status</th>
+          <th>Seller</th>
+          <th>Customer</th>
+          <th>Buyer</th>
+          <th>Mill</th>
+          <th>Product</th>
+          <th>Vol</th>
+          <th>Sell $</th>
+        </tr></thead>
+        <tbody>
+          ${orders.map((o,i)=>{
+            const sell=o.sell||{};
+            const buy=o.buy||{};
+            const totalVol=(sell.items||buy.items||[]).reduce((s,it)=>s+it.volume,0);
+            const prices=(sell.items||[]).map(it=>'$'+it.price).join(', ');
+            return`<tr>
+              <td><input type="checkbox" class="import-check" data-idx="${i}" checked></td>
+              <td style="font-weight:600">${o.orderNum}</td>
+              <td>${statusBadge(o.status)}</td>
+              <td>${sell.trader||'—'}</td>
+              <td style="font-size:10px">${sell.customer||'—'}</td>
+              <td>${buy.trader||'—'}</td>
+              <td style="font-size:10px">${buy.mill||'—'}</td>
+              <td>${sell.product||buy.product||'—'}</td>
+              <td>${totalVol}</td>
+              <td>${prices||'—'}</td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>
+    </div>
+    <div style="margin-top:16px;display:flex;justify-content:flex-end;gap:8px">
+      <button class="btn btn-default" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-success" onclick="confirmImportOrders()">Import Selected</button>
+    </div>`;
+}
+
+function toggleImportAll(checked){
+  document.querySelectorAll('.import-check').forEach(cb=>cb.checked=checked);
+}
+
+function confirmImportOrders(){
+  const orders=window._importOrders;
+  if(!orders||!orders.length){showToast('No orders to import','warn');return}
+  const importDate=document.getElementById('import-date')?.value||today();
+  const checked=new Set();
+  document.querySelectorAll('.import-check:checked').forEach(cb=>checked.add(parseInt(cb.dataset.idx)));
+  if(!checked.size){showToast('No orders selected','warn');return}
+
+  let buyCount=0,sellCount=0;
+
+  orders.forEach((o,i)=>{
+    if(!checked.has(i))return;
+    const mapTrader=name=>TRADER_MAP[name]||name||'Ian';
+
+    // Build sell
+    if(o.sell){
+      const items=o.sell.items||[];
+      let tally=null,totalVol=0,totalVal=0;
+      if(items.length>1){
+        tally={};
+        items.forEach(it=>{
+          if(it.volume>0){
+            tally[it.length]={vol:it.volume,price:it.price||0};
+            totalVol+=it.volume;
+            totalVal+=(it.volume*(it.price||0));
+          }
+        });
+      }else if(items.length===1){
+        totalVol=items[0].volume;
+        totalVal=items[0].volume*(items[0].price||0);
+      }
+      const avgPrice=totalVol>0?Math.round(totalVal/totalVol):0;
+
+      const sell={
+        id:genId(),
+        orderNum:String(o.orderNum),
+        linkedPO:String(o.orderNum),
+        oc:String(o.orderNum),
+        date:importDate,
+        customer:o.sell.customer||'',
+        destination:o.sell.destination||'',
+        region:o.sell.region||'',
+        miles:0,
+        rate:S.flatRate||3.50,
+        product:o.sell.product||'',
+        length:items.length===1?items[0].length:'RL',
+        price:avgPrice,
+        freight:0,
+        volume:totalVol,
+        notes:'CSV Import',
+        delivered:false,
+        trader:mapTrader(o.sell.trader),
+        tally:tally
+      };
+      if(sell.volume>0){S.sells.unshift(sell);sellCount++}
+    }
+
+    // Build buy
+    if(o.buy){
+      const items=o.buy.items||[];
+      let tally=null,totalVol=0;
+      if(items.length>1){
+        tally={};
+        items.forEach(it=>{
+          if(it.volume>0){
+            tally[it.length]={vol:it.volume,price:it.price||0};
+            totalVol+=it.volume;
+          }
+        });
+      }else if(items.length===1){
+        totalVol=items[0].volume;
+      }
+
+      const buy={
+        id:genId(),
+        orderNum:String(o.orderNum),
+        po:String(o.orderNum),
+        date:importDate,
+        mill:o.buy.mill||'',
+        origin:o.buy.origin||'',
+        region:o.buy.region||'',
+        product:o.buy.product||'',
+        length:items.length===1?items[0].length:'RL',
+        price:0,// Buy price not in CSV yet
+        volume:totalVol,
+        notes:'CSV Import',
+        trader:mapTrader(o.buy.trader),
+        miles:0,
+        rate:S.flatRate||3.50,
+        freight:0,
+        tally:tally
+      };
+      if(buy.volume>0){S.buys.unshift(buy);buyCount++}
+    }
+  });
+
+  saveAllLocal();
+  closeModal();
+  render();
+  showToast(`Imported ${sellCount} sells and ${buyCount} buys`,'positive');
+}
+
 // ==================== CRM FUNCTIONS ====================
