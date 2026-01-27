@@ -305,7 +305,7 @@ function render(){
     const byVolume=[...traderStats].sort((a,b)=>b.totalVol-a.totalVol);
     const byMargin=[...traderStats].sort((a,b)=>b.margin-a.margin);
     const byProfit=[...traderStats].sort((a,b)=>b.profit-a.profit);
-    const byWinRate=[...traderStats].filter(t=>t.sells>=5).sort((a,b)=>b.winRate-a.winRate);
+    const byWinRate=[...traderStats].filter(t=>t.matchedSells>=5).sort((a,b)=>b.winRate-a.winRate);
     const byTrades=[...traderStats].sort((a,b)=>b.trades-a.trades);
 
     // Department totals
@@ -313,7 +313,8 @@ function render(){
       buyVol:traderStats.reduce((s,t)=>s+t.buyVol,0),
       sellVol:traderStats.reduce((s,t)=>s+t.sellVol,0),
       profit:traderStats.reduce((s,t)=>s+t.profit,0),
-      trades:traderStats.reduce((s,t)=>s+t.trades,0)
+      trades:traderStats.reduce((s,t)=>s+t.trades,0),
+      matchedSells:traderStats.reduce((s,t)=>s+t.matchedSells,0)
     };
 
     // Current trader's stats and achievements
@@ -334,10 +335,10 @@ function render(){
 
       <!-- Department KPIs -->
       <div class="kpi-grid" style="margin-bottom:16px">
-        <div class="kpi"><div class="kpi-value">${fmtN(deptStats.buyVol+deptStats.sellVol)}</div><div class="kpi-label">DEPT VOLUME (MBF)</div></div>
-        <div class="kpi"><div class="kpi-value ${deptStats.profit>=0?'positive':'negative'}">${fmt(deptStats.profit,0)}</div><div class="kpi-label">DEPT PROFIT</div></div>
-        <div class="kpi"><div class="kpi-value">${deptStats.trades}</div><div class="kpi-label">TOTAL TRADES</div></div>
-        <div class="kpi"><div class="kpi-value">${fmtN(Math.round((deptStats.buyVol+deptStats.sellVol)/TRADERS.length))}</div><div class="kpi-label">AVG VOL/TRADER</div></div>
+        <div class="kpi"><div class="kpi-value">${fmtN(deptStats.sellVol)}</div><div class="kpi-label">DEPT SELL VOL (MBF)</div></div>
+        <div class="kpi"><div class="kpi-value ${deptStats.profit>=0?'positive':'negative'}">${fmt(deptStats.profit,0)}</div><div class="kpi-label">DEPT MATCHED PROFIT</div></div>
+        <div class="kpi"><div class="kpi-value">${deptStats.matchedSells}</div><div class="kpi-label">MATCHED SELLS</div></div>
+        <div class="kpi"><div class="kpi-value">${fmtN(deptStats.buyVol)}</div><div class="kpi-label">DEPT BUY VOL (MBF)</div></div>
       </div>
 
       ${S.trader!=='Admin'?`
@@ -352,13 +353,13 @@ function render(){
             <div>
               <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:16px">
                 <div style="text-align:center;padding:12px;background:var(--panel-alt);border-radius:4px">
-                  <div style="font-size:20px;font-weight:700">${fmtN(myStats.totalVol)}</div>
-                  <div style="font-size:9px;color:var(--muted)">VOLUME (MBF)</div>
-                  ${myGoals.volume?`<div style="margin-top:4px"><div class="progress-bar"><div class="progress-fill accent" style="width:${Math.min(100,myStats.totalVol/myGoals.volume*100)}%"></div></div><div style="font-size:8px;color:var(--muted)">${Math.round(myStats.totalVol/myGoals.volume*100)}% of ${myGoals.volume} goal</div></div>`:''}
+                  <div style="font-size:20px;font-weight:700">${fmtN(myStats.sellVol)}</div>
+                  <div style="font-size:9px;color:var(--muted)">SELL VOL (MBF)</div>
+                  ${myGoals.volume?`<div style="margin-top:4px"><div class="progress-bar"><div class="progress-fill accent" style="width:${Math.min(100,myStats.sellVol/myGoals.volume*100)}%"></div></div><div style="font-size:8px;color:var(--muted)">${Math.round(myStats.sellVol/myGoals.volume*100)}% of ${myGoals.volume} goal</div></div>`:''}
                 </div>
                 <div style="text-align:center;padding:12px;background:var(--panel-alt);border-radius:4px">
                   <div style="font-size:20px;font-weight:700;color:${myStats.profit>=0?'var(--positive)':'var(--negative)'}">${fmt(myStats.profit,0)}</div>
-                  <div style="font-size:9px;color:var(--muted)">PROFIT</div>
+                  <div style="font-size:9px;color:var(--muted)">MATCHED PROFIT</div>
                   ${myGoals.profit?`<div style="margin-top:4px"><div class="progress-bar"><div class="progress-fill accent" style="width:${Math.min(100,myStats.profit/myGoals.profit*100)}%"></div></div><div style="font-size:8px;color:var(--muted)">${Math.round(myStats.profit/myGoals.profit*100)}% of ${fmt(myGoals.profit,0)} goal</div></div>`:''}
                 </div>
                 <div style="text-align:center;padding:12px;background:var(--panel-alt);border-radius:4px">
@@ -368,8 +369,8 @@ function render(){
               </div>
               <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px">
                 <div style="text-align:center;padding:8px;background:var(--bg);border-radius:4px">
-                  <div style="font-size:14px;font-weight:600">${myStats.trades}</div>
-                  <div style="font-size:8px;color:var(--muted)">TRADES</div>
+                  <div style="font-size:14px;font-weight:600">${myStats.matchedSells}</div>
+                  <div style="font-size:8px;color:var(--muted)">MATCHED SELLS</div>
                 </div>
                 <div style="text-align:center;padding:8px;background:var(--bg);border-radius:4px">
                   <div style="font-size:14px;font-weight:600;color:var(--positive)">${myStats.winRate.toFixed(0)}%</div>
@@ -422,24 +423,24 @@ function render(){
         </div>
 
         <div class="card">
-          <div class="card-header"><span class="card-title accent">💰 PROFIT LEADERS</span></div>
+          <div class="card-header"><span class="card-title accent">💰 SALES PROFIT LEADERS</span></div>
           <div class="card-body" style="padding:0">
-            ${byProfit.filter(t=>t.sellVol>0).map((t,i)=>`
+            ${byProfit.filter(t=>t.matchedSells>0).map((t,i)=>`
               <div class="activity-item" style="border-left:3px solid ${traderColor(t.name)}">
                 <div style="display:flex;align-items:center;gap:12px">
                   <span style="font-size:16px;font-weight:700;color:${i===0?'gold':i===1?'silver':i===2?'#cd7f32':'var(--muted)'};width:24px">${i+1}</span>
                   <div>
                     <div style="font-weight:600">${t.name}${t.name===S.trader?' ⭐':''}</div>
-                    <div style="font-size:10px;color:var(--muted)">${fmt(t.margin)}/MBF margin</div>
+                    <div style="font-size:10px;color:var(--muted)">${fmt(t.margin)}/MBF on ${fmtN(t.matchedVol)} MBF</div>
                   </div>
                 </div>
                 <span style="font-weight:700;font-size:14px;color:${t.profit>=0?'var(--positive)':'var(--negative)'}">${fmt(t.profit,0)}</span>
-              </div>`).join('')||'<div class="empty-state">No sells yet</div>'}
+              </div>`).join('')||'<div class="empty-state">No matched sells yet</div>'}
           </div>
         </div>
 
         <div class="card">
-          <div class="card-header"><span class="card-title info">🎯 WIN RATE LEADERS</span><span style="font-size:9px;color:var(--muted)">(min 5 sells)</span></div>
+          <div class="card-header"><span class="card-title info">🎯 WIN RATE LEADERS</span><span style="font-size:9px;color:var(--muted)">(min 5 matched sells)</span></div>
           <div class="card-body" style="padding:0">
             ${byWinRate.length?byWinRate.map((t,i)=>`
               <div class="activity-item" style="border-left:3px solid ${traderColor(t.name)}">
@@ -447,58 +448,58 @@ function render(){
                   <span style="font-size:16px;font-weight:700;color:${i===0?'gold':i===1?'silver':i===2?'#cd7f32':'var(--muted)'};width:24px">${i+1}</span>
                   <div>
                     <div style="font-weight:600">${t.name}${t.name===S.trader?' ⭐':''}</div>
-                    <div style="font-size:10px;color:var(--muted)">${t.sells} sells</div>
+                    <div style="font-size:10px;color:var(--muted)">${t.matchedSells} matched sells</div>
                   </div>
                 </div>
                 <span style="font-weight:700;font-size:14px;color:var(--positive)">${t.winRate.toFixed(0)}%</span>
-              </div>`).join(''):'<div class="empty-state">Need 5+ sells to qualify</div>'}
+              </div>`).join(''):'<div class="empty-state">Need 5+ matched sells to qualify</div>'}
           </div>
         </div>
       </div>
 
       <!-- Detailed Table -->
       <div class="card">
-        <div class="card-header"><span class="card-title">📋 DETAILED BREAKDOWN</span></div>
+        <div class="card-header"><span class="card-title">📋 SALES BREAKDOWN</span></div>
         <div class="card-body" style="overflow-x:auto">
           <table style="font-size:11px">
             <thead>
               <tr>
                 <th>Trader</th>
-                <th class="right">Volume</th>
-                <th class="right">Trades</th>
-                <th class="right">Margin</th>
+                <th class="right">Buy Vol</th>
+                <th class="right">Sell Vol</th>
+                <th class="right">Matched</th>
+                <th class="right">Margin/MBF</th>
                 <th class="right">Profit</th>
                 <th class="right">Win %</th>
                 <th class="right">Best Trade</th>
                 <th class="right">Customers</th>
-                <th class="right">Open</th>
               </tr>
             </thead>
             <tbody>
               ${traderStats.map(t=>`
                 <tr style="border-left:3px solid ${traderColor(t.name)}${t.name===S.trader?';background:var(--panel-alt)':''}">
                   <td class="bold">${t.name}${t.name===S.trader?' (you)':''}</td>
-                  <td class="right">${fmtN(t.totalVol)} <span style="color:var(--muted);font-size:9px">MBF</span></td>
-                  <td class="right">${t.trades}</td>
-                  <td class="right ${t.margin>=0?'positive':'negative'}">${t.sellVol>0?fmt(t.margin)+'/M':'—'}</td>
-                  <td class="right ${t.profit>=0?'positive':'negative'} bold">${t.sellVol>0?fmt(t.profit,0):'—'}</td>
-                  <td class="right">${t.sells>=5?t.winRate.toFixed(0)+'%':'—'}</td>
+                  <td class="right">${fmtN(t.buyVol)} <span style="color:var(--muted);font-size:9px">MBF</span></td>
+                  <td class="right">${fmtN(t.sellVol)} <span style="color:var(--muted);font-size:9px">MBF</span></td>
+                  <td class="right">${t.matchedSells>0?`${t.matchedSells} <span style="color:var(--muted);font-size:9px">(${fmtN(t.matchedVol)} MBF)</span>`:'—'}</td>
+                  <td class="right ${t.margin>=0?'positive':'negative'}">${t.matchedSells>0?fmt(t.margin)+'/M':'—'}</td>
+                  <td class="right ${t.profit>=0?'positive':'negative'} bold">${t.matchedSells>0?fmt(t.profit,0):'—'}</td>
+                  <td class="right">${t.matchedSells>=5?t.winRate.toFixed(0)+'%':'—'}</td>
                   <td class="right accent">${t.bestProfit>0?fmt(t.bestProfit,0):'—'}</td>
                   <td class="right">${t.customerCount}</td>
-                  <td class="right">${t.openBuys+t.openSells>0?`<span class="badge badge-pending">${t.openBuys+t.openSells}</span>`:'✓'}</td>
                 </tr>`).join('')}
             </tbody>
             <tfoot>
               <tr style="font-weight:700;border-top:2px solid var(--border)">
                 <td>DEPARTMENT</td>
-                <td class="right">${fmtN(deptStats.buyVol+deptStats.sellVol)} MBF</td>
-                <td class="right">${deptStats.trades}</td>
+                <td class="right">${fmtN(deptStats.buyVol)} MBF</td>
+                <td class="right">${fmtN(deptStats.sellVol)} MBF</td>
+                <td class="right">${deptStats.matchedSells}</td>
                 <td class="right">—</td>
                 <td class="right ${deptStats.profit>=0?'positive':'negative'}">${fmt(deptStats.profit,0)}</td>
                 <td class="right">—</td>
                 <td class="right">—</td>
                 <td class="right">—</td>
-                <td class="right">${traderStats.reduce((s,t)=>s+t.openBuys+t.openSells,0)}</td>
               </tr>
             </tfoot>
           </table>
