@@ -347,24 +347,14 @@ def update_prospect(id):
     try:
         data = request.json
         conn = get_crm_db()
-        conn.execute('''
-            UPDATE prospects SET
-                company_name = ?, contact_name = ?, phone = ?, email = ?,
-                address = ?, notes = ?, status = ?, source = ?, trader = ?,
-                updated_at = CURRENT_TIMESTAMP
-            WHERE id = ?
-        ''', (
-            data.get('company_name'),
-            data.get('contact_name'),
-            data.get('phone'),
-            data.get('email'),
-            data.get('address'),
-            data.get('notes'),
-            data.get('status'),
-            data.get('source'),
-            data.get('trader'),
-            id
-        ))
+        # Only update fields that are present in the request (partial update support)
+        allowed = ['company_name', 'contact_name', 'phone', 'email', 'address', 'notes', 'status', 'source', 'trader']
+        fields = [f for f in allowed if f in data]
+        if not fields:
+            return jsonify({'error': 'No fields to update'}), 400
+        set_clause = ', '.join(f'{f} = ?' for f in fields) + ', updated_at = CURRENT_TIMESTAMP'
+        values = [data[f] for f in fields] + [id]
+        conn.execute(f'UPDATE prospects SET {set_clause} WHERE id = ?', values)
         conn.commit()
 
         prospect = conn.execute('SELECT * FROM prospects WHERE id = ?', (id,)).fetchone()
@@ -834,23 +824,22 @@ def update_customer(id):
     try:
         data = request.get_json()
         conn = get_crm_db()
-        conn.execute('''
-            UPDATE customers SET
-                name = ?, contact = ?, phone = ?, email = ?,
-                destination = ?, locations = ?, notes = ?, trader = ?,
-                updated_at = CURRENT_TIMESTAMP
-            WHERE id = ?
-        ''', (
-            data.get('name'),
-            data.get('contact'),
-            data.get('phone'),
-            data.get('email'),
-            data.get('destination'),
-            json.dumps(data.get('locations')) if data.get('locations') else None,
-            data.get('notes'),
-            data.get('trader'),
-            id
-        ))
+        # Only update fields that are present in the request (partial update support)
+        allowed = ['name', 'contact', 'phone', 'email', 'destination', 'locations', 'notes', 'trader']
+        fields = [f for f in allowed if f in data]
+        if not fields:
+            return jsonify({'error': 'No fields to update'}), 400
+        set_parts = []
+        values = []
+        for f in fields:
+            set_parts.append(f'{f} = ?')
+            if f == 'locations':
+                values.append(json.dumps(data[f]) if data[f] else None)
+            else:
+                values.append(data[f])
+        set_clause = ', '.join(set_parts) + ', updated_at = CURRENT_TIMESTAMP'
+        values.append(id)
+        conn.execute(f'UPDATE customers SET {set_clause} WHERE id = ?', values)
         conn.commit()
         customer = conn.execute('SELECT * FROM customers WHERE id = ?', (id,)).fetchone()
         conn.close()
@@ -918,23 +907,22 @@ def update_mill(id):
     try:
         data = request.get_json()
         conn = get_crm_db()
-        conn.execute('''
-            UPDATE mills SET
-                name = ?, contact = ?, phone = ?, email = ?,
-                location = ?, products = ?, notes = ?, trader = ?,
-                updated_at = CURRENT_TIMESTAMP
-            WHERE id = ?
-        ''', (
-            data.get('name'),
-            data.get('contact'),
-            data.get('phone'),
-            data.get('email'),
-            data.get('location'),
-            json.dumps(data.get('products')) if data.get('products') else None,
-            data.get('notes'),
-            data.get('trader'),
-            id
-        ))
+        # Only update fields that are present in the request (partial update support)
+        allowed = ['name', 'contact', 'phone', 'email', 'location', 'products', 'notes', 'trader']
+        fields = [f for f in allowed if f in data]
+        if not fields:
+            return jsonify({'error': 'No fields to update'}), 400
+        set_parts = []
+        values = []
+        for f in fields:
+            set_parts.append(f'{f} = ?')
+            if f == 'products':
+                values.append(json.dumps(data[f]) if data[f] else None)
+            else:
+                values.append(data[f])
+        set_clause = ', '.join(set_parts) + ', updated_at = CURRENT_TIMESTAMP'
+        values.append(id)
+        conn.execute(f'UPDATE mills SET {set_clause} WHERE id = ?', values)
         conn.commit()
         mill = conn.execute('SELECT * FROM mills WHERE id = ?', (id,)).fetchone()
         conn.close()
