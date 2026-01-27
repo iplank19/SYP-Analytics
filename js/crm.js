@@ -24,12 +24,22 @@ async function loadCRMData(){
     S.crmStaleCritical=dash.stale_critical||[];
     S.crmStaleWarning=dash.stale_warning||[];
     S.crmNeverContacted=dash.never_contacted||[];
-    // Load customers and mills from cloud DB
-    S.customers=await customersRes.json();
-    S.mills=await millsRes.json();
+    // Load customers and mills from cloud DB, merging with in-memory data
+    const serverCustomers=await customersRes.json();
+    const serverMills=await millsRes.json();
     // Parse locations if stored as JSON string
-    S.customers.forEach(c=>{if(typeof c.locations==='string')try{c.locations=JSON.parse(c.locations)}catch(e){}});
-    S.mills.forEach(m=>{if(typeof m.products==='string')try{m.products=JSON.parse(m.products)}catch(e){}});
+    serverCustomers.forEach(c=>{if(typeof c.locations==='string')try{c.locations=JSON.parse(c.locations)}catch(e){}});
+    serverMills.forEach(m=>{if(typeof m.products==='string')try{m.products=JSON.parse(m.products)}catch(e){}});
+    // Merge: use server data as base, add any in-memory entries not on server
+    const serverCustNames=new Set(serverCustomers.map(c=>c.name));
+    const serverMillNames=new Set(serverMills.map(m=>m.name));
+    const extraCusts=(S.customers||[]).filter(c=>c.name&&!serverCustNames.has(c.name));
+    const extraMills=(S.mills||[]).filter(m=>m.name&&!serverMillNames.has(m.name));
+    S.customers=serverCustomers.concat(extraCusts);
+    S.mills=serverMills.concat(extraMills);
+    // Sync any missing entries back to server
+    if(extraCusts.length&&typeof syncCustomersToServer==='function')syncCustomersToServer(extraCusts);
+    if(extraMills.length&&typeof syncMillsToServer==='function')syncMillsToServer(extraMills);
     render();
   }catch(e){console.error('CRM load error:',e)}
 }
