@@ -1739,7 +1739,7 @@ function showImportPreview(orders){
     </div>
     <div style="margin-top:16px;display:flex;justify-content:flex-end;gap:8px">
       <button class="btn btn-default" onclick="closeModal()">Cancel</button>
-      <button class="btn btn-success" onclick="confirmImportOrders()">Import Selected</button>
+      <button class="btn btn-success" onclick="showFreightStep()">Next: Freight →</button>
     </div>`;
 }
 
@@ -1747,19 +1747,135 @@ function toggleImportAll(checked){
   document.querySelectorAll('.import-check').forEach(cb=>cb.checked=checked);
 }
 
+async function showFreightStep(){
+  const orders=window._importOrders;
+  if(!orders||!orders.length){showToast('No orders','warn');return}
+  const checked=new Set();
+  document.querySelectorAll('.import-check:checked').forEach(cb=>checked.add(parseInt(cb.dataset.idx)));
+  if(!checked.size){showToast('No orders selected','warn');return}
+
+  // Save checked set for confirmImportOrders
+  window._importChecked=checked;
+
+  const matchedOrders=orders.map((o,i)=>({...o,idx:i})).filter(o=>checked.has(o.idx)&&o.status==='matched');
+  if(!matchedOrders.length){
+    // No matched orders — skip freight, go straight to import
+    confirmImportOrders();
+    return;
+  }
+
+  const body=document.getElementById('import-body');
+  body.innerHTML=`
+    <div style="margin-bottom:12px">
+      <div style="font-weight:600;font-size:13px;margin-bottom:4px">Freight Entry — ${matchedOrders.length} Matched Orders</div>
+      <div style="font-size:10px;color:var(--muted)">Mileage is being looked up automatically. Enter freight per load ($).</div>
+    </div>
+    <div style="max-height:450px;overflow:auto">
+      <table>
+        <thead><tr>
+          <th>Order #</th>
+          <th>Origin</th>
+          <th>Destination</th>
+          <th>Product</th>
+          <th>MBF</th>
+          <th>Miles</th>
+          <th>Freight $</th>
+        </tr></thead>
+        <tbody>
+          ${matchedOrders.map(o=>{
+            const sell=o.sell||{};
+            const buy=o.buy||{};
+            const items=sell.items||buy.items||[];
+            const totalMBF=Math.round(items.reduce((s,it)=>s+(it.volume||0),0)*100)/100;
+            return`<tr>
+              <td style="font-weight:600">${o.orderNum}</td>
+              <td style="font-size:10px">${buy.origin||'—'}</td>
+              <td style="font-size:10px">${sell.destination||'—'}</td>
+              <td>${sell.product||buy.product||'—'}</td>
+              <td style="text-align:right">${totalMBF}</td>
+              <td style="text-align:right"><span id="miles-${o.orderNum}" class="miles-val" style="color:var(--muted)">...</span></td>
+              <td><input type="number" id="freight-${o.orderNum}" class="freight-input" data-order="${o.orderNum}" style="width:80px;padding:4px 6px;text-align:right" placeholder="0" min="0" step="1"></td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>
+    </div>
+    <div style="margin-top:16px;display:flex;justify-content:space-between;align-items:center">
+      <button class="btn btn-default btn-sm" onclick="showImportPreview(window._importOrders)">← Back</button>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-default" onclick="closeModal()">Cancel</button>
+        <button class="btn btn-success" onclick="confirmImportOrders()">Import All</button>
+      </div>
+    </div>`;
+
+  // Auto-lookup mileage for each matched order
+  for(const o of matchedOrders){
+    const origin=(o.buy?.origin||'').trim();
+    const dest=(o.sell?.destination||'').trim();
+    const milesEl=document.getElementById('miles-'+o.orderNum);
+    if(!origin||!dest){
+      if(milesEl)milesEl.textContent='N/A';
+      continue;
+    }
+    try{
+      const miles=await getMileageFromAPI(origin,dest);
+      if(milesEl){
+        if(miles){
+          milesEl.textContent=miles;
+          milesEl.style.color='var(--text)';
+          milesEl.style.fontWeight='600';
+          // Auto-calc freight suggestion: base + (miles × stateRate) from origin
+          const originState=(o.buy?.origin||'').split(',').pop()?.trim().toUpperCase()||'';
+          const stateRate=originState&&S.stateRates?S.stateRates[originState]||0:0;
+          const freightTotal=Math.round((S.freightBase||0)+(miles*stateRate));
+          const freightInput=document.getElementById('freight-'+o.orderNum);
+          if(freightInput&&!freightInput.value)freightInput.value=freightTotal;
+        }else{
+          milesEl.textContent='??';
+          milesEl.style.color='var(--warn)';
+        }
+      }
+    }catch(e){
+      if(milesEl){milesEl.textContent='err';milesEl.style.color='var(--negative)'}
+    }
+  }
+}
+
 async function confirmImportOrders(){
   const orders=window._importOrders;
   if(!orders||!orders.length){showToast('No orders to import','warn');return}
   const importDate=document.getElementById('import-date')?.value||today();
-  const checked=new Set();
-  document.querySelectorAll('.import-check:checked').forEach(cb=>checked.add(parseInt(cb.dataset.idx)));
+
+  // Use saved checked set from freight step, or read checkboxes if still on preview
+  let checked=window._importChecked;
+  if(!checked){
+    checked=new Set();
+    document.querySelectorAll('.import-check:checked').forEach(cb=>checked.add(parseInt(cb.dataset.idx)));
+  }
   if(!checked.size){showToast('No orders selected','warn');return}
+
+  // Read freight values from freight step inputs
+  const freightByOrder={};
+  document.querySelectorAll('.freight-input').forEach(el=>{
+    const ord=el.dataset.order;
+    if(ord)freightByOrder[ord]=parseFloat(el.value)||0;
+  });
+  // Read looked-up miles
+  const milesByOrder={};
+  document.querySelectorAll('.miles-val').forEach(el=>{
+    const ord=el.id?.replace('miles-','');
+    const val=parseInt(el.textContent);
+    if(ord&&!isNaN(val))milesByOrder[ord]=val;
+  });
 
   let buyCount=0,sellCount=0;
 
   orders.forEach((o,i)=>{
     if(!checked.has(i))return;
     const mapTrader=name=>TRADER_MAP[name]||name||'Ian';
+
+    const orderFreight=freightByOrder[String(o.orderNum)]||0;
+    const orderMiles=milesByOrder[String(o.orderNum)]||0;
 
     // Build sell
     if(o.sell){
@@ -1768,16 +1884,18 @@ async function confirmImportOrders(){
       if(items.length>1){
         tally={};
         items.forEach(it=>{
-          if(it.volume>0){
-            tally[it.length]={vol:it.volume,price:it.price||0};
-            totalVol+=it.volume;
-            totalVal+=(it.volume*(it.price||0));
+          const vol=Math.round((it.volume||0)*100)/100;
+          if(vol>0){
+            tally[it.length]={vol,price:it.price||0};
+            totalVol+=vol;
+            totalVal+=(vol*(it.price||0));
           }
         });
       }else if(items.length===1){
-        totalVol=items[0].volume;
-        totalVal=items[0].volume*(items[0].price||0);
+        totalVol=Math.round((items[0].volume||0)*100)/100;
+        totalVal=totalVol*(items[0].price||0);
       }
+      totalVol=Math.round(totalVol*100)/100;
       const avgPrice=totalVol>0?Math.round(totalVal/totalVol):0;
 
       const sell={
@@ -1789,12 +1907,12 @@ async function confirmImportOrders(){
         customer:o.sell.customer||'',
         destination:o.sell.destination||'',
         region:o.sell.region||'',
-        miles:0,
+        miles:orderMiles,
         rate:S.flatRate||3.50,
         product:o.sell.product||'',
         length:items.length===1?items[0].length:'RL',
         price:avgPrice,
-        freight:0,
+        freight:orderFreight,
         volume:totalVol,
         notes:'CSV Import',
         delivered:false,
@@ -1811,14 +1929,16 @@ async function confirmImportOrders(){
       if(items.length>1){
         tally={};
         items.forEach(it=>{
-          if(it.volume>0){
-            tally[it.length]={vol:it.volume,price:it.price||0};
-            totalVol+=it.volume;
+          const vol=Math.round((it.volume||0)*100)/100;
+          if(vol>0){
+            tally[it.length]={vol,price:it.price||0};
+            totalVol+=vol;
           }
         });
       }else if(items.length===1){
-        totalVol=items[0].volume;
+        totalVol=Math.round((items[0].volume||0)*100)/100;
       }
+      totalVol=Math.round(totalVol*100)/100;
 
       const buy={
         id:genId(),
@@ -1834,9 +1954,9 @@ async function confirmImportOrders(){
         volume:totalVol,
         notes:'CSV Import',
         trader:mapTrader(o.buy.trader),
-        miles:0,
+        miles:orderMiles,
         rate:S.flatRate||3.50,
-        freight:0,
+        freight:orderFreight,
         tally:tally
       };
       if(buy.volume>0){S.buys.unshift(buy);buyCount++}
@@ -1872,6 +1992,8 @@ async function confirmImportOrders(){
   if(newMills.size&&typeof syncMillsToServer==='function')syncMillsToServer([...newMills.values()]);
 
   await saveAllLocal();
+  window._importOrders=null;
+  window._importChecked=null;
   closeModal();
   render();
   let msg=`Imported ${sellCount} sells and ${buyCount} buys`;
