@@ -214,6 +214,9 @@ async function cloudSync(action='push'){
         if(d.achievements){S.achievements=d.achievements;SS('achievements',S.achievements)}
         // Save to local storage too
         await saveAllLocal();
+        // Sync pulled customers/mills into SQLite (so loadCRMData finds them)
+        await syncCustomersToServer(S.customers);
+        await syncMillsToServer(S.mills);
         return{success:true,action:'pulled',updated:rows[0].updated_at};
       }
       return{success:false,error:'No cloud data found'};
@@ -282,6 +285,39 @@ async function loadAllLocal(){
   S.freightBase=await dbGet('freightBase',LS('freightBase',450));
   S.apiKey=LS('apiKey','');
   S.aiMsgs=LS('aiMsgs',[]);
+}
+
+// Sync pulled customers/mills into SQLite so loadCRMData finds them
+async function syncCustomersToServer(customers){
+  if(!customers||!customers.length)return;
+  try{
+    // Get existing server customers
+    const traderParam=S.trader&&S.trader!=='Admin'?'?trader='+S.trader:'';
+    const res=await fetch('/api/crm/customers'+traderParam);
+    const existing=await res.json();
+    const existingNames=new Set(existing.map(c=>c.name));
+    // Insert any customers not already in SQLite
+    for(const c of customers){
+      if(!existingNames.has(c.name)){
+        await fetch('/api/crm/customers',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(c)});
+      }
+    }
+  }catch(e){console.error('syncCustomersToServer error:',e)}
+}
+
+async function syncMillsToServer(mills){
+  if(!mills||!mills.length)return;
+  try{
+    const traderParam=S.trader&&S.trader!=='Admin'?'?trader='+S.trader:'';
+    const res=await fetch('/api/crm/mills'+traderParam);
+    const existing=await res.json();
+    const existingNames=new Set(existing.map(m=>m.name));
+    for(const m of mills){
+      if(!existingNames.has(m.name)){
+        await fetch('/api/crm/mills',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(m)});
+      }
+    }
+  }catch(e){console.error('syncMillsToServer error:',e)}
 }
 
 // Enhanced save function that saves to IndexedDB
