@@ -18,13 +18,14 @@ function getLeaderboardRange(period){
 }
 
 // Calculate detailed trader stats for leaderboard
+// ALL math is based on matched order pairs (same orderNum on buy + sell)
 function calcTraderStats(trader,buys,sells){
   const buyVol=buys.reduce((s,b)=>s+(b.volume||0),0);
   const buyVal=buys.reduce((s,b)=>s+(b.price||0)*(b.volume||0),0);
   const sellVol=sells.reduce((s,x)=>s+(x.volume||0),0);
   const sellVal=sells.reduce((s,x)=>s+(x.price||0)*(x.volume||0),0);
 
-  // FOB calculation
+  // FOB calculation (sell price minus freight per MBF)
   const sellFOB=sells.reduce((s,x)=>{
     const frPerMBF=x.volume>0?(x.freight||0)/x.volume:0;
     return s+((x.price||0)-frPerMBF)*(x.volume||0);
@@ -32,33 +33,54 @@ function calcTraderStats(trader,buys,sells){
 
   const avgBuy=buyVol>0?buyVal/buyVol:0;
   const avgSellFOB=sellVol>0?sellFOB/sellVol:0;
-  const margin=avgSellFOB-avgBuy;
-  const profit=sellFOB-buyVal;
 
-  // Win rate: trades with positive margin
-  const profitableTrades=sells.filter(s=>{
-    const frPerMBF=s.volume>0?(s.freight||0)/s.volume:0;
-    const fob=(s.price||0)-frPerMBF;
-    const matchingBuy=buys.find(b=>b.product===s.product);
-    return matchingBuy?(fob>(matchingBuy.price||0)):true;
-  }).length;
-  const winRate=sells.length>0?(profitableTrades/sells.length*100):0;
-
-  // Best single trade
-  let bestTrade=null,bestProfit=0;
-  sells.forEach(s=>{
-    const frPerMBF=s.volume>0?(s.freight||0)/s.volume:0;
-    const fob=(s.price||0)-frPerMBF;
-    const vol=s.volume||0;
-    const matchingBuy=buys.find(b=>b.product===s.product);
-    const buyPrice=matchingBuy?.price||avgBuy;
-    const tradeProfit=(fob-buyPrice)*vol;
-    if(tradeProfit>bestProfit){bestProfit=tradeProfit;bestTrade={...s,profit:tradeProfit}}
+  // Build buy lookup by order number for matched-pair calculations
+  const buyByOrder={};
+  buys.forEach(b=>{
+    const ord=String(b.orderNum||b.po||'').trim();
+    if(ord)buyByOrder[ord]=b;
   });
 
-  // Avg margin per trade
+  // Matched profit, margin, win rate — all order-matched
+  let matchedProfit=0,matchedVol=0,matchedBuyCost=0,matchedSellFOB=0;
+  let wins=0,matchedSells=0;
+  let bestProfit=0,bestTrade=null;
+
+  sells.forEach(s=>{
+    const ord=String(s.orderNum||s.linkedPO||s.oc||'').trim();
+    const buy=ord?buyByOrder[ord]:null;
+    if(!buy)return;
+
+    const vol=s.volume||0;
+    if(vol<=0)return;
+
+    const frPerMBF=vol>0?(s.freight||0)/vol:0;
+    const sellFob=(s.price||0)-frPerMBF;
+    const buyCost=buy.price||0;
+    const tradeProfit=(sellFob-buyCost)*vol;
+
+    matchedProfit+=tradeProfit;
+    matchedVol+=vol;
+    matchedBuyCost+=buyCost*vol;
+    matchedSellFOB+=sellFob*vol;
+    matchedSells++;
+
+    // Win = positive margin on this matched trade
+    if(sellFob>buyCost)wins++;
+
+    // Best single trade
+    if(tradeProfit>bestProfit){
+      bestProfit=tradeProfit;
+      bestTrade={...s,profit:tradeProfit};
+    }
+  });
+
+  const margin=matchedVol>0?(matchedSellFOB/matchedVol)-(matchedBuyCost/matchedVol):0;
+  const profit=matchedProfit;
+  const winRate=matchedSells>0?(wins/matchedSells*100):0;
+
+  // Total trades
   const totalTrades=buys.length+sells.length;
-  const avgMarginPerTrade=totalTrades>0?profit/totalTrades:0;
 
   // Customers served
   const customers=[...new Set(sells.map(s=>s.customer).filter(Boolean))];
@@ -70,12 +92,13 @@ function calcTraderStats(trader,buys,sells){
     avgBuy,avgSellFOB,
     margin:isNaN(margin)?0:margin,
     profit:isNaN(profit)?0:profit,
+    matchedVol,
     trades:totalTrades,
     buys:buys.length,sells:sells.length,
+    matchedSells,
     openBuys:buys.filter(b=>!b.shipped).length,
     openSells:sells.filter(s=>!s.delivered).length,
     winRate,bestTrade,bestProfit,
-    avgMarginPerTrade,
     customers,customerCount:customers.length
   };
 }
@@ -91,11 +114,11 @@ function filtered(){
   const r=getRange(),inR=d=>new Date(d)>=r.start&&new Date(d)<=r.end;
   const mP=p=>S.filters.prod==='all'||p===S.filters.prod;
   const mR=rg=>S.filters.reg==='all'||rg===S.filters.reg;
-  
+
   // Admin sees all, traders see only their own
   const isAdmin=S.trader==='Admin';
   const isMyTrade=t=>isAdmin||t===S.trader||!t;
-  
+
   return{
     buys:S.buys.filter(b=>inR(b.date)&&mP(b.product)&&mR(b.region)&&isMyTrade(b.trader)),
     sells:S.sells.filter(s=>inR(s.date)&&mP(s.product)&&isMyTrade(s.trader))

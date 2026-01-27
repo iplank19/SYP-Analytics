@@ -1,45 +1,56 @@
 // SYP Analytics - Analytics Functions
-// Advanced Analytics Helper Functions
-function calcTopProducts(buys,sells){
-  // Group by product
-  const products={};
 
-  // Build buy lookup by order number
+// Build order-matched buy lookup from ALL buys (cross-trader matching)
+function buildBuyByOrder(){
   const buyByOrder={};
   S.buys.forEach(b=>{
     const ord=String(b.orderNum||b.po||'').trim();
     if(ord)buyByOrder[ord]=b;
   });
+  return buyByOrder;
+}
+
+// Top products analysis — profit uses matched orders only
+function calcTopProducts(buys,sells){
+  const products={};
+  const buyByOrder=buildBuyByOrder();
 
   buys.forEach(b=>{
     const p=b.product||'Unknown';
-    if(!products[p])products[p]={product:p,buyVol:0,sellVol:0,buyVal:0,sellVal:0,profit:0};
+    if(!products[p])products[p]={product:p,buyVol:0,sellVol:0,buyVal:0,sellFOBVal:0,matchedProfit:0,matchedVol:0};
     products[p].buyVol+=(b.volume||0);
     products[p].buyVal+=(b.price||0)*(b.volume||0);
   });
 
   sells.forEach(s=>{
     const p=s.product||'Unknown';
-    if(!products[p])products[p]={product:p,buyVol:0,sellVol:0,buyVal:0,sellVal:0,profit:0};
-    products[p].sellVol+=(s.volume||0);
-    const frtPerMBF=s.volume>0?(s.freight||0)/s.volume:0;
-    products[p].sellVal+=((s.price||0)-frtPerMBF)*(s.volume||0);
+    if(!products[p])products[p]={product:p,buyVol:0,sellVol:0,buyVal:0,sellFOBVal:0,matchedProfit:0,matchedVol:0};
+    const vol=s.volume||0;
+    products[p].sellVol+=vol;
+    const frtPerMBF=vol>0?(s.freight||0)/vol:0;
+    const sellFob=(s.price||0)-frtPerMBF;
+    products[p].sellFOBVal+=sellFob*vol;
 
-    // Calculate profit from matched orders
+    // Matched profit
     const ord=String(s.orderNum||s.linkedPO||s.oc||'').trim();
     const buy=ord?buyByOrder[ord]:null;
-    if(buy){
+    if(buy&&vol>0){
       const buyCost=buy.price||0;
-      const sellFob=(s.price||0)-frtPerMBF;
-      products[p].profit+=(sellFob-buyCost)*(s.volume||0);
+      products[p].matchedProfit+=(sellFob-buyCost)*vol;
+      products[p].matchedVol+=vol;
     }
   });
 
-  const list=Object.values(products).map(p=>({
-    ...p,
-    volume:p.buyVol+p.sellVol,
-    margin:p.sellVol?(p.sellVal/p.sellVol)-(p.buyVol?p.buyVal/p.buyVol:0):0
-  }));
+  const list=Object.values(products).map(p=>{
+    // Margin: from matched volume only
+    const margin=p.matchedVol>0?(p.sellFOBVal>0&&p.buyVal>0?(p.sellFOBVal/p.sellVol)-(p.buyVal/p.buyVol):0):0;
+    return{
+      ...p,
+      volume:p.buyVol+p.sellVol,
+      margin:p.matchedVol>0?p.matchedProfit/p.matchedVol:0,
+      profit:p.matchedProfit
+    };
+  });
 
   return{
     byVolume:[...list].sort((a,b)=>b.volume-a.volume),
@@ -47,31 +58,27 @@ function calcTopProducts(buys,sells){
   };
 }
 
+// Top customers analysis — profit uses matched orders only
 function calcTopCustomers(sells){
   const customers={};
-
-  // Build buy lookup
-  const buyByOrder={};
-  S.buys.forEach(b=>{
-    const ord=String(b.orderNum||b.po||'').trim();
-    if(ord)buyByOrder[ord]=b;
-  });
+  const buyByOrder=buildBuyByOrder();
 
   sells.forEach(s=>{
     const c=s.customer||'Unknown';
-    if(!customers[c])customers[c]={customer:c,volume:0,value:0,profit:0,orders:0};
-    customers[c].volume+=(s.volume||0);
+    if(!customers[c])customers[c]={customer:c,volume:0,value:0,profit:0,matchedVol:0,orders:0};
+    const vol=s.volume||0;
+    customers[c].volume+=vol;
     customers[c].orders++;
-    const frtPerMBF=s.volume>0?(s.freight||0)/s.volume:0;
-    customers[c].value+=((s.price||0)-frtPerMBF)*(s.volume||0);
+    const frtPerMBF=vol>0?(s.freight||0)/vol:0;
+    const sellFob=(s.price||0)-frtPerMBF;
+    customers[c].value+=sellFob*vol;
 
-    // Calculate profit
+    // Matched profit
     const ord=String(s.orderNum||s.linkedPO||s.oc||'').trim();
     const buy=ord?buyByOrder[ord]:null;
-    if(buy){
-      const buyCost=buy.price||0;
-      const sellFob=(s.price||0)-frtPerMBF;
-      customers[c].profit+=(sellFob-buyCost)*(s.volume||0);
+    if(buy&&vol>0){
+      customers[c].profit+=(sellFob-(buy.price||0))*vol;
+      customers[c].matchedVol+=vol;
     }
   });
 
@@ -159,13 +166,7 @@ function calcWeeklyVsMarket(allBuys,rlData){
 function calcWeeklyPerformance(allBuys,allSells){
   const weeks=[];
   const now=new Date();
-
-  // Build buy lookup
-  const buyByOrder={};
-  allBuys.forEach(b=>{
-    const ord=String(b.orderNum||b.po||'').trim();
-    if(ord)buyByOrder[ord]=b;
-  });
+  const buyByOrder=buildBuyByOrder();
 
   for(let i=7;i>=0;i--){
     const weekEnd=new Date(now);
@@ -184,15 +185,16 @@ function calcWeeklyPerformance(allBuys,allSells){
     const buyVol=weekBuys.reduce((s,b)=>s+(b.volume||0),0);
     const sellVol=weekSells.reduce((s,x)=>s+(x.volume||0),0);
 
-    // Calculate profit
+    // Calculate profit — matched orders only
     let profit=0;
     weekSells.forEach(s=>{
       const ord=String(s.orderNum||s.linkedPO||s.oc||'').trim();
       const buy=ord?buyByOrder[ord]:null;
       if(buy){
-        const frtPerMBF=s.volume>0?(s.freight||0)/s.volume:0;
+        const vol=s.volume||0;
+        const frtPerMBF=vol>0?(s.freight||0)/vol:0;
         const sellFob=(s.price||0)-frtPerMBF;
-        profit+=(sellFob-(buy.price||0))*(s.volume||0);
+        profit+=(sellFob-(buy.price||0))*vol;
       }
     });
 
@@ -218,27 +220,26 @@ function analytics(){
   },0);
   const avgS=sVol?sFOB/sVol:0;
   const avgFr=sVol?(sVal-sFOB)/sVol:0;
-  
-  // Calculate realized profit from MATCHED trades only (same orderNum)
-  // Normalize order numbers to strings for matching
-  const buyByOrder={};
-  S.buys.forEach(b=>{
-    const ord=String(b.orderNum||b.po||'').trim();
-    if(ord)buyByOrder[ord]=b;
-  });
-  
+
+  // Realized profit from MATCHED trades only (same orderNum on buy + sell)
+  // Use ALL buys for matching (cross-trader orders are valid)
+  const buyByOrder=buildBuyByOrder();
+
   let matchedProfit=0,matchedVol=0,matchedBuyCost=0,matchedSellFOB=0;
   sells.forEach(s=>{
     const ord=String(s.orderNum||s.linkedPO||s.oc||'').trim();
     const buy=ord?buyByOrder[ord]:null;
     if(buy){
-      const totalBuyCost=(buy.price||0)*(s.volume||0);
-      const sellFrtPerMBF=s.volume>0?(s.freight||0)/s.volume:0;
-      const sellFOB=((s.price||0)-sellFrtPerMBF)*(s.volume||0);
-      matchedProfit+=sellFOB-totalBuyCost;
-      matchedVol+=s.volume||0;
+      const vol=s.volume||0;
+      const sellFrtPerMBF=vol>0?(s.freight||0)/vol:0;
+      const sellFob=(s.price||0)-sellFrtPerMBF;
+      const buyCost=buy.price||0;
+      const totalBuyCost=buyCost*vol;
+      const sellFOBVal=sellFob*vol;
+      matchedProfit+=sellFOBVal-totalBuyCost;
+      matchedVol+=vol;
       matchedBuyCost+=totalBuyCost;
-      matchedSellFOB+=sellFOB;
+      matchedSellFOB+=sellFOBVal;
     }
   });
   const avgMatchedBuy=matchedVol?matchedBuyCost/matchedVol:0;
@@ -247,71 +248,57 @@ function analytics(){
   const marginPct=avgMatchedBuy?(margin/avgMatchedBuy)*100:0;
   const profit=matchedProfit;
   const inv=bVol-sVol;
-  
+
   // Helper to find RL price for a product/region/length combo
   const findRLPrice=(rl,region,product,length,forMSR=false)=>{
     if(!rl||!region||!product)return null;
-    
+
     // Normalize length: "16'" -> "16", "20'" -> "20"
     let normLen=(length||'').toString().replace(/[^0-9]/g,'');
-    
+
     // For MSR/2400, look up the #1 base price for the same size/length
     let normProd=(product||'').replace(/\s+/g,'');
     if(forMSR){
-      // Extract base size (e.g., "2x6MSR" -> "2x6", "2x4 2400f" -> "2x4")
       const baseMatch=normProd.match(/(\d+x\d+)/);
       if(baseMatch){
         const baseSize=baseMatch[1];
-        // Try specified lengths first with #1 grade
         if(normLen&&rl.specified_lengths?.[region]?.[baseSize+'#1']?.[normLen]){
           return rl.specified_lengths[region][baseSize+'#1'][normLen];
         }
-        // Try composite #1
         if(rl.composite?.[region]?.[baseSize+'#1'])return rl.composite[region][baseSize+'#1'];
         if(rl[region]?.[baseSize+'#1'])return rl[region][baseSize+'#1'];
-        // Fall back to #2 if no #1
         if(normLen&&rl.specified_lengths?.[region]?.[baseSize+'#2']?.[normLen]){
           return rl.specified_lengths[region][baseSize+'#2'][normLen];
         }
       }
       return null;
     }
-    
+
     // Standard product lookup
     if(!normProd.includes('#'))normProd+='#2';
-    
-    // Try specified lengths first if we have a length
+
     if(normLen&&rl.specified_lengths?.[region]?.[normProd]?.[normLen]){
       return rl.specified_lengths[region][normProd][normLen];
     }
-    
-    // Try composite prices (region.product)
     if(rl[region]?.[normProd])return rl[region][normProd];
-    
-    // Try composite without grade suffix for base lookup
     const baseSize=normProd.replace(/#\d/,'');
     if(rl.composite?.[region]?.[baseSize])return rl.composite[region][baseSize];
     if(rl[region]?.[baseSize])return rl[region][baseSize];
-    
-    // Try specified lengths with base size (no grade)
     if(normLen&&rl.specified_lengths?.[region]?.[baseSize]?.[normLen]){
       return rl.specified_lengths[region][baseSize][normLen];
     }
-    
     return null;
   };
-  
+
   // Check if product is MSR/2400
   const isMSRProduct=(prod)=>{
     const p=(prod||'').toUpperCase();
     return p.includes('MSR')||p.includes('2400');
   };
-  
+
   const bench=buys.map(b=>{
-    // Find the RL report closest to but not after the buy date
     const rl=S.rl.slice().reverse().find(r=>new Date(r.date)<=new Date(b.date));
     const isMSR=isMSRProduct(b.product);
-    // For MSR, prefer stored basePrice, otherwise calculate from RL
     let rlP=null;
     if(isMSR&&b.basePrice){
       rlP=b.basePrice;
@@ -320,8 +307,7 @@ function analytics(){
     }
     return{...b,rlP,diff:rlP&&!isMSR?(b.price-rlP):null,isMSR};
   });
-  
-  // Only include non-MSR trades in market comparison
+
   const standardBench=bench.filter(b=>!b.isMSR);
   const totVsRL=standardBench.filter(b=>b.diff!==null).reduce((s,b)=>s+b.diff*b.volume,0);
   const volRL=standardBench.filter(b=>b.diff!==null).reduce((s,b)=>s+b.volume,0);
