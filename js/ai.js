@@ -526,7 +526,10 @@ async function runAIWithTools(systemCtx,userMsg,depth=0){
 function parseOrderCSV(csvText){
   const WEST_STATES=new Set(['TX','AR','LA','OK','NM','CO','AZ','UT','NV','CA','OR','WA','ID','MT','WY']);
   const EAST_STATES=new Set(['NC','SC','GA','FL','VA','MD','DE','NJ','NY','PA','CT','MA','ME','NH','VT','RI','WV','DC']);
-  // Everything else = central
+
+  // Standard pieces per unit by dimension
+  const PCS_PER_UNIT={'2x4':208,'2x6':128,'2x8':96,'2x10':80,'2x12':64};
+  const TIMBER_MBF=20;// Timbers (4x4, 4x6, 6x6, etc.) = flat 20 MBF regardless of tally
 
   function getRegion(st){
     st=(st||'').trim().toUpperCase();
@@ -536,8 +539,6 @@ function parseOrderCSV(csvText){
   }
 
   function parseProduct(desc,detail){
-    // desc: "K.D. SYP #2", "K.D. SYP #1", "K.D. SYP #2 PRIME", "K.D. SYP CLEAR"
-    // detail: "2 X 4 10'", "2 X 10 16'"
     let grade='#2';
     if(/CLEAR/i.test(desc))grade='CLEAR';
     else if(/#1/i.test(desc))grade='#1';
@@ -546,26 +547,57 @@ function parseOrderCSV(csvText){
 
     const dimMatch=(detail||'').match(/(\d+)\s*X\s*(\d+)/i);
     const lenMatch=(detail||'').match(/(\d+)'/);
-    const dim=dimMatch?`${dimMatch[1]}x${dimMatch[2]}`:'2x4';
+    const thick=dimMatch?parseInt(dimMatch[1]):2;
+    const wide=dimMatch?parseInt(dimMatch[2]):4;
+    const dim=`${thick}x${wide}`;
     const length=lenMatch?lenMatch[1]:'';
     const product=grade==='CLEAR'?`${dim} CLEAR`:`${dim}${grade}`;
-    return{product,length};
+    const isTimber=thick>=4;// 4x4, 4x6, 6x6, etc.
+    return{product,length,dim,thick,wide,isTimber};
   }
 
   function parseTally(val){
-    // "17" → 17, "5/14" → 5, "40/18" → 40, "" → 0
+    // Handles: "17", "5/14", "40/18", "", and Excel date-mangled values
     val=(val||'').replace(/"/g,'').trim();
     if(!val)return 0;
+    // Excel date detection: "5/14/2026", "2/12/2026", "1/1/2026", "May-14", etc.
+    // If it has 2+ slashes or month names, it's a mangled date — extract first number
+    if(/^\d+\/\d+\/\d{4}$/.test(val)){
+      // "5/14/2026" → was originally "5/14" → units = 5
+      return parseFloat(val.split('/')[0])||0;
+    }
+    if(/^\d+\/\d+\/\d{2}$/.test(val)){
+      // "5/14/26" → units = 5
+      return parseFloat(val.split('/')[0])||0;
+    }
+    if(/[a-zA-Z]/.test(val)){
+      // "May-14" or other month-based mangling → try to extract any leading number
+      const n=val.match(/(\d+)/);
+      return n?parseFloat(n[1]):0;
+    }
+    // Normal: "17" → 17, "5/14" → 5 (units/bundles, second number ignored)
     const slashMatch=val.match(/^(\d+)\//);
     if(slashMatch)return parseFloat(slashMatch[1])||0;
     return parseFloat(val)||0;
+  }
+
+  function unitsToMBF(units,dim,lengthFt,isTimber){
+    if(isTimber)return TIMBER_MBF;
+    if(!units||!lengthFt)return 0;
+    const pcsPerUnit=PCS_PER_UNIT[dim];
+    if(!pcsPerUnit)return 0;
+    const totalPieces=units*pcsPerUnit;
+    // Parse thick x wide from dim
+    const parts=dim.split('x').map(Number);
+    const thick=parts[0]||2,wide=parts[1]||4;
+    const bfPerPiece=(thick*wide*parseFloat(lengthFt))/12;
+    return Math.round(totalPieces*bfPerPiece/1000*100)/100;// MBF rounded to 2 decimals
   }
 
   function parsePrice(val){
     return parseFloat((val||'').replace(/[$,]/g,''))||0;
   }
 
-  // Parse CSV — handle quoted fields
   function parseCSVRow(line){
     const fields=[];
     let current='',inQuotes=false;
@@ -582,20 +614,20 @@ function parseOrderCSV(csvText){
   const lines=csvText.split('\n').map(l=>l.replace(/\r/g,'')).filter(l=>l.trim());
   if(lines.length<2)throw new Error('CSV has no data rows');
 
-  // Skip header
   const header=lines[0].toLowerCase();
   const hasHeader=header.includes('order');
   const dataLines=hasHeader?lines.slice(1):lines;
 
-  // Check if there's a "Buy Price" or "FOB" column (future-proof)
   const headerFields=hasHeader?parseCSVRow(lines[0]):[];
   const buyPriceIdx=headerFields.findIndex(h=>/buy.*price|fob.*price|mill.*price/i.test(h));
 
   // Parse rows
   const rows=dataLines.map(line=>{
     const f=parseCSVRow(line);
-    if(f.length<13)return null;// skip malformed
-    const{product,length}=parseProduct(f[6],f[7]);
+    if(f.length<13)return null;
+    const{product,length,dim,thick,wide,isTimber}=parseProduct(f[6],f[7]);
+    const units=parseTally(f[8]);
+    const mbf=unitsToMBF(units,dim,length,isTimber);
     return{
       orderNum:f[0],
       seller:f[1],
@@ -605,7 +637,10 @@ function parseOrderCSV(csvText){
       sellPrice:parsePrice(f[5]),
       product,
       length,
-      volume:parseTally(f[8]),
+      dim,
+      isTimber,
+      units,
+      volume:mbf,
       mill:f[9],
       shipFromState:f[10],
       shipFromCity:f[11],
@@ -620,7 +655,6 @@ function parseOrderCSV(csvText){
     if(!groups.has(r.orderNum))groups.set(r.orderNum,{rows:[],seller:r.seller,customer:r.customer,shipToState:r.shipToState,shipToCity:r.shipToCity,mill:r.mill,shipFromState:r.shipFromState,shipFromCity:r.shipFromCity,buyer:r.buyer});
     const g=groups.get(r.orderNum);
     g.rows.push(r);
-    // Fill in blanks from other rows in same order
     if(!g.mill&&r.mill)g.mill=r.mill;
     if(!g.buyer&&r.buyer)g.buyer=r.buyer;
     if(!g.customer&&r.customer)g.customer=r.customer;
@@ -638,11 +672,10 @@ function parseOrderCSV(csvText){
     const hasCustomer=!!g.customer;
     const status=hasMill&&hasCustomer?'matched':hasCustomer?'short':'long';
 
-    // Determine primary product (most common dimension across items)
     const products=g.rows.map(r=>r.product);
     const primary=products.sort((a,b)=>products.filter(p=>p===b).length-products.filter(p=>p===a).length)[0];
 
-    const items=g.rows.map(r=>({length:r.length,price:r.sellPrice,volume:r.volume,buyPrice:r.buyPrice}));
+    const items=g.rows.map(r=>({length:r.length,price:r.sellPrice,volume:r.volume,units:r.units,buyPrice:r.buyPrice}));
     const sellRegion=getRegion(g.shipToState);
     const buyRegion=getRegion(g.shipFromState);
     const destination=g.shipToCity&&g.shipToState?`${g.shipToCity}, ${g.shipToState}`.trim():'';
@@ -650,10 +683,10 @@ function parseOrderCSV(csvText){
 
     const order={orderNum,status};
     if(hasCustomer){
-      order.sell={trader:g.seller||'',customer:g.customer,destination,product:primary,region:sellRegion,items:items.map(it=>({length:it.length,price:it.price,volume:it.volume}))};
+      order.sell={trader:g.seller||'',customer:g.customer,destination,product:primary,region:sellRegion,items:items.map(it=>({length:it.length,price:it.price,volume:it.volume,units:it.units}))};
     }else{order.sell=null}
     if(hasMill){
-      order.buy={trader:g.buyer||g.seller||'',mill:g.mill,origin,product:primary,region:buyRegion,items:items.map(it=>({length:it.length,price:it.buyPrice||0,volume:it.volume}))};
+      order.buy={trader:g.buyer||g.seller||'',mill:g.mill,origin,product:primary,region:buyRegion,items:items.map(it=>({length:it.length,price:it.buyPrice||0,volume:it.volume,units:it.units}))};
     }else{order.buy=null}
 
     orders.push(order);

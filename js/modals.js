@@ -1704,7 +1704,8 @@ function showImportPreview(orders){
           <th>Buyer</th>
           <th>Mill</th>
           <th>Product</th>
-          <th>Vol</th>
+          <th>Units</th>
+          <th>MBF</th>
           <th>Sell $</th>
           <th>Buy $</th>
         </tr></thead>
@@ -1713,10 +1714,11 @@ function showImportPreview(orders){
             const sell=o.sell||{};
             const buy=o.buy||{};
             const items=sell.items||buy.items||[];
-            const totalVol=items.reduce((s,it)=>s+(it.volume||0),0);
+            const totalUnits=items.reduce((s,it)=>s+(it.units||0),0);
+            const totalMBF=Math.round(items.reduce((s,it)=>s+(it.volume||0),0)*100)/100;
             const sellPrices=[...new Set((sell.items||[]).map(it=>it.price).filter(p=>p>0))].map(p=>'$'+p).join(', ');
             const buyPrices=[...new Set((buy.items||[]).map(it=>it.price).filter(p=>p>0))].map(p=>'$'+p).join(', ');
-            const lenSummary=items.length>1?'RL ('+items.length+')':items[0]?.length||'—';
+            const lenSummary=items.length>1?'RL ('+items.length+')':items[0]?.length+"'"||'—';
             return`<tr>
               <td><input type="checkbox" class="import-check" data-idx="${i}" checked></td>
               <td style="font-weight:600">${o.orderNum}</td>
@@ -1726,7 +1728,8 @@ function showImportPreview(orders){
               <td>${buy.trader?TRADER_MAP[buy.trader]||buy.trader:'—'}</td>
               <td style="font-size:10px">${buy.mill||'—'}</td>
               <td>${sell.product||buy.product||'—'} <span style="color:var(--muted);font-size:9px">${lenSummary}</span></td>
-              <td>${totalVol}</td>
+              <td style="text-align:right">${totalUnits}</td>
+              <td style="text-align:right;font-weight:600">${totalMBF}</td>
               <td>${sellPrices||'—'}</td>
               <td>${buyPrices||'—'}</td>
             </tr>`;
@@ -1744,7 +1747,7 @@ function toggleImportAll(checked){
   document.querySelectorAll('.import-check').forEach(cb=>cb.checked=checked);
 }
 
-function confirmImportOrders(){
+async function confirmImportOrders(){
   const orders=window._importOrders;
   if(!orders||!orders.length){showToast('No orders to import','warn');return}
   const importDate=document.getElementById('import-date')?.value||today();
@@ -1868,13 +1871,21 @@ function confirmImportOrders(){
   if(newCustomers.size&&typeof syncCustomersToServer==='function')syncCustomersToServer([...newCustomers.values()]);
   if(newMills.size&&typeof syncMillsToServer==='function')syncMillsToServer([...newMills.values()]);
 
-  saveAllLocal();
+  await saveAllLocal();
   closeModal();
   render();
   let msg=`Imported ${sellCount} sells and ${buyCount} buys`;
   if(newCustomers.size)msg+=`, ${newCustomers.size} new customers`;
   if(newMills.size)msg+=`, ${newMills.size} new mills`;
   showToast(msg,'positive');
+
+  // Auto-push to cloud so all trader profiles get the imported trades
+  if(typeof cloudSync==='function'){
+    try{
+      const r=await cloudSync('push');
+      if(r.success)showToast('Synced to cloud','positive');
+    }catch(e){console.warn('Auto cloud push after import failed:',e)}
+  }
 }
 
 // ==================== CRM FUNCTIONS ====================
