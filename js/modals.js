@@ -64,7 +64,47 @@ function showBuyModal(b=null){
         <div class="form-group"><label class="form-label">Length</label><select id="m-length" onchange="toggleBuyOptions()"><option value="">Select...</option><option value="8" ${b?.length==='8'?'selected':''}>8'</option><option value="10" ${b?.length==='10'?'selected':''}>10'</option><option value="12" ${b?.length==='12'?'selected':''}>12'</option><option value="14" ${b?.length==='14'?'selected':''}>14'</option><option value="16" ${b?.length==='16'?'selected':''}>16'</option><option value="18" ${b?.length==='18'?'selected':''}>18'</option><option value="20" ${b?.length==='20'?'selected':''}>20'</option><option value="RL" ${b?.length==='RL'?'selected':''}>RL (Random)</option></select></div>
         <div class="form-group"><label class="form-label">Volume (MBF)</label><input type="number" id="m-volume" value="${b?.volume||''}"></div>
       </div>
-      
+
+      <!-- SPLIT LOAD SECTION FOR BUY -->
+      <div style="margin-top:16px;padding:16px;background:var(--panel-alt);border:1px solid var(--info)">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+          <div style="font-weight:600;color:var(--info)">SPLIT LOAD (Multiple Products)</div>
+          <label style="font-size:11px"><input type="checkbox" id="m-useSplit" ${b?.tally&&Object.keys(b.tally).some(k=>/[a-zA-Z]/.test(k))?'checked':''} onchange="toggleBuySplit()"> Enable</label>
+        </div>
+        <div id="split-grid-buy" style="display:${b?.tally&&Object.keys(b.tally).some(k=>/[a-zA-Z]/.test(k))?'block':'none'}">
+          <div style="font-size:10px;color:var(--muted);margin-bottom:8px">For mixed loads (e.g. 2x10 + 2x12 on same truck). Prices are FOB $/MBF.</div>
+          <table style="width:100%;font-size:11px" id="split-table-buy">
+            <thead><tr><th>Product</th><th>Length</th><th>MBF</th><th>$/MBF</th><th>Value</th><th></th></tr></thead>
+            <tbody id="split-rows-buy">
+              ${b?.tally&&Object.keys(b.tally).some(k=>/[a-zA-Z]/.test(k))?Object.entries(b.tally).map(([key,v],i)=>{
+                const parts=key.match(/^(\S+)\s+(\d+)'?$/);
+                const prod=parts?parts[1]:key;
+                const len=parts?parts[2]:'';
+                return`<tr data-split-row="${i}">
+                  <td><input type="text" class="split-prod" value="${prod}" style="width:70px" list="prod-list" onchange="calcBuySplitTotal()"></td>
+                  <td><input type="text" class="split-len" value="${len}" style="width:50px" onchange="calcBuySplitTotal()"></td>
+                  <td><input type="number" class="split-vol" value="${v.vol||''}" style="width:60px" onchange="calcBuySplitTotal()"></td>
+                  <td><input type="number" class="split-price" value="${v.price||''}" style="width:70px" onchange="calcBuySplitTotal()"></td>
+                  <td class="split-val right">—</td>
+                  <td><button class="btn btn-default btn-sm" onclick="removeBuySplitRow(this)" style="padding:2px 6px">×</button></td>
+                </tr>`;
+              }).join(''):`<tr data-split-row="0">
+                <td><input type="text" class="split-prod" value="" style="width:70px" list="prod-list" placeholder="2x10#2" onchange="calcBuySplitTotal()"></td>
+                <td><input type="text" class="split-len" value="" style="width:50px" placeholder="16" onchange="calcBuySplitTotal()"></td>
+                <td><input type="number" class="split-vol" value="" style="width:60px" placeholder="MBF" onchange="calcBuySplitTotal()"></td>
+                <td><input type="number" class="split-price" value="" style="width:70px" placeholder="$/MBF" onchange="calcBuySplitTotal()"></td>
+                <td class="split-val right">—</td>
+                <td><button class="btn btn-default btn-sm" onclick="removeBuySplitRow(this)" style="padding:2px 6px">×</button></td>
+              </tr>`}
+            </tbody>
+            <tfoot>
+              <tr><td colspan="6"><button class="btn btn-default btn-sm" onclick="addBuySplitRow()" style="width:100%">+ Add Product</button></td></tr>
+              <tr style="font-weight:bold;border-top:2px solid var(--border)"><td colspan="2">Total</td><td id="buy-split-total-vol">—</td><td id="buy-split-avg-price">—</td><td id="buy-split-total-val">—</td><td></td></tr>
+            </tfoot>
+          </table>
+        </div>
+      </div>
+
       <div id="msr-section" style="margin-top:16px;padding:16px;background:var(--panel-alt);border:1px solid var(--accent);display:${isMSR&&!isRL?'block':'none'}">
         <div style="font-weight:600;color:var(--accent);margin-bottom:12px">MSR/2400 PRICING (Premium over #1)</div>
         <div class="form-grid">
@@ -837,6 +877,148 @@ function toggleSellTally(){
   if(tallyGrid)tallyGrid.style.display=useTally?'block':'none';
 }
 
+// Split load functions for multiple products on same truck
+function toggleSellSplit(){
+  const useSplit=document.getElementById('m-useSplit')?.checked;
+  const splitGrid=document.getElementById('split-grid-sell');
+  if(splitGrid)splitGrid.style.display=useSplit?'block':'none';
+  // If enabling split, disable single product/volume fields
+  if(useSplit){
+    document.getElementById('m-product').disabled=true;
+    document.getElementById('m-product').style.opacity='0.5';
+    document.getElementById('m-length').disabled=true;
+    document.getElementById('m-length').style.opacity='0.5';
+    document.getElementById('m-volume').disabled=true;
+    document.getElementById('m-volume').style.opacity='0.5';
+  }else{
+    document.getElementById('m-product').disabled=false;
+    document.getElementById('m-product').style.opacity='1';
+    document.getElementById('m-length').disabled=false;
+    document.getElementById('m-length').style.opacity='1';
+    document.getElementById('m-volume').disabled=false;
+    document.getElementById('m-volume').style.opacity='1';
+  }
+}
+
+function addSplitRow(){
+  const tbody=document.getElementById('split-rows-sell');
+  const rowCount=tbody.querySelectorAll('tr').length;
+  const tr=document.createElement('tr');
+  tr.dataset.splitRow=rowCount;
+  tr.innerHTML=`
+    <td><input type="text" class="split-prod" value="" style="width:70px" list="prod-list" placeholder="2x10#2" onchange="calcSplitTotal()"></td>
+    <td><input type="text" class="split-len" value="" style="width:50px" placeholder="16" onchange="calcSplitTotal()"></td>
+    <td><input type="number" class="split-vol" value="" style="width:60px" placeholder="MBF" onchange="calcSplitTotal()"></td>
+    <td><input type="number" class="split-price" value="" style="width:70px" placeholder="$/MBF" onchange="calcSplitTotal()"></td>
+    <td class="split-val right">—</td>
+    <td><button class="btn btn-default btn-sm" onclick="removeSplitRow(this)" style="padding:2px 6px">×</button></td>
+  `;
+  tbody.appendChild(tr);
+}
+
+function removeSplitRow(btn){
+  const row=btn.closest('tr');
+  const tbody=document.getElementById('split-rows-sell');
+  if(tbody.querySelectorAll('tr').length>1){
+    row.remove();
+    calcSplitTotal();
+  }else{
+    showToast('Need at least one product row','warn');
+  }
+}
+
+function calcSplitTotal(){
+  let totalVol=0,totalVal=0;
+  document.querySelectorAll('#split-rows-sell tr').forEach(row=>{
+    const vol=parseFloat(row.querySelector('.split-vol')?.value)||0;
+    const price=parseFloat(row.querySelector('.split-price')?.value)||0;
+    const val=vol*price;
+    const valCell=row.querySelector('.split-val');
+    if(valCell)valCell.textContent=val>0?fmt(Math.round(val)):'—';
+    totalVol+=vol;
+    totalVal+=val;
+  });
+  document.getElementById('split-total-vol').textContent=totalVol>0?fmtN(totalVol):'—';
+  document.getElementById('split-avg-price').textContent=totalVol>0?fmt(Math.round(totalVal/totalVol)):'—';
+  document.getElementById('split-total-val').textContent=totalVal>0?fmt(Math.round(totalVal)):'—';
+  // Update main volume field
+  if(totalVol>0){
+    document.getElementById('m-volume').value=Math.round(totalVol*100)/100;
+    updateSellCalc();
+    calcFlatFreight();
+  }
+}
+
+// Buy split load functions (multiple products on same truck)
+function toggleBuySplit(){
+  const useSplit=document.getElementById('m-useSplit')?.checked;
+  const splitGrid=document.getElementById('split-grid-buy');
+  if(splitGrid)splitGrid.style.display=useSplit?'block':'none';
+  // If enabling split, disable single product/volume fields
+  if(useSplit){
+    document.getElementById('m-product').disabled=true;
+    document.getElementById('m-product').style.opacity='0.5';
+    document.getElementById('m-length').disabled=true;
+    document.getElementById('m-length').style.opacity='0.5';
+    document.getElementById('m-volume').disabled=true;
+    document.getElementById('m-volume').style.opacity='0.5';
+  }else{
+    document.getElementById('m-product').disabled=false;
+    document.getElementById('m-product').style.opacity='1';
+    document.getElementById('m-length').disabled=false;
+    document.getElementById('m-length').style.opacity='1';
+    document.getElementById('m-volume').disabled=false;
+    document.getElementById('m-volume').style.opacity='1';
+  }
+}
+
+function addBuySplitRow(){
+  const tbody=document.getElementById('split-rows-buy');
+  const rowCount=tbody.querySelectorAll('tr').length;
+  const tr=document.createElement('tr');
+  tr.dataset.splitRow=rowCount;
+  tr.innerHTML=`
+    <td><input type="text" class="split-prod" value="" style="width:70px" list="prod-list" placeholder="2x10#2" onchange="calcBuySplitTotal()"></td>
+    <td><input type="text" class="split-len" value="" style="width:50px" placeholder="16" onchange="calcBuySplitTotal()"></td>
+    <td><input type="number" class="split-vol" value="" style="width:60px" placeholder="MBF" onchange="calcBuySplitTotal()"></td>
+    <td><input type="number" class="split-price" value="" style="width:70px" placeholder="$/MBF" onchange="calcBuySplitTotal()"></td>
+    <td class="split-val right">—</td>
+    <td><button class="btn btn-default btn-sm" onclick="removeBuySplitRow(this)" style="padding:2px 6px">×</button></td>
+  `;
+  tbody.appendChild(tr);
+}
+
+function removeBuySplitRow(btn){
+  const row=btn.closest('tr');
+  const tbody=document.getElementById('split-rows-buy');
+  if(tbody.querySelectorAll('tr').length>1){
+    row.remove();
+    calcBuySplitTotal();
+  }else{
+    showToast('Need at least one product row','warn');
+  }
+}
+
+function calcBuySplitTotal(){
+  let totalVol=0,totalVal=0;
+  document.querySelectorAll('#split-rows-buy tr').forEach(row=>{
+    const vol=parseFloat(row.querySelector('.split-vol')?.value)||0;
+    const price=parseFloat(row.querySelector('.split-price')?.value)||0;
+    const val=vol*price;
+    const valCell=row.querySelector('.split-val');
+    if(valCell)valCell.textContent=val>0?fmt(Math.round(val)):'—';
+    totalVol+=vol;
+    totalVal+=val;
+  });
+  document.getElementById('buy-split-total-vol').textContent=totalVol>0?fmtN(totalVol):'—';
+  document.getElementById('buy-split-avg-price').textContent=totalVol>0?fmt(Math.round(totalVal/totalVol)):'—';
+  document.getElementById('buy-split-total-val').textContent=totalVal>0?fmt(Math.round(totalVal)):'—';
+  // Update main volume field
+  if(totalVol>0){
+    document.getElementById('m-volume').value=Math.round(totalVol*100)/100;
+  }
+}
+
 function calcSellTallyTotal(){
   const product=document.getElementById('m-product')?.value||'';
   const region=document.getElementById('m-region')?.value||'west';
@@ -981,7 +1163,47 @@ function showSellModal(s=null){
         <div class="form-group"><label class="form-label">Length</label><select id="m-length" onchange="toggleSellOptions()"><option value="">Select...</option><option value="8" ${s?.length==='8'?'selected':''}>8'</option><option value="10" ${s?.length==='10'?'selected':''}>10'</option><option value="12" ${s?.length==='12'?'selected':''}>12'</option><option value="14" ${s?.length==='14'?'selected':''}>14'</option><option value="16" ${s?.length==='16'?'selected':''}>16'</option><option value="18" ${s?.length==='18'?'selected':''}>18'</option><option value="20" ${s?.length==='20'?'selected':''}>20'</option><option value="RL" ${s?.length==='RL'?'selected':''}>RL (Random)</option></select></div>
         <div class="form-group"><label class="form-label">Volume (MBF)</label><input type="number" id="m-volume" value="${s?.volume||''}" onchange="updateSellCalc();calcFlatFreight()"></div>
       </div>
-      
+
+      <!-- SPLIT LOAD SECTION -->
+      <div style="margin-top:16px;padding:16px;background:var(--panel-alt);border:1px solid var(--info)">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+          <div style="font-weight:600;color:var(--info)">SPLIT LOAD (Multiple Products)</div>
+          <label style="font-size:11px"><input type="checkbox" id="m-useSplit" ${s?.tally&&Object.keys(s.tally).some(k=>/[a-zA-Z]/.test(k))?'checked':''} onchange="toggleSellSplit()"> Enable</label>
+        </div>
+        <div id="split-grid-sell" style="display:${s?.tally&&Object.keys(s.tally).some(k=>/[a-zA-Z]/.test(k))?'block':'none'}">
+          <div style="font-size:10px;color:var(--muted);margin-bottom:8px">For mixed loads (e.g. 2x10 + 2x12 on same truck). Prices are DLVD $/MBF.</div>
+          <table style="width:100%;font-size:11px" id="split-table-sell">
+            <thead><tr><th>Product</th><th>Length</th><th>MBF</th><th>$/MBF</th><th>Value</th><th></th></tr></thead>
+            <tbody id="split-rows-sell">
+              ${s?.tally&&Object.keys(s.tally).some(k=>/[a-zA-Z]/.test(k))?Object.entries(s.tally).map(([key,v],i)=>{
+                const parts=key.match(/^(\S+)\s+(\d+)'?$/);
+                const prod=parts?parts[1]:key;
+                const len=parts?parts[2]:'';
+                return`<tr data-split-row="${i}">
+                  <td><input type="text" class="split-prod" value="${prod}" style="width:70px" list="prod-list" onchange="calcSplitTotal()"></td>
+                  <td><input type="text" class="split-len" value="${len}" style="width:50px" onchange="calcSplitTotal()"></td>
+                  <td><input type="number" class="split-vol" value="${v.vol||''}" style="width:60px" onchange="calcSplitTotal()"></td>
+                  <td><input type="number" class="split-price" value="${v.price||''}" style="width:70px" onchange="calcSplitTotal()"></td>
+                  <td class="split-val right">—</td>
+                  <td><button class="btn btn-default btn-sm" onclick="removeSplitRow(this)" style="padding:2px 6px">×</button></td>
+                </tr>`;
+              }).join(''):`<tr data-split-row="0">
+                <td><input type="text" class="split-prod" value="" style="width:70px" list="prod-list" placeholder="2x10#2" onchange="calcSplitTotal()"></td>
+                <td><input type="text" class="split-len" value="" style="width:50px" placeholder="16" onchange="calcSplitTotal()"></td>
+                <td><input type="number" class="split-vol" value="" style="width:60px" placeholder="MBF" onchange="calcSplitTotal()"></td>
+                <td><input type="number" class="split-price" value="" style="width:70px" placeholder="$/MBF" onchange="calcSplitTotal()"></td>
+                <td class="split-val right">—</td>
+                <td><button class="btn btn-default btn-sm" onclick="removeSplitRow(this)" style="padding:2px 6px">×</button></td>
+              </tr>`}
+            </tbody>
+            <tfoot>
+              <tr><td colspan="6"><button class="btn btn-default btn-sm" onclick="addSplitRow()" style="width:100%">+ Add Product</button></td></tr>
+              <tr style="font-weight:bold;border-top:2px solid var(--border)"><td colspan="2">Total</td><td id="split-total-vol">—</td><td id="split-avg-price">—</td><td id="split-total-val">—</td><td></td></tr>
+            </tfoot>
+          </table>
+        </div>
+      </div>
+
       <div id="msr-section-sell" style="margin-top:16px;padding:16px;background:var(--panel-alt);border:1px solid var(--accent);display:${isMSR&&!isRL?'block':'none'}">
         <div style="font-weight:600;color:var(--accent);margin-bottom:12px">MSR/2400 PRICING (Premium over #1)</div>
         <div class="form-grid">

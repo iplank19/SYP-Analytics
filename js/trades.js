@@ -10,9 +10,33 @@ async function saveBuy(id){
   let tally=null;
   let tallyTotalVol=0;
   let tallyTotalVal=0;
-  
+  let splitProduct=null; // For split loads, use combined product name
+
+  // Check for split load data first (multiple products on same truck)
+  const useSplit=document.getElementById('m-useSplit')?.checked;
+  if(useSplit){
+    const tempTally={};
+    const products=[];
+    document.querySelectorAll('#split-rows-buy tr').forEach(row=>{
+      const prod=row.querySelector('.split-prod')?.value||'';
+      const len=row.querySelector('.split-len')?.value||'';
+      const vol=parseFloat(row.querySelector('.split-vol')?.value)||0;
+      const price=parseFloat(row.querySelector('.split-price')?.value)||0;
+      if(prod&&vol>0){
+        const key=len?`${prod} ${len}'`:prod;
+        tempTally[key]={vol,price};
+        tallyTotalVol+=vol;
+        tallyTotalVal+=vol*price;
+        if(!products.includes(prod))products.push(prod);
+      }
+    });
+    if(Object.keys(tempTally).length>0){
+      tally=tempTally;
+      splitProduct=products.join(' / '); // Combined product name like "2x10#2 / 2x12#2"
+    }
+  }
   // Check for tally data (if checkbox is checked OR if RL is selected and tally fields have data)
-  if(useTallyCheckbox||isRL){
+  else if(useTallyCheckbox||isRL){
     const tempTally={};
     // Check for mixed-product tally rows first
     let mi=0;
@@ -84,7 +108,7 @@ async function saveBuy(id){
     mill:mill,
     origin:origin,
     region:document.getElementById('m-region').value,
-    product:product,
+    product:splitProduct||product, // Use combined product name for split loads
     length:document.getElementById('m-length').value,
     price:price,
     volume:volume, // Use calculated volume
@@ -135,14 +159,38 @@ async function saveSell(id){
   const lengthVal=document.getElementById('m-length').value;
   const isRL=lengthVal==='RL';
   const useTallyCheckbox=document.getElementById('m-useTally')?.checked;
-  
+
   // Build tally and calculate totals
   let tally=null;
   let tallyTotalVol=0;
   let tallyTotalVal=0;
-  
+  let splitProduct=null;// For split loads, use combined product name
+
+  // Check for split load data first (multiple products on same truck)
+  const useSplit=document.getElementById('m-useSplit')?.checked;
+  if(useSplit){
+    const tempTally={};
+    const products=[];
+    document.querySelectorAll('#split-rows-sell tr').forEach(row=>{
+      const prod=row.querySelector('.split-prod')?.value||'';
+      const len=row.querySelector('.split-len')?.value||'';
+      const vol=parseFloat(row.querySelector('.split-vol')?.value)||0;
+      const price=parseFloat(row.querySelector('.split-price')?.value)||0;
+      if(prod&&vol>0){
+        const key=len?`${prod} ${len}'`:prod;
+        tempTally[key]={vol,price};
+        tallyTotalVol+=vol;
+        tallyTotalVal+=vol*price;
+        if(!products.includes(prod))products.push(prod);
+      }
+    });
+    if(Object.keys(tempTally).length>0){
+      tally=tempTally;
+      splitProduct=products.join(' / ');// Combined product name like "2x10#2 / 2x12#2"
+    }
+  }
   // Check for tally data (if checkbox is checked OR if RL is selected and tally fields have data)
-  if(useTallyCheckbox||isRL){
+  else if(useTallyCheckbox||isRL){
     const tempTally={};
     // Check for mixed-product tally rows first
     let mi=0;
@@ -194,7 +242,7 @@ async function saveSell(id){
     price=parseFloat(document.getElementById('m-price-std').value)||0;
     volume=parseFloat(document.getElementById('m-volume').value)||0;
   }
-  
+
   const orderNum=document.getElementById('m-orderNum').value;
   
   const s={
@@ -207,7 +255,7 @@ async function saveSell(id){
     region:document.getElementById('m-region').value,
     miles:parseFloat(document.getElementById('m-miles').value)||0,
     rate:parseFloat(document.getElementById('m-rate').value)||S.flatRate||3.50,
-    product:product,
+    product:splitProduct||product,// Use combined product name for split loads
     length:document.getElementById('m-length').value,
     price:price,
     freight:parseFloat(document.getElementById('m-freight').value)||0,
