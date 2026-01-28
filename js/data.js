@@ -227,6 +227,7 @@ async function cloudSync(action='push'){
 }
 
 // Save all data locally (IndexedDB + localStorage backup)
+// ALWAYS syncs to cloud so all profiles see the same trade data
 async function saveAllLocal(){
   // IndexedDB (primary)
   await dbSet('buys',S.buys);
@@ -262,6 +263,12 @@ async function saveAllLocal(){
   SS('marketBlurb',S.marketBlurb);
   SS('freightBase',S.freightBase);
   SS('shortHaulFloor',S.shortHaulFloor);
+
+  // ALWAYS sync trade data to cloud (universal dataset)
+  // This ensures Admin sees all trader entries and vice versa
+  if(supabase){
+    cloudSync('push').catch(e=>console.warn('Auto cloud sync failed:',e));
+  }
 }
 
 // Load from IndexedDB first, fall back to localStorage
