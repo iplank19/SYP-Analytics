@@ -110,6 +110,7 @@ async function saveBuy(id){
     region:document.getElementById('m-region').value,
     product:splitProduct||product, // Use combined product name for split loads
     length:document.getElementById('m-length').value,
+    units:parseFloat(document.getElementById('m-units')?.value)||0,
     price:price,
     volume:volume, // Use calculated volume
     notes:document.getElementById('m-notes').value,
@@ -257,6 +258,7 @@ async function saveSell(id){
     rate:parseFloat(document.getElementById('m-rate').value)||S.flatRate||3.50,
     product:splitProduct||product,// Use combined product name for split loads
     length:document.getElementById('m-length').value,
+    units:parseFloat(document.getElementById('m-units')?.value)||0,
     price:price,
     freight:parseFloat(document.getElementById('m-freight').value)||0,
     volume:volume, // Use calculated volume (from tally or field)

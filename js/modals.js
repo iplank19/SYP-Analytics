@@ -60,8 +60,9 @@ function showBuyModal(b=null){
         <div class="form-group"><label class="form-label">Mill</label><input type="text" id="m-mill" value="${b?.mill||''}" list="mill-list" placeholder="Type or select..." onchange="autoFillOrigin()"><datalist id="mill-list">${millList.map(m=>`<option value="${m}">`).join('')}</datalist></div>
         <div class="form-group"><label class="form-label">Origin (City, ST)</label><input type="text" id="m-origin" value="${b?.origin||''}" list="origin-list" placeholder="e.g. Warren, AR"><datalist id="origin-list">${origins.map(o=>`<option value="${o}">`).join('')}</datalist></div>
         <div class="form-group"><label class="form-label">Region</label><select id="m-region" onchange="toggleBuyOptions()">${REGIONS.map(r=>`<option value="${r}" ${b?.region===r?'selected':''}>${r.charAt(0).toUpperCase()+r.slice(1)}</option>`).join('')}</select></div>
-        <div class="form-group"><label class="form-label">Product</label><input type="text" id="m-product" value="${b?.product||''}" list="prod-list" placeholder="e.g. 2x4#2, 2x6 MSR" onchange="toggleBuyOptions()"><datalist id="prod-list">${prodList.map(p=>`<option value="${p}">`).join('')}</datalist></div>
-        <div class="form-group"><label class="form-label">Length</label><select id="m-length" onchange="toggleBuyOptions()"><option value="">Select...</option><option value="8" ${b?.length==='8'?'selected':''}>8'</option><option value="10" ${b?.length==='10'?'selected':''}>10'</option><option value="12" ${b?.length==='12'?'selected':''}>12'</option><option value="14" ${b?.length==='14'?'selected':''}>14'</option><option value="16" ${b?.length==='16'?'selected':''}>16'</option><option value="18" ${b?.length==='18'?'selected':''}>18'</option><option value="20" ${b?.length==='20'?'selected':''}>20'</option><option value="RL" ${b?.length==='RL'?'selected':''}>RL (Random)</option></select></div>
+        <div class="form-group"><label class="form-label">Product</label><input type="text" id="m-product" value="${b?.product||''}" list="prod-list" placeholder="e.g. 2x4#2, 2x6 MSR" onchange="toggleBuyOptions();calcBuyVolume()"><datalist id="prod-list">${prodList.map(p=>`<option value="${p}">`).join('')}</datalist></div>
+        <div class="form-group"><label class="form-label">Length</label><select id="m-length" onchange="toggleBuyOptions();calcBuyVolume()"><option value="">Select...</option><option value="8" ${b?.length==='8'?'selected':''}>8'</option><option value="10" ${b?.length==='10'?'selected':''}>10'</option><option value="12" ${b?.length==='12'?'selected':''}>12'</option><option value="14" ${b?.length==='14'?'selected':''}>14'</option><option value="16" ${b?.length==='16'?'selected':''}>16'</option><option value="18" ${b?.length==='18'?'selected':''}>18'</option><option value="20" ${b?.length==='20'?'selected':''}>20'</option><option value="RL" ${b?.length==='RL'?'selected':''}>RL (Random)</option></select></div>
+        <div class="form-group"><label class="form-label">Units</label><input type="number" id="m-units" value="${b?.units||''}" placeholder="Tallies" onchange="calcBuyVolume()"></div>
         <div class="form-group"><label class="form-label">Volume (MBF)</label><input type="number" id="m-volume" value="${b?.volume||''}"></div>
       </div>
 
@@ -74,32 +75,34 @@ function showBuyModal(b=null){
         <div id="split-grid-buy" style="display:${b?.tally&&Object.keys(b.tally).some(k=>/[a-zA-Z]/.test(k))?'block':'none'}">
           <div style="font-size:10px;color:var(--muted);margin-bottom:8px">For mixed loads (e.g. 2x10 + 2x12 on same truck). Prices are FOB $/MBF.</div>
           <table style="width:100%;font-size:11px" id="split-table-buy">
-            <thead><tr><th>Product</th><th>Length</th><th>MBF</th><th>$/MBF</th><th>Value</th><th></th></tr></thead>
+            <thead><tr><th>Product</th><th>Length</th><th>Units</th><th>MBF</th><th>$/MBF</th><th>Value</th><th></th></tr></thead>
             <tbody id="split-rows-buy">
               ${b?.tally&&Object.keys(b.tally).some(k=>/[a-zA-Z]/.test(k))?Object.entries(b.tally).map(([key,v],i)=>{
                 const parts=key.match(/^(\S+)\s+(\d+)'?$/);
                 const prod=parts?parts[1]:key;
                 const len=parts?parts[2]:'';
                 return`<tr data-split-row="${i}">
-                  <td><input type="text" class="split-prod" value="${prod}" style="width:70px" list="prod-list" onchange="calcBuySplitTotal()"></td>
-                  <td><input type="text" class="split-len" value="${len}" style="width:50px" onchange="calcBuySplitTotal()"></td>
-                  <td><input type="number" class="split-vol" value="${v.vol||''}" style="width:60px" onchange="calcBuySplitTotal()"></td>
-                  <td><input type="number" class="split-price" value="${v.price||''}" style="width:70px" onchange="calcBuySplitTotal()"></td>
+                  <td><input type="text" class="split-prod" value="${prod}" style="width:60px" list="prod-list" onchange="calcBuySplitRowVol(this);calcBuySplitTotal()"></td>
+                  <td><input type="text" class="split-len" value="${len}" style="width:40px" onchange="calcBuySplitRowVol(this);calcBuySplitTotal()"></td>
+                  <td><input type="number" class="split-units" value="${v.units||''}" style="width:45px" onchange="calcBuySplitRowVol(this);calcBuySplitTotal()"></td>
+                  <td><input type="number" class="split-vol" value="${v.vol||''}" style="width:50px" onchange="calcBuySplitTotal()"></td>
+                  <td><input type="number" class="split-price" value="${v.price||''}" style="width:60px" onchange="calcBuySplitTotal()"></td>
                   <td class="split-val right">—</td>
                   <td><button class="btn btn-default btn-sm" onclick="removeBuySplitRow(this)" style="padding:2px 6px">×</button></td>
                 </tr>`;
               }).join(''):`<tr data-split-row="0">
-                <td><input type="text" class="split-prod" value="" style="width:70px" list="prod-list" placeholder="2x10#2" onchange="calcBuySplitTotal()"></td>
-                <td><input type="text" class="split-len" value="" style="width:50px" placeholder="16" onchange="calcBuySplitTotal()"></td>
-                <td><input type="number" class="split-vol" value="" style="width:60px" placeholder="MBF" onchange="calcBuySplitTotal()"></td>
-                <td><input type="number" class="split-price" value="" style="width:70px" placeholder="$/MBF" onchange="calcBuySplitTotal()"></td>
+                <td><input type="text" class="split-prod" value="" style="width:60px" list="prod-list" placeholder="2x10#2" onchange="calcBuySplitRowVol(this);calcBuySplitTotal()"></td>
+                <td><input type="text" class="split-len" value="" style="width:40px" placeholder="16" onchange="calcBuySplitRowVol(this);calcBuySplitTotal()"></td>
+                <td><input type="number" class="split-units" value="" style="width:45px" placeholder="Units" onchange="calcBuySplitRowVol(this);calcBuySplitTotal()"></td>
+                <td><input type="number" class="split-vol" value="" style="width:50px" placeholder="MBF" onchange="calcBuySplitTotal()"></td>
+                <td><input type="number" class="split-price" value="" style="width:60px" placeholder="$/MBF" onchange="calcBuySplitTotal()"></td>
                 <td class="split-val right">—</td>
                 <td><button class="btn btn-default btn-sm" onclick="removeBuySplitRow(this)" style="padding:2px 6px">×</button></td>
               </tr>`}
             </tbody>
             <tfoot>
-              <tr><td colspan="6"><button class="btn btn-default btn-sm" onclick="addBuySplitRow()" style="width:100%">+ Add Product</button></td></tr>
-              <tr style="font-weight:bold;border-top:2px solid var(--border)"><td colspan="2">Total</td><td id="buy-split-total-vol">—</td><td id="buy-split-avg-price">—</td><td id="buy-split-total-val">—</td><td></td></tr>
+              <tr><td colspan="7"><button class="btn btn-default btn-sm" onclick="addBuySplitRow()" style="width:100%">+ Add Product</button></td></tr>
+              <tr style="font-weight:bold;border-top:2px solid var(--border)"><td colspan="3">Total</td><td id="buy-split-total-vol">—</td><td id="buy-split-avg-price">—</td><td id="buy-split-total-val">—</td><td></td></tr>
             </tfoot>
           </table>
         </div>
@@ -906,10 +909,11 @@ function addSplitRow(){
   const tr=document.createElement('tr');
   tr.dataset.splitRow=rowCount;
   tr.innerHTML=`
-    <td><input type="text" class="split-prod" value="" style="width:70px" list="prod-list" placeholder="2x10#2" onchange="calcSplitTotal()"></td>
-    <td><input type="text" class="split-len" value="" style="width:50px" placeholder="16" onchange="calcSplitTotal()"></td>
-    <td><input type="number" class="split-vol" value="" style="width:60px" placeholder="MBF" onchange="calcSplitTotal()"></td>
-    <td><input type="number" class="split-price" value="" style="width:70px" placeholder="$/MBF" onchange="calcSplitTotal()"></td>
+    <td><input type="text" class="split-prod" value="" style="width:60px" list="prod-list" placeholder="2x10#2" onchange="calcSplitRowVol(this);calcSplitTotal()"></td>
+    <td><input type="text" class="split-len" value="" style="width:40px" placeholder="16" onchange="calcSplitRowVol(this);calcSplitTotal()"></td>
+    <td><input type="number" class="split-units" value="" style="width:45px" placeholder="Units" onchange="calcSplitRowVol(this);calcSplitTotal()"></td>
+    <td><input type="number" class="split-vol" value="" style="width:50px" placeholder="MBF" onchange="calcSplitTotal()"></td>
+    <td><input type="number" class="split-price" value="" style="width:60px" placeholder="$/MBF" onchange="calcSplitTotal()"></td>
     <td class="split-val right">—</td>
     <td><button class="btn btn-default btn-sm" onclick="removeSplitRow(this)" style="padding:2px 6px">×</button></td>
   `;
@@ -978,10 +982,11 @@ function addBuySplitRow(){
   const tr=document.createElement('tr');
   tr.dataset.splitRow=rowCount;
   tr.innerHTML=`
-    <td><input type="text" class="split-prod" value="" style="width:70px" list="prod-list" placeholder="2x10#2" onchange="calcBuySplitTotal()"></td>
-    <td><input type="text" class="split-len" value="" style="width:50px" placeholder="16" onchange="calcBuySplitTotal()"></td>
-    <td><input type="number" class="split-vol" value="" style="width:60px" placeholder="MBF" onchange="calcBuySplitTotal()"></td>
-    <td><input type="number" class="split-price" value="" style="width:70px" placeholder="$/MBF" onchange="calcBuySplitTotal()"></td>
+    <td><input type="text" class="split-prod" value="" style="width:60px" list="prod-list" placeholder="2x10#2" onchange="calcBuySplitRowVol(this);calcBuySplitTotal()"></td>
+    <td><input type="text" class="split-len" value="" style="width:40px" placeholder="16" onchange="calcBuySplitRowVol(this);calcBuySplitTotal()"></td>
+    <td><input type="number" class="split-units" value="" style="width:45px" placeholder="Units" onchange="calcBuySplitRowVol(this);calcBuySplitTotal()"></td>
+    <td><input type="number" class="split-vol" value="" style="width:50px" placeholder="MBF" onchange="calcBuySplitTotal()"></td>
+    <td><input type="number" class="split-price" value="" style="width:60px" placeholder="$/MBF" onchange="calcBuySplitTotal()"></td>
     <td class="split-val right">—</td>
     <td><button class="btn btn-default btn-sm" onclick="removeBuySplitRow(this)" style="padding:2px 6px">×</button></td>
   `;
@@ -1017,6 +1022,74 @@ function calcBuySplitTotal(){
   if(totalVol>0){
     document.getElementById('m-volume').value=Math.round(totalVol*100)/100;
   }
+}
+
+// Auto-calc MBF from units for main Buy form
+function calcBuyVolume(){
+  const product=document.getElementById('m-product')?.value||'';
+  const lengthStr=document.getElementById('m-length')?.value||'';
+  const units=parseFloat(document.getElementById('m-units')?.value)||0;
+  if(!product||!lengthStr||lengthStr==='RL'||!units)return;
+  const mbf=calcMBFFromUnits(product,lengthStr,units);
+  if(mbf>0)document.getElementById('m-volume').value=mbf;
+}
+
+// Auto-calc MBF from units for main Sell form
+function calcSellVolume(){
+  const product=document.getElementById('m-product')?.value||'';
+  const lengthStr=document.getElementById('m-length')?.value||'';
+  const units=parseFloat(document.getElementById('m-units')?.value)||0;
+  if(!product||!lengthStr||lengthStr==='RL'||!units)return;
+  const mbf=calcMBFFromUnits(product,lengthStr,units);
+  if(mbf>0){
+    document.getElementById('m-volume').value=mbf;
+    updateSellCalc();
+    calcFlatFreight();
+  }
+}
+
+// Auto-calc MBF for a split row (Sell)
+function calcSplitRowVol(el){
+  const row=el.closest('tr');
+  const prod=row.querySelector('.split-prod')?.value||'';
+  const len=row.querySelector('.split-len')?.value||'';
+  const units=parseFloat(row.querySelector('.split-units')?.value)||0;
+  if(!prod||!len||!units)return;
+  const mbf=calcMBFFromUnits(prod,len,units);
+  if(mbf>0)row.querySelector('.split-vol').value=mbf;
+}
+
+// Auto-calc MBF for a split row (Buy)
+function calcBuySplitRowVol(el){
+  const row=el.closest('tr');
+  const prod=row.querySelector('.split-prod')?.value||'';
+  const len=row.querySelector('.split-len')?.value||'';
+  const units=parseFloat(row.querySelector('.split-units')?.value)||0;
+  if(!prod||!len||!units)return;
+  const mbf=calcMBFFromUnits(prod,len,units);
+  if(mbf>0)row.querySelector('.split-vol').value=mbf;
+}
+
+// Shared MBF calculation from product, length, units
+function calcMBFFromUnits(product,lengthStr,units){
+  const lengthFt=parseFloat(lengthStr);
+  if(!lengthFt)return 0;
+  // Parse dimension from product (e.g. "2x4#2" -> thick=2, wide=4)
+  const dimMatch=product.match(/(\d+)x(\d+)/i);
+  if(!dimMatch)return 0;
+  const thick=parseInt(dimMatch[1]);
+  const wide=parseInt(dimMatch[2]);
+  // Timbers (4x4, 4x6, 6x6) = flat 20 MBF per unit
+  if(thick>=4)return Math.round(units*20*100)/100;
+  // Pieces per unit by dimension
+  const PCS_PER_UNIT={'2x4':208,'2x6':128,'2x8':96,'2x10':80,'2x12':64};
+  const dim=`${thick}x${wide}`;
+  const pcsPerUnit=PCS_PER_UNIT[dim];
+  if(!pcsPerUnit)return 0;
+  // Calculate MBF
+  const totalPieces=units*pcsPerUnit;
+  const bfPerPiece=(thick*wide*lengthFt)/12;
+  return Math.round(totalPieces*bfPerPiece/1000*100)/100;
 }
 
 function calcSellTallyTotal(){
@@ -1159,8 +1232,9 @@ function showSellModal(s=null){
         <div class="form-group"><label class="form-label">Customer</label><input type="text" id="m-cust" value="${s?.customer||''}" list="cust-list" placeholder="Type or select..." onchange="autoFillDest()"><datalist id="cust-list">${custList.map(c=>`<option value="${c}">`).join('')}</datalist></div>
         <div class="form-group"><label class="form-label">Destination (City, ST)</label><input type="text" id="m-dest" value="${s?.destination||''}" list="dest-list" placeholder="e.g. Cincinnati, OH"><datalist id="dest-list">${dests.map(d=>`<option value="${d}">`).join('')}</datalist></div>
         <div class="form-group"><label class="form-label">Region</label><select id="m-region" onchange="toggleSellOptions()">${REGIONS.map(r=>`<option value="${r}" ${s?.region===r?'selected':''}>${r.charAt(0).toUpperCase()+r.slice(1)}</option>`).join('')}</select></div>
-        <div class="form-group"><label class="form-label">Product</label><input type="text" id="m-product" value="${s?.product||''}" list="prod-list" placeholder="e.g. 2x4#2, 2x6 MSR" onchange="toggleSellOptions()"><datalist id="prod-list">${prodList.map(p=>`<option value="${p}">`).join('')}</datalist></div>
-        <div class="form-group"><label class="form-label">Length</label><select id="m-length" onchange="toggleSellOptions()"><option value="">Select...</option><option value="8" ${s?.length==='8'?'selected':''}>8'</option><option value="10" ${s?.length==='10'?'selected':''}>10'</option><option value="12" ${s?.length==='12'?'selected':''}>12'</option><option value="14" ${s?.length==='14'?'selected':''}>14'</option><option value="16" ${s?.length==='16'?'selected':''}>16'</option><option value="18" ${s?.length==='18'?'selected':''}>18'</option><option value="20" ${s?.length==='20'?'selected':''}>20'</option><option value="RL" ${s?.length==='RL'?'selected':''}>RL (Random)</option></select></div>
+        <div class="form-group"><label class="form-label">Product</label><input type="text" id="m-product" value="${s?.product||''}" list="prod-list" placeholder="e.g. 2x4#2, 2x6 MSR" onchange="toggleSellOptions();calcSellVolume()"><datalist id="prod-list">${prodList.map(p=>`<option value="${p}">`).join('')}</datalist></div>
+        <div class="form-group"><label class="form-label">Length</label><select id="m-length" onchange="toggleSellOptions();calcSellVolume()"><option value="">Select...</option><option value="8" ${s?.length==='8'?'selected':''}>8'</option><option value="10" ${s?.length==='10'?'selected':''}>10'</option><option value="12" ${s?.length==='12'?'selected':''}>12'</option><option value="14" ${s?.length==='14'?'selected':''}>14'</option><option value="16" ${s?.length==='16'?'selected':''}>16'</option><option value="18" ${s?.length==='18'?'selected':''}>18'</option><option value="20" ${s?.length==='20'?'selected':''}>20'</option><option value="RL" ${s?.length==='RL'?'selected':''}>RL (Random)</option></select></div>
+        <div class="form-group"><label class="form-label">Units</label><input type="number" id="m-units" value="${s?.units||''}" placeholder="Tallies" onchange="calcSellVolume()"></div>
         <div class="form-group"><label class="form-label">Volume (MBF)</label><input type="number" id="m-volume" value="${s?.volume||''}" onchange="updateSellCalc();calcFlatFreight()"></div>
       </div>
 
@@ -1173,32 +1247,34 @@ function showSellModal(s=null){
         <div id="split-grid-sell" style="display:${s?.tally&&Object.keys(s.tally).some(k=>/[a-zA-Z]/.test(k))?'block':'none'}">
           <div style="font-size:10px;color:var(--muted);margin-bottom:8px">For mixed loads (e.g. 2x10 + 2x12 on same truck). Prices are DLVD $/MBF.</div>
           <table style="width:100%;font-size:11px" id="split-table-sell">
-            <thead><tr><th>Product</th><th>Length</th><th>MBF</th><th>$/MBF</th><th>Value</th><th></th></tr></thead>
+            <thead><tr><th>Product</th><th>Length</th><th>Units</th><th>MBF</th><th>$/MBF</th><th>Value</th><th></th></tr></thead>
             <tbody id="split-rows-sell">
               ${s?.tally&&Object.keys(s.tally).some(k=>/[a-zA-Z]/.test(k))?Object.entries(s.tally).map(([key,v],i)=>{
                 const parts=key.match(/^(\S+)\s+(\d+)'?$/);
                 const prod=parts?parts[1]:key;
                 const len=parts?parts[2]:'';
                 return`<tr data-split-row="${i}">
-                  <td><input type="text" class="split-prod" value="${prod}" style="width:70px" list="prod-list" onchange="calcSplitTotal()"></td>
-                  <td><input type="text" class="split-len" value="${len}" style="width:50px" onchange="calcSplitTotal()"></td>
-                  <td><input type="number" class="split-vol" value="${v.vol||''}" style="width:60px" onchange="calcSplitTotal()"></td>
-                  <td><input type="number" class="split-price" value="${v.price||''}" style="width:70px" onchange="calcSplitTotal()"></td>
+                  <td><input type="text" class="split-prod" value="${prod}" style="width:60px" list="prod-list" onchange="calcSplitRowVol(this);calcSplitTotal()"></td>
+                  <td><input type="text" class="split-len" value="${len}" style="width:40px" onchange="calcSplitRowVol(this);calcSplitTotal()"></td>
+                  <td><input type="number" class="split-units" value="${v.units||''}" style="width:45px" onchange="calcSplitRowVol(this);calcSplitTotal()"></td>
+                  <td><input type="number" class="split-vol" value="${v.vol||''}" style="width:50px" onchange="calcSplitTotal()"></td>
+                  <td><input type="number" class="split-price" value="${v.price||''}" style="width:60px" onchange="calcSplitTotal()"></td>
                   <td class="split-val right">—</td>
                   <td><button class="btn btn-default btn-sm" onclick="removeSplitRow(this)" style="padding:2px 6px">×</button></td>
                 </tr>`;
               }).join(''):`<tr data-split-row="0">
-                <td><input type="text" class="split-prod" value="" style="width:70px" list="prod-list" placeholder="2x10#2" onchange="calcSplitTotal()"></td>
-                <td><input type="text" class="split-len" value="" style="width:50px" placeholder="16" onchange="calcSplitTotal()"></td>
-                <td><input type="number" class="split-vol" value="" style="width:60px" placeholder="MBF" onchange="calcSplitTotal()"></td>
-                <td><input type="number" class="split-price" value="" style="width:70px" placeholder="$/MBF" onchange="calcSplitTotal()"></td>
+                <td><input type="text" class="split-prod" value="" style="width:60px" list="prod-list" placeholder="2x10#2" onchange="calcSplitRowVol(this);calcSplitTotal()"></td>
+                <td><input type="text" class="split-len" value="" style="width:40px" placeholder="16" onchange="calcSplitRowVol(this);calcSplitTotal()"></td>
+                <td><input type="number" class="split-units" value="" style="width:45px" placeholder="Units" onchange="calcSplitRowVol(this);calcSplitTotal()"></td>
+                <td><input type="number" class="split-vol" value="" style="width:50px" placeholder="MBF" onchange="calcSplitTotal()"></td>
+                <td><input type="number" class="split-price" value="" style="width:60px" placeholder="$/MBF" onchange="calcSplitTotal()"></td>
                 <td class="split-val right">—</td>
                 <td><button class="btn btn-default btn-sm" onclick="removeSplitRow(this)" style="padding:2px 6px">×</button></td>
               </tr>`}
             </tbody>
             <tfoot>
-              <tr><td colspan="6"><button class="btn btn-default btn-sm" onclick="addSplitRow()" style="width:100%">+ Add Product</button></td></tr>
-              <tr style="font-weight:bold;border-top:2px solid var(--border)"><td colspan="2">Total</td><td id="split-total-vol">—</td><td id="split-avg-price">—</td><td id="split-total-val">—</td><td></td></tr>
+              <tr><td colspan="7"><button class="btn btn-default btn-sm" onclick="addSplitRow()" style="width:100%">+ Add Product</button></td></tr>
+              <tr style="font-weight:bold;border-top:2px solid var(--border)"><td colspan="3">Total</td><td id="split-total-vol">—</td><td id="split-avg-price">—</td><td id="split-total-val">—</td><td></td></tr>
             </tfoot>
           </table>
         </div>
