@@ -1910,7 +1910,9 @@ function editImportOrder(idx){
             <option value="12">12'</option>
             <option value="14">14'</option>
             <option value="16">16'</option>
+            <option value="18">18'</option>
             <option value="20">20'</option>
+            <option value="RL">RL (Random)</option>
           </select>
         </div>
         <div class="form-group">
