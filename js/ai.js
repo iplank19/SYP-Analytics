@@ -621,11 +621,13 @@ function parseOrderCSV(csvText){
   const headerFields=hasHeader?parseCSVRow(lines[0]):[];
 
   // Detect CSV format by header columns
-  // New format: Order #, Seller, Customer, Ship To State, Ship To City, ItmPO_PricePerUnit (buy), Delivered Price (sell), Product Description, Product Detail, Tally, Mill, Ship From State, Ship From City
-  // Old format: Order, Seller, Customer, ShipToState, ShipToCity, SellPrice, ProductDesc, ProductDetail, Tally, Mill, ShipFromState, ShipFromCity, Buyer
-  const hasDeliveredPrice=headerFields.some(h=>/delivered.*price/i.test(h));
-  const hasBuyPriceCol=headerFields.some(h=>/ItmPO|PricePerUnit|buy.*price|fob.*price|mill.*price/i.test(h));
-  const isNewFormat=hasDeliveredPrice||hasBuyPriceCol;
+  // New format (15 cols): Order #, Seller, Customer, Ship To State, Ship To City, DELETE COLUMN, PO Price (buy), OC Price (sell), Product Description, Product Detail, Tally, Mill, Ship From State, Ship From City, PO_BuyTraderName
+  // Old format (13 cols): Order, Seller, Customer, ShipToState, ShipToCity, SellPrice, ProductDesc, ProductDetail, Tally, Mill, ShipFromState, ShipFromCity, Buyer
+  const hasOCPrice=headerFields.some(h=>/oc.*price/i.test(h));
+  const hasPOPrice=headerFields.some(h=>/po.*price/i.test(h));
+  const hasDeleteCol=headerFields.some(h=>/delete/i.test(h));
+  const hasBuyTrader=headerFields.some(h=>/buytrader/i.test(h));
+  const isNewFormat=hasOCPrice||hasPOPrice||hasDeleteCol||hasBuyTrader;
 
   // Parse rows
   const rows=dataLines.map(line=>{
@@ -635,21 +637,22 @@ function parseOrderCSV(csvText){
     let orderNum,seller,customer,shipToState,shipToCity,buyPrice,sellPrice,productDesc,productDetail,tally,mill,shipFromState,shipFromCity,buyer;
 
     if(isNewFormat){
-      // New format: Order #, Seller, Customer, Ship To State, Ship To City, ItmPO_PricePerUnit, Delivered Price, Product Description, Product Detail, Tally, Mill, Ship From State, Ship From City
+      // New format: Order #, Seller, Customer, Ship To State, Ship To City, DELETE COLUMN, PO Price, OC Price, Product Description, Product Detail, Tally, Mill, Ship From State, Ship From City, PO_BuyTraderName
       orderNum=f[0];
       seller=f[1];
       customer=f[2];
       shipToState=f[3];
       shipToCity=f[4];
-      buyPrice=parsePrice(f[5]);// ItmPO_PricePerUnit
-      sellPrice=parsePrice(f[6]);// Delivered Price
-      productDesc=f[7];
-      productDetail=f[8];
-      tally=f[9];
-      mill=f[10];
-      shipFromState=f[11];
-      shipFromCity=f[12];
-      buyer=seller;// No separate buyer column in new format
+      // f[5] is DELETE COLUMN - skip it
+      buyPrice=parsePrice(f[6]);// PO Price
+      sellPrice=parsePrice(f[7]);// OC Price
+      productDesc=f[8];
+      productDetail=f[9];
+      tally=f[10];
+      mill=f[11];
+      shipFromState=f[12];
+      shipFromCity=f[13];
+      buyer=f[14]||seller;// PO_BuyTraderName
     }else{
       // Old format (legacy)
       orderNum=f[0];
