@@ -1890,34 +1890,42 @@ function editImportOrder(idx){
       <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:12px">
         <div class="form-group">
           <label class="form-label">Product</label>
-          <select id="edit-product" class="form-control">
-            <option value="">Select...</option>
-            <option value="2x4#2">2x4#2</option>
-            <option value="2x4#3">2x4#3</option>
-            <option value="2x6#2">2x6#2</option>
-            <option value="2x6#3">2x6#3</option>
-            <option value="2x8#2">2x8#2</option>
-            <option value="2x10#2">2x10#2</option>
-            <option value="2x12#2">2x12#2</option>
-          </select>
+          <input type="text" id="edit-product" class="form-control" list="product-list" placeholder="e.g. 2x4#2" onchange="calcImportVolume()">
+          <datalist id="product-list">
+            <option value="2x4#1">
+            <option value="2x4#2">
+            <option value="2x4#3">
+            <option value="2x6#1">
+            <option value="2x6#2">
+            <option value="2x6#3">
+            <option value="2x8#1">
+            <option value="2x8#2">
+            <option value="2x10#1">
+            <option value="2x10#2">
+            <option value="2x12#1">
+            <option value="2x12#2">
+            <option value="4x4">
+            <option value="4x6">
+            <option value="6x6">
+          </datalist>
         </div>
         <div class="form-group">
           <label class="form-label">Length</label>
-          <select id="edit-length" class="form-control">
-            <option value="">Select...</option>
-            <option value="8">8'</option>
-            <option value="10">10'</option>
-            <option value="12">12'</option>
-            <option value="14">14'</option>
-            <option value="16">16'</option>
-            <option value="18">18'</option>
-            <option value="20">20'</option>
-            <option value="RL">RL (Random)</option>
-          </select>
+          <input type="text" id="edit-length" class="form-control" list="length-list" placeholder="e.g. 16" onchange="calcImportVolume()">
+          <datalist id="length-list">
+            <option value="8">
+            <option value="10">
+            <option value="12">
+            <option value="14">
+            <option value="16">
+            <option value="18">
+            <option value="20">
+            <option value="RL">
+          </datalist>
         </div>
         <div class="form-group">
           <label class="form-label">Units (Tallies)</label>
-          <input type="number" id="edit-units" class="form-control" value="${firstItem.units||''}" placeholder="e.g. 11">
+          <input type="number" id="edit-units" class="form-control" value="${firstItem.units||''}" placeholder="e.g. 11" onchange="calcImportVolume()">
         </div>
         <div class="form-group">
           <label class="form-label">Volume (MBF)</label>
@@ -1930,11 +1938,50 @@ function editImportOrder(idx){
       <button class="btn btn-primary" onclick="saveImportOrderEdit(${idx})">Save Changes</button>
     </div>`;
 
-  // Set current values in dropdowns
+  // Set current values in fields
   if(sell.trader)document.getElementById('edit-seller').value=sell.trader;
   if(buy.trader)document.getElementById('edit-buyer').value=buy.trader;
   if(firstItem.product)document.getElementById('edit-product').value=firstItem.product;
   if(firstItem.length)document.getElementById('edit-length').value=firstItem.length;
+}
+
+// Auto-calculate MBF from product, length, and units
+function calcImportVolume(){
+  const product=document.getElementById('edit-product')?.value||'';
+  const lengthStr=document.getElementById('edit-length')?.value||'';
+  const units=parseFloat(document.getElementById('edit-units')?.value)||0;
+
+  if(!product||!lengthStr||lengthStr==='RL'||!units)return;
+
+  const lengthFt=parseFloat(lengthStr);
+  if(!lengthFt)return;
+
+  // Parse dimension from product (e.g. "2x4#2" -> thick=2, wide=4)
+  const dimMatch=product.match(/(\d+)x(\d+)/i);
+  if(!dimMatch)return;
+
+  const thick=parseInt(dimMatch[1]);
+  const wide=parseInt(dimMatch[2]);
+
+  // Pieces per unit by dimension
+  const PCS_PER_UNIT={'2x4':208,'2x6':128,'2x8':96,'2x10':80,'2x12':64};
+  const dim=`${thick}x${wide}`;
+  const pcsPerUnit=PCS_PER_UNIT[dim];
+
+  // Timbers (4x4, 4x6, 6x6) = flat 20 MBF
+  if(thick>=4){
+    document.getElementById('edit-volume').value='20';
+    return;
+  }
+
+  if(!pcsPerUnit)return;
+
+  // Calculate MBF
+  const totalPieces=units*pcsPerUnit;
+  const bfPerPiece=(thick*wide*lengthFt)/12;
+  const mbf=Math.round(totalPieces*bfPerPiece/1000*100)/100;
+
+  document.getElementById('edit-volume').value=mbf;
 }
 
 // Save edits to an import order
@@ -2196,7 +2243,8 @@ async function confirmImportOrders(){
         trader:mapTrader(o.sell.trader),
         tally:tally
       };
-      if(sell.volume>0){S.sells.unshift(sell);sellCount++}
+      // Import sell if it has volume OR if it has a customer (shorts with pending product info)
+      if(sell.volume>0||sell.customer){S.sells.unshift(sell);sellCount++}
     }else if(o.sell&&sellAlreadyExists){skipSell++}
 
     // Build buy (skip if already exists)
@@ -2238,7 +2286,8 @@ async function confirmImportOrders(){
         freight:0,
         tally:tally
       };
-      if(buy.volume>0){S.buys.unshift(buy);buyCount++}
+      // Import buy if it has volume OR if it has a mill (longs with pending product info)
+      if(buy.volume>0||buy.mill){S.buys.unshift(buy);buyCount++}
     }else if(o.buy&&buyAlreadyExists){skipBuy++}
   });
 
