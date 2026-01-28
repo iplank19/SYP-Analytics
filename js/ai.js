@@ -619,33 +619,77 @@ function parseOrderCSV(csvText){
   const dataLines=hasHeader?lines.slice(1):lines;
 
   const headerFields=hasHeader?parseCSVRow(lines[0]):[];
-  const buyPriceIdx=headerFields.findIndex(h=>/buy.*price|fob.*price|mill.*price/i.test(h));
+
+  // Detect CSV format by header columns
+  // New format: Order #, Seller, Customer, Ship To State, Ship To City, ItmPO_PricePerUnit (buy), Delivered Price (sell), Product Description, Product Detail, Tally, Mill, Ship From State, Ship From City
+  // Old format: Order, Seller, Customer, ShipToState, ShipToCity, SellPrice, ProductDesc, ProductDetail, Tally, Mill, ShipFromState, ShipFromCity, Buyer
+  const hasDeliveredPrice=headerFields.some(h=>/delivered.*price/i.test(h));
+  const hasBuyPriceCol=headerFields.some(h=>/ItmPO|PricePerUnit|buy.*price|fob.*price|mill.*price/i.test(h));
+  const isNewFormat=hasDeliveredPrice||hasBuyPriceCol;
 
   // Parse rows
   const rows=dataLines.map(line=>{
     const f=parseCSVRow(line);
     if(f.length<13)return null;
-    const{product,length,dim,thick,wide,isTimber}=parseProduct(f[6],f[7]);
-    const units=parseTally(f[8]);
+
+    let orderNum,seller,customer,shipToState,shipToCity,buyPrice,sellPrice,productDesc,productDetail,tally,mill,shipFromState,shipFromCity,buyer;
+
+    if(isNewFormat){
+      // New format: Order #, Seller, Customer, Ship To State, Ship To City, ItmPO_PricePerUnit, Delivered Price, Product Description, Product Detail, Tally, Mill, Ship From State, Ship From City
+      orderNum=f[0];
+      seller=f[1];
+      customer=f[2];
+      shipToState=f[3];
+      shipToCity=f[4];
+      buyPrice=parsePrice(f[5]);// ItmPO_PricePerUnit
+      sellPrice=parsePrice(f[6]);// Delivered Price
+      productDesc=f[7];
+      productDetail=f[8];
+      tally=f[9];
+      mill=f[10];
+      shipFromState=f[11];
+      shipFromCity=f[12];
+      buyer=seller;// No separate buyer column in new format
+    }else{
+      // Old format (legacy)
+      orderNum=f[0];
+      seller=f[1];
+      customer=f[2];
+      shipToState=f[3];
+      shipToCity=f[4];
+      sellPrice=parsePrice(f[5]);
+      productDesc=f[6];
+      productDetail=f[7];
+      tally=f[8];
+      mill=f[9];
+      shipFromState=f[10];
+      shipFromCity=f[11];
+      buyer=f[12]||seller;
+      const buyPriceIdx=headerFields.findIndex(h=>/buy.*price|fob.*price|mill.*price/i.test(h));
+      buyPrice=buyPriceIdx>=0?parsePrice(f[buyPriceIdx]):0;
+    }
+
+    const{product,length,dim,thick,wide,isTimber}=parseProduct(productDesc,productDetail);
+    const units=parseTally(tally);
     const mbf=unitsToMBF(units,dim,length,isTimber);
     return{
-      orderNum:f[0],
-      seller:f[1],
-      customer:f[2],
-      shipToState:f[3],
-      shipToCity:f[4],
-      sellPrice:parsePrice(f[5]),
+      orderNum,
+      seller,
+      customer,
+      shipToState,
+      shipToCity,
+      sellPrice,
       product,
       length,
       dim,
       isTimber,
       units,
       volume:mbf,
-      mill:f[9],
-      shipFromState:f[10],
-      shipFromCity:f[11],
-      buyer:f[12],
-      buyPrice:buyPriceIdx>=0?parsePrice(f[buyPriceIdx]):0
+      mill,
+      shipFromState,
+      shipFromCity,
+      buyer,
+      buyPrice
     };
   }).filter(Boolean);
 
