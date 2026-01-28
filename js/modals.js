@@ -1725,7 +1725,19 @@ function showImportPreview(orders){
   const long_=orders.filter(o=>o.status==='long').length;
   const importDate=document.getElementById('import-date')?.value||today();
 
+  // Check for existing orders in the system
+  const existingSellOrders=new Set(S.sells.map(s=>String(s.orderNum)));
+  const existingBuyOrders=new Set(S.buys.map(b=>String(b.orderNum)));
+
   const statusBadge=s=>({matched:'<span class="badge badge-success">MATCHED</span>',short:'<span class="badge badge-negative">SHORT</span>',long:'<span class="badge badge-pending">LONG</span>'}[s]||s);
+  const existsBadge=(orderNum,hasSell,hasBuy)=>{
+    const sellExists=existingSellOrders.has(String(orderNum));
+    const buyExists=existingBuyOrders.has(String(orderNum));
+    if(sellExists&&buyExists)return'<span class="badge" style="background:var(--muted);color:var(--bg)">BOTH EXIST</span>';
+    if(sellExists&&hasSell)return'<span class="badge" style="background:#6366f1;color:white">SELL EXISTS</span>';
+    if(buyExists&&hasBuy)return'<span class="badge" style="background:#6366f1;color:white">BUY EXISTS</span>';
+    return'';
+  };
 
   const body=document.getElementById('import-body');
   body.innerHTML=`
@@ -1772,10 +1784,18 @@ function showImportPreview(orders){
             const lenSummary=items.length>1?'RL ('+items.length+')':items[0]?.length+"'"||'—';
             const itemBreakdown=isMixed?items.map(it=>`${it.product} ${it.length}' ${it.units}u`).join(', '):'';
             const needsEdit=o.status==='short'||o.status==='long'||!sellPrices||!buyPrices;
-            return`<tr${isMixed?' style="border-left:3px solid var(--warn)"':''}${needsEdit?' style="background:rgba(255,193,7,0.1)"':''}>
-              <td><input type="checkbox" class="import-check" data-idx="${i}" checked></td>
+            // Check if order already exists
+            const sellExists=existingSellOrders.has(String(o.orderNum));
+            const buyExists=existingBuyOrders.has(String(o.orderNum));
+            const hasSell=!!o.sell;
+            const hasBuy=!!o.buy;
+            const fullyExists=(hasSell&&sellExists&&!hasBuy)||(hasBuy&&buyExists&&!hasSell)||(hasSell&&sellExists&&hasBuy&&buyExists);
+            const partialExists=(hasSell&&sellExists&&hasBuy&&!buyExists)||(hasBuy&&buyExists&&hasSell&&!sellExists);
+            const existsInfo=existsBadge(o.orderNum,hasSell,hasBuy);
+            return`<tr${isMixed?' style="border-left:3px solid var(--warn)"':''}${needsEdit&&!fullyExists?' style="background:rgba(255,193,7,0.1)"':''}${fullyExists?' style="background:rgba(99,102,241,0.1);opacity:0.6"':''}>
+              <td><input type="checkbox" class="import-check" data-idx="${i}" ${fullyExists?'':'checked'}${fullyExists?' title="Already imported"':''}></td>
               <td style="font-weight:600">${o.orderNum}</td>
-              <td>${statusBadge(o.status)}</td>
+              <td>${statusBadge(o.status)}${existsInfo?' '+existsInfo:''}</td>
               <td>${sell.trader?TRADER_MAP[sell.trader]||sell.trader:'—'}</td>
               <td style="font-size:10px">${sell.customer||'—'}</td>
               <td>${buy.trader?TRADER_MAP[buy.trader]||buy.trader:'—'}</td>
@@ -2107,7 +2127,11 @@ async function confirmImportOrders(){
     if(ord&&!isNaN(val))milesByOrder[ord]=val;
   });
 
-  let buyCount=0,sellCount=0;
+  let buyCount=0,sellCount=0,skipSell=0,skipBuy=0;
+
+  // Check for existing orders to avoid duplicates
+  const existingSellOrders=new Set(S.sells.map(s=>String(s.orderNum)));
+  const existingBuyOrders=new Set(S.buys.map(b=>String(b.orderNum)));
 
   orders.forEach((o,i)=>{
     if(!checked.has(i))return;
@@ -2116,14 +2140,18 @@ async function confirmImportOrders(){
     const orderFreight=freightByOrder[String(o.orderNum)]||0;
     const orderMiles=milesByOrder[String(o.orderNum)]||0;
 
+    // Check if sides already exist
+    const sellAlreadyExists=existingSellOrders.has(String(o.orderNum));
+    const buyAlreadyExists=existingBuyOrders.has(String(o.orderNum));
+
     // Helper: build tally key — use "product len" if mixed widths, just "len" if single product
     function tallyKey(items,it){
       const prods=new Set(items.map(x=>x.product).filter(Boolean));
       return prods.size>1?`${it.product||''} ${it.length}'`:it.length;
     }
 
-    // Build sell
-    if(o.sell){
+    // Build sell (skip if already exists)
+    if(o.sell&&!sellAlreadyExists){
       const items=o.sell.items||[];
       let tally=null,totalVol=0,totalVal=0;
       if(items.length>1){
@@ -2167,10 +2195,10 @@ async function confirmImportOrders(){
         tally:tally
       };
       if(sell.volume>0){S.sells.unshift(sell);sellCount++}
-    }
+    }else if(o.sell&&sellAlreadyExists){skipSell++}
 
-    // Build buy
-    if(o.buy){
+    // Build buy (skip if already exists)
+    if(o.buy&&!buyAlreadyExists){
       const items=o.buy.items||[];
       let tally=null,totalVol=0;
       if(items.length>1){
@@ -2209,7 +2237,7 @@ async function confirmImportOrders(){
         tally:tally
       };
       if(buy.volume>0){S.buys.unshift(buy);buyCount++}
-    }
+    }else if(o.buy&&buyAlreadyExists){skipBuy++}
   });
 
   // Auto-add new customers and mills to CRM for each trader
@@ -2249,6 +2277,7 @@ async function confirmImportOrders(){
   let msg=`Imported ${sellCount} sells and ${buyCount} buys`;
   if(newCustomers.size)msg+=`, ${newCustomers.size} new customers`;
   if(newMills.size)msg+=`, ${newMills.size} new mills`;
+  if(skipSell||skipBuy)msg+=` (skipped ${skipSell+skipBuy} duplicates)`;
   showToast(msg,'positive');
 
   // Auto-push to cloud so all trader profiles get the imported trades
