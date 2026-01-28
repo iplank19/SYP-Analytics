@@ -1756,6 +1756,7 @@ function showImportPreview(orders){
           <th>MBF</th>
           <th>Sell $</th>
           <th>Buy $</th>
+          <th style="width:50px"></th>
         </tr></thead>
         <tbody>
           ${orders.map((o,i)=>{
@@ -1770,7 +1771,8 @@ function showImportPreview(orders){
             const isMixed=uniqueProds.size>1;
             const lenSummary=items.length>1?'RL ('+items.length+')':items[0]?.length+"'"||'—';
             const itemBreakdown=isMixed?items.map(it=>`${it.product} ${it.length}' ${it.units}u`).join(', '):'';
-            return`<tr${isMixed?' style="border-left:3px solid var(--warn)"':''}>
+            const needsEdit=o.status==='short'||o.status==='long'||!sellPrices||!buyPrices;
+            return`<tr${isMixed?' style="border-left:3px solid var(--warn)"':''}${needsEdit?' style="background:rgba(255,193,7,0.1)"':''}>
               <td><input type="checkbox" class="import-check" data-idx="${i}" checked></td>
               <td style="font-weight:600">${o.orderNum}</td>
               <td>${statusBadge(o.status)}</td>
@@ -1781,8 +1783,9 @@ function showImportPreview(orders){
               <td>${sell.product||buy.product||'—'} <span style="color:var(--muted);font-size:9px">${lenSummary}</span>${isMixed?`<div style="font-size:9px;color:var(--warn);margin-top:2px">${itemBreakdown}</div>`:''}</td>
               <td style="text-align:right">${totalUnits}</td>
               <td style="text-align:right;font-weight:600">${totalMBF}</td>
-              <td>${sellPrices||'—'}</td>
-              <td>${buyPrices||'—'}</td>
+              <td>${sellPrices||'<span style="color:var(--negative)">—</span>'}</td>
+              <td>${buyPrices||'<span style="color:var(--negative)">—</span>'}</td>
+              <td><button class="btn btn-default btn-sm" onclick="editImportOrder(${i})" title="Edit order details">✏️</button></td>
             </tr>`;
           }).join('')}
         </tbody>
@@ -1792,6 +1795,191 @@ function showImportPreview(orders){
       <button class="btn btn-default" onclick="closeModal()">Cancel</button>
       <button class="btn btn-success" onclick="showFreightStep()">Next: Freight →</button>
     </div>`;
+}
+
+// Edit a single order in the import preview
+function editImportOrder(idx){
+  const orders=window._importOrders;
+  if(!orders||!orders[idx])return;
+  const o=orders[idx];
+  const sell=o.sell||{};
+  const buy=o.buy||{};
+  const items=sell.items||buy.items||[];
+  const firstItem=items[0]||{};
+
+  // Get traders list for dropdowns
+  const traderOptions=Object.entries(TRADER_MAP).map(([full,short])=>`<option value="${full}">${short}</option>`).join('');
+
+  const body=document.getElementById('import-body');
+  body.innerHTML=`
+    <div style="margin-bottom:16px">
+      <div style="font-weight:600;font-size:14px">Edit Order #${o.orderNum}</div>
+      <div style="font-size:10px;color:var(--muted)">Fill in missing details before importing</div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px">
+      <!-- SELL SIDE -->
+      <div class="card" style="padding:16px">
+        <div style="font-weight:600;margin-bottom:12px;color:var(--negative)">SELL SIDE</div>
+        <div class="form-group">
+          <label class="form-label">Seller</label>
+          <select id="edit-seller" class="form-control">
+            <option value="">Select trader...</option>
+            ${traderOptions}
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Customer</label>
+          <input type="text" id="edit-customer" class="form-control" value="${sell.customer||''}" placeholder="Customer name">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Destination (City, State)</label>
+          <input type="text" id="edit-destination" class="form-control" value="${sell.destination||''}" placeholder="e.g. Dallas, TX">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Sell Price ($/MBF)</label>
+          <input type="number" id="edit-sell-price" class="form-control" value="${firstItem.price||''}" placeholder="e.g. 580">
+        </div>
+      </div>
+      <!-- BUY SIDE -->
+      <div class="card" style="padding:16px">
+        <div style="font-weight:600;margin-bottom:12px;color:var(--positive)">BUY SIDE</div>
+        <div class="form-group">
+          <label class="form-label">Buyer</label>
+          <select id="edit-buyer" class="form-control">
+            <option value="">Select trader...</option>
+            ${traderOptions}
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Mill</label>
+          <input type="text" id="edit-mill" class="form-control" value="${buy.mill||''}" placeholder="Mill name">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Origin (City, State)</label>
+          <input type="text" id="edit-origin" class="form-control" value="${buy.origin||''}" placeholder="e.g. Gurdon, AR">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Buy Price ($/MBF)</label>
+          <input type="number" id="edit-buy-price" class="form-control" value="${(buy.items&&buy.items[0]?.price)||''}" placeholder="e.g. 515">
+        </div>
+      </div>
+    </div>
+    <!-- PRODUCT INFO -->
+    <div class="card" style="padding:16px;margin-top:16px">
+      <div style="font-weight:600;margin-bottom:12px">PRODUCT INFO</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:12px">
+        <div class="form-group">
+          <label class="form-label">Product</label>
+          <select id="edit-product" class="form-control">
+            <option value="">Select...</option>
+            <option value="2x4#2">2x4#2</option>
+            <option value="2x4#3">2x4#3</option>
+            <option value="2x6#2">2x6#2</option>
+            <option value="2x6#3">2x6#3</option>
+            <option value="2x8#2">2x8#2</option>
+            <option value="2x10#2">2x10#2</option>
+            <option value="2x12#2">2x12#2</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Length</label>
+          <select id="edit-length" class="form-control">
+            <option value="">Select...</option>
+            <option value="8">8'</option>
+            <option value="10">10'</option>
+            <option value="12">12'</option>
+            <option value="14">14'</option>
+            <option value="16">16'</option>
+            <option value="20">20'</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Units (Tallies)</label>
+          <input type="number" id="edit-units" class="form-control" value="${firstItem.units||''}" placeholder="e.g. 11">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Volume (MBF)</label>
+          <input type="number" id="edit-volume" class="form-control" value="${firstItem.volume||''}" placeholder="Auto-calc or enter" step="0.01">
+        </div>
+      </div>
+    </div>
+    <div style="margin-top:16px;display:flex;justify-content:flex-end;gap:8px">
+      <button class="btn btn-default" onclick="showImportPreview(window._importOrders)">← Back</button>
+      <button class="btn btn-primary" onclick="saveImportOrderEdit(${idx})">Save Changes</button>
+    </div>`;
+
+  // Set current values in dropdowns
+  if(sell.trader)document.getElementById('edit-seller').value=sell.trader;
+  if(buy.trader)document.getElementById('edit-buyer').value=buy.trader;
+  if(firstItem.product)document.getElementById('edit-product').value=firstItem.product;
+  if(firstItem.length)document.getElementById('edit-length').value=firstItem.length;
+}
+
+// Save edits to an import order
+function saveImportOrderEdit(idx){
+  const orders=window._importOrders;
+  if(!orders||!orders[idx])return;
+
+  const seller=document.getElementById('edit-seller').value;
+  const customer=document.getElementById('edit-customer').value;
+  const destination=document.getElementById('edit-destination').value;
+  const sellPrice=parseFloat(document.getElementById('edit-sell-price').value)||0;
+
+  const buyer=document.getElementById('edit-buyer').value;
+  const mill=document.getElementById('edit-mill').value;
+  const origin=document.getElementById('edit-origin').value;
+  const buyPrice=parseFloat(document.getElementById('edit-buy-price').value)||0;
+
+  const product=document.getElementById('edit-product').value;
+  const length=document.getElementById('edit-length').value;
+  const units=parseFloat(document.getElementById('edit-units').value)||0;
+  const volume=parseFloat(document.getElementById('edit-volume').value)||0;
+
+  // Determine region from destination/origin
+  const WEST_STATES=new Set(['TX','AR','LA','OK','NM','CO','AZ','UT','NV','CA','OR','WA','ID','MT','WY']);
+  const EAST_STATES=new Set(['NC','SC','GA','FL','VA','MD','DE','NJ','NY','PA','CT','MA','ME','NH','VT','RI','WV','DC']);
+  const getRegion=loc=>{
+    const st=(loc||'').split(',').pop()?.trim().toUpperCase()||'';
+    if(WEST_STATES.has(st))return 'west';
+    if(EAST_STATES.has(st))return 'east';
+    return 'central';
+  };
+
+  const item={product,length,price:sellPrice,volume,units,buyPrice};
+
+  // Build/update sell side
+  if(customer||seller){
+    orders[idx].sell={
+      trader:seller,
+      customer:customer,
+      destination:destination,
+      product:product,
+      region:getRegion(destination),
+      items:[{product,length,price:sellPrice,volume,units}]
+    };
+  }
+
+  // Build/update buy side
+  if(mill||buyer){
+    orders[idx].buy={
+      trader:buyer||seller,
+      mill:mill,
+      origin:origin,
+      product:product,
+      region:getRegion(origin),
+      items:[{product,length,price:buyPrice,volume,units}]
+    };
+  }
+
+  // Update status
+  const hasSell=orders[idx].sell&&orders[idx].sell.customer;
+  const hasBuy=orders[idx].buy&&orders[idx].buy.mill;
+  if(hasSell&&hasBuy)orders[idx].status='matched';
+  else if(hasSell)orders[idx].status='short';
+  else if(hasBuy)orders[idx].status='long';
+
+  showToast('Order updated','success');
+  showImportPreview(orders);
 }
 
 function toggleImportAll(checked){
