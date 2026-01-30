@@ -996,6 +996,38 @@ function parseOrderCSV(csvText){
 }
 
 // AI-powered order parser — handles any text format (CSV, emails, free-form, order confirmations)
+// Attempt to repair truncated JSON array from a cut-off AI response
+// Finds the last complete object in the array and closes brackets
+function tryRepairTruncatedJSON(str){
+  if(!str||!str.startsWith('['))return null;
+  // Find the last complete object by looking for "},\n" or "}\n]" patterns
+  // Walk backward to find the last valid closing brace of a top-level object
+  let depth=0,lastGoodIdx=-1;
+  let inString=false,escape=false;
+  for(let i=0;i<str.length;i++){
+    const ch=str[i];
+    if(escape){escape=false;continue;}
+    if(ch==='\\'){escape=true;continue;}
+    if(ch==='"'){inString=!inString;continue;}
+    if(inString)continue;
+    if(ch==='{'||ch==='[')depth++;
+    else if(ch==='}'||ch===']'){
+      depth--;
+      // depth===1 means we just closed a top-level object inside the root array
+      if(depth===1&&ch==='}')lastGoodIdx=i;
+      // depth===0 means the array itself closed properly
+      if(depth===0)return null; // not actually truncated, parse error is something else
+    }
+  }
+  if(lastGoodIdx<0)return null;
+  const repaired=str.slice(0,lastGoodIdx+1)+'\n]';
+  try{
+    const arr=JSON.parse(repaired);
+    if(Array.isArray(arr)&&arr.length>0)return arr;
+  }catch(e2){}
+  return null;
+}
+
 async function parseOrdersWithAI(text){
   if(!S.apiKey)throw new Error('API key required. Add your Anthropic API key in Settings.');
 
@@ -1085,7 +1117,7 @@ RULES:
     },
     body:JSON.stringify({
       model:'claude-sonnet-4-20250514',
-      max_tokens:4096,
+      max_tokens:16384,
       system:systemPrompt,
       messages:[{role:'user',content:`Parse the following into structured lumber trade orders:\n\n${text}`}]
     })
@@ -1098,6 +1130,7 @@ RULES:
 
   const data=await res.json();
   const reply=data.content?.[0]?.text||'';
+  const stopReason=data.stop_reason||'';
 
   // Extract JSON from response — handle both raw JSON and markdown-wrapped JSON
   let jsonStr=reply;
@@ -1109,7 +1142,11 @@ RULES:
   try{
     orders=JSON.parse(jsonStr);
   }catch(e){
-    throw new Error('AI returned invalid JSON. Raw response:\n\n'+reply.slice(0,500));
+    // Attempt to repair truncated JSON (hit max_tokens)
+    orders=tryRepairTruncatedJSON(jsonStr);
+    if(!orders){
+      throw new Error('AI returned invalid JSON'+(stopReason==='max_tokens'?' (response was truncated — try importing fewer orders at once)':'')+'. Raw response:\n\n'+reply.slice(0,500));
+    }
   }
 
   if(!Array.isArray(orders))throw new Error('AI response is not an array of orders.');
