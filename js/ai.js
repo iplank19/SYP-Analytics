@@ -686,6 +686,7 @@ async function runAIWithTools(systemCtx,userMsg,depth=0){
     const decoder=new TextDecoder();
     let buffer='';
     let lastRender=0;
+    let currentBlockType=null;
 
     while(true){
       const{done,value}=await reader.read();
@@ -699,7 +700,12 @@ async function runAIWithTools(systemCtx,userMsg,depth=0){
           if(data==='[DONE]')break;
           try{
             const event=JSON.parse(data);
-            if(event.type==='content_block_delta'&&event.delta?.text){
+            // Track block type so we can skip thinking blocks
+            if(event.type==='content_block_start'){
+              currentBlockType=event.content_block?.type||null;
+            }else if(event.type==='content_block_stop'){
+              currentBlockType=null;
+            }else if(event.type==='content_block_delta'&&event.delta?.text&&currentBlockType!=='thinking'){
               reply+=event.delta.text;
               // Throttle DOM updates to ~60fps
               const now=Date.now();
