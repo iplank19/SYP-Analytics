@@ -1,5 +1,5 @@
 // SYP Analytics - AI Functions
-const AI_MODEL_CHAT=()=>S.aiModel||'claude-opus-4-0-20250514';
+const AI_MODEL_CHAT=()=>S.aiModel||'claude-opus-4-20250514';
 const AI_MODEL_UTILITY='claude-sonnet-4-20250514';
 
 const AI_TOOLS=[

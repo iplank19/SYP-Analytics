@@ -2665,7 +2665,7 @@ function render(){
         <div class="form-group" style="margin-top:16px">
           <label class="form-label">AI Chat Model</label>
           <select id="ai-model" onchange="S.aiModel=this.value;save('aiModel',S.aiModel)" style="width:100%;max-width:500px;padding:8px">
-            <option value="claude-opus-4-0-20250514"${S.aiModel==='claude-opus-4-0-20250514'?' selected':''}>Claude Opus 4 (Best reasoning, higher cost)</option>
+            <option value="claude-opus-4-20250514"${S.aiModel==='claude-opus-4-20250514'?' selected':''}>Claude Opus 4 (Best reasoning, higher cost)</option>
             <option value="claude-sonnet-4-20250514"${S.aiModel==='claude-sonnet-4-20250514'?' selected':''}>Claude Sonnet 4 (Fast, lower cost)</option>
           </select>
           <div style="color:var(--muted);font-size:10px;margin-top:4px">Opus is used for chat; Sonnet is always used for order parsing & quote pricing</div>
