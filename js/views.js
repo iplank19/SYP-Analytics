@@ -108,6 +108,129 @@ function setTrader(t){
 
 // Check if current user can edit a trade (only individual traders can edit, not when viewing Department)
 
+// P&L Calendar view
+function renderPnLCalendar(){
+  const dailyPnL=calcDailyPnL();
+  const month=S.calendarMonth||today().slice(0,7);
+  const yr=parseInt(month.split('-')[0]),mo=parseInt(month.split('-')[1]);
+  const daysInMonth=new Date(yr,mo,0).getDate();
+  const firstDow=new Date(yr,mo-1,1).getDay(); // 0=Sun
+  const monthName=new Date(yr,mo-1,1).toLocaleString('en-US',{month:'long',year:'numeric'});
+
+  // Gather month stats
+  let monthTotal=0,bestDay=null,worstDay=null,tradingDays=0;
+  const dayProfits=[];
+  for(let d=1;d<=daysInMonth;d++){
+    const key=`${yr}-${String(mo).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    const dp=dailyPnL[key];
+    if(dp){
+      monthTotal+=dp.total;
+      tradingDays++;
+      dayProfits.push(dp.total);
+      if(!bestDay||dp.total>bestDay.val)bestDay={day:d,val:dp.total};
+      if(!worstDay||dp.total<worstDay.val)worstDay={day:d,val:dp.total};
+    }
+  }
+  const maxAbs=dayProfits.length?Math.max(...dayProfits.map(Math.abs)):1;
+
+  // KPI row
+  const kpis=`<div class="kpi-grid" style="margin-bottom:16px">
+    <div class="kpi"><div class="kpi-label">MONTH P&L</div><div class="kpi-value ${monthTotal>=0?'positive':'negative'}">${fmt(Math.round(monthTotal))}</div></div>
+    <div class="kpi"><div class="kpi-label">BEST DAY</div><div class="kpi-value positive">${bestDay?fmt(Math.round(bestDay.val))+' ('+bestDay.day+')':'—'}</div></div>
+    <div class="kpi"><div class="kpi-label">WORST DAY</div><div class="kpi-value negative">${worstDay?fmt(Math.round(worstDay.val))+' ('+worstDay.day+')':'—'}</div></div>
+    <div class="kpi"><div class="kpi-label">TRADING DAYS</div><div class="kpi-value">${tradingDays}</div></div>
+  </div>`;
+
+  // Month nav
+  const prevMonth=mo===1?`${yr-1}-12`:`${yr}-${String(mo-1).padStart(2,'0')}`;
+  const nextMonth=mo===12?`${yr+1}-01`:`${yr}-${String(mo+1).padStart(2,'0')}`;
+  const nav=`<div class="pnl-month-nav">
+    <button onclick="S.calendarMonth='${prevMonth}';render()">&#9664; Prev</button>
+    <span class="pnl-month-label">${monthName}</span>
+    <button onclick="S.calendarMonth='${nextMonth}';render()">Next &#9654;</button>
+  </div>`;
+
+  // Calendar grid
+  const dows=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  let grid=`<div class="pnl-calendar-grid">`;
+  grid+=dows.map(d=>`<div class="pnl-cal-dow">${d}</div>`).join('');
+  // Empty cells before first day
+  for(let i=0;i<firstDow;i++)grid+=`<div class="pnl-cal-cell empty"></div>`;
+  // Day cells
+  for(let d=1;d<=daysInMonth;d++){
+    const key=`${yr}-${String(mo).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    const dp=dailyPnL[key];
+    let bg='';
+    let amtHtml='';
+    let tradeCount='';
+    if(dp){
+      const alpha=Math.min(0.75,Math.max(0.15,Math.abs(dp.total)/maxAbs*0.75));
+      bg=dp.total>=0?`rgba(34,197,94,${alpha.toFixed(2)})`:`rgba(239,68,68,${alpha.toFixed(2)})`;
+      amtHtml=`<div class="pnl-cal-amt" style="color:${dp.total>=0?'var(--positive)':'var(--negative)'}">${dp.total>=0?'+':''}$${Math.abs(Math.round(dp.total)).toLocaleString()}</div>`;
+      tradeCount=`<div class="pnl-cal-trades">${dp.trades.length} trade${dp.trades.length!==1?'s':''}</div>`;
+    }else{
+      bg='rgba(107,124,147,0.08)';
+    }
+    grid+=`<div class="pnl-cal-cell" style="background:${bg}" onclick="showPnLDayDetail('${key}')">
+      <div class="pnl-cal-day">${d}</div>${amtHtml}${tradeCount}
+    </div>`;
+  }
+  grid+=`</div>`;
+
+  // Bar chart
+  const barChart=`<div class="card" style="margin-top:16px"><div class="card-header"><span class="card-title">DAILY P&L</span></div><div class="card-body"><div style="height:200px"><canvas id="pnl-daily-bar-chart"></canvas></div></div></div>`;
+
+  // Day detail placeholder
+  const detail=`<div id="pnl-day-detail"></div>`;
+
+  // Export button
+  const exportBtn=`<div style="margin-top:16px;text-align:right"><button class="btn btn-info" onclick="exportPDF()">Export PDF</button></div>`;
+
+  return kpis+nav+grid+detail+barChart+exportBtn;
+}
+
+function showPnLDayDetail(dateKey){
+  const dailyPnL=calcDailyPnL();
+  const dp=dailyPnL[dateKey];
+  const el=document.getElementById('pnl-day-detail');
+  if(!el)return;
+  // Toggle off if clicking same day
+  if(el.dataset.active===dateKey){el.innerHTML='';el.dataset.active='';return;}
+  el.dataset.active=dateKey;
+  // Remove old selected
+  document.querySelectorAll('.pnl-cal-cell.selected').forEach(c=>c.classList.remove('selected'));
+  // Find and highlight clicked cell
+  const cells=document.querySelectorAll('.pnl-cal-cell:not(.empty)');
+  const dayNum=parseInt(dateKey.split('-')[2]);
+  if(cells[dayNum-1])cells[dayNum-1].classList.add('selected');
+  if(!dp||!dp.trades.length){
+    el.innerHTML=`<div class="card pnl-day-detail"><div class="card-header"><span class="card-title">${fmtD(dateKey)}</span></div><div class="card-body"><div class="empty-state">No matched trades on this day</div></div></div>`;
+    return;
+  }
+  const rows=dp.trades.map(t=>`<tr>
+    <td>${t.orderNum||'—'}</td>
+    <td class="bold">${t.customer}</td>
+    <td>${t.product}</td>
+    <td class="right">${fmtN(t.volume)} MBF</td>
+    <td class="right">${fmt(t.buyPrice)}</td>
+    <td class="right">${fmt(t.sellPrice)}</td>
+    <td class="right">${fmt(Math.round(t.freight))}</td>
+    <td class="right bold ${t.profit>=0?'positive':'negative'}">${fmt(Math.round(t.profit))}</td>
+  </tr>`).join('');
+  el.innerHTML=`<div class="card pnl-day-detail">
+    <div class="card-header">
+      <span class="card-title">${fmtD(dateKey)} — ${dp.trades.length} Trade${dp.trades.length!==1?'s':''}</span>
+      <span style="font-size:14px;font-weight:700;color:${dp.total>=0?'var(--positive)':'var(--negative)'}">${fmt(Math.round(dp.total))}</span>
+    </div>
+    <div class="card-body" style="padding:0;overflow-x:auto">
+      <table style="font-size:11px">
+        <thead><tr><th>Order#</th><th>Customer</th><th>Product</th><th class="right">Vol</th><th class="right">Buy</th><th class="right">Sell DLVD</th><th class="right">Freight</th><th class="right">Profit</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>
+  </div>`;
+}
+
 function render(){
   renderNav();renderMkt();renderBreadcrumbs();
   updateMobileNav();
@@ -317,7 +440,8 @@ function render(){
             </div>
           </div>
         </div>`;
-      })()}`;
+      })()}
+      <div style="margin-top:16px;text-align:right"><button class="btn btn-info" onclick="exportPDF()">Export PDF</button></div>`;
   }
   else if(S.view==='leaderboard'){
     // Enhanced Department Leaderboard with time periods, achievements, goals
@@ -906,6 +1030,7 @@ function render(){
         <div><strong>${S.trader==='Admin'?'🔑 All Traders':S.trader+"'s Trade Blotter"}</strong> <span style="color:var(--muted)">— ${filteredBuys.length} buys, ${filteredSells.length} sells</span></div>
         <div style="display:flex;align-items:center;gap:8px">
           ${S.trader==='Admin'?'<button class="btn btn-default btn-sm" onclick="showImportModal()">📥 Import CSV</button>':''}
+          <button class="btn btn-info btn-sm" onclick="exportPDF()">Export PDF</button>
           ${S.trader!=='Admin'?`<span style="font-size:10px;color:var(--muted)">📊 See Risk & Leaderboard for dept-wide data</span>`:''}
         </div>
       </div>
@@ -2647,6 +2772,22 @@ function render(){
     if(S.futuresTab==='model')setTimeout(()=>{renderBasisZScoreChart()},10);
     if(S.futuresTab==='basis')setTimeout(()=>{renderBasisChart()},10);
     if(S.futuresTab==='calc')setTimeout(()=>{calcMillDirectHedge();calcBasisTarget()},10);
+  }
+  else if(S.view==='pnl-calendar'){
+    c.innerHTML=renderPnLCalendar();
+    setTimeout(()=>{
+      const dailyPnL=calcDailyPnL();
+      const month=S.calendarMonth||today().slice(0,7);
+      const yr=parseInt(month.split('-')[0]),mo=parseInt(month.split('-')[1]);
+      const daysInMonth=new Date(yr,mo,0).getDate();
+      const labels=[],data=[];
+      for(let d=1;d<=daysInMonth;d++){
+        const key=`${yr}-${String(mo).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+        labels.push(String(d));
+        data.push(dailyPnL[key]?Math.round(dailyPnL[key].total):0);
+      }
+      renderPnLBarChart(labels,data);
+    },10);
   }
   else if(S.view==='settings'){
     const sbUrl=LS('supabaseUrl','')||DEFAULT_SUPABASE_URL;

@@ -205,6 +205,43 @@ function calcWeeklyPerformance(allBuys,allSells){
   return weeks;
 }
 
+// Daily P&L aggregation for calendar heatmap
+// Groups matched sell trades by sell date, calculates profit per trade
+// Ignores date filter so calendar can show any month; respects trader filter
+function calcDailyPnL(){
+  const buyByOrder=buildBuyByOrder();
+  const isAdmin=S.trader==='Admin';
+  const isMyTrade=t=>isAdmin||t===S.trader||!t;
+  const mP=p=>S.filters.prod==='all'||p===S.filters.prod;
+
+  const daily={};
+  S.sells.filter(s=>isMyTrade(s.trader)&&mP(s.product)).forEach(s=>{
+    const ord=String(s.orderNum||s.linkedPO||s.oc||'').trim();
+    const buy=ord?buyByOrder[ord]:null;
+    if(!buy||!s.date)return;
+    const vol=s.volume||0;
+    if(vol<=0)return;
+    const frtPerMBF=vol>0?(s.freight||0)/vol:0;
+    const sellFob=(s.price||0)-frtPerMBF;
+    const buyCost=buy.price||0;
+    const profit=(sellFob-buyCost)*vol;
+    const day=s.date; // YYYY-MM-DD
+    if(!daily[day])daily[day]={total:0,trades:[]};
+    daily[day].total+=profit;
+    daily[day].trades.push({
+      customer:s.customer||'Unknown',
+      product:s.product||'',
+      volume:vol,
+      profit,
+      sellPrice:s.price||0,
+      buyPrice:buyCost,
+      freight:s.freight||0,
+      orderNum:ord
+    });
+  });
+  return daily;
+}
+
 function analytics(){
   const{buys,sells}=filtered();
   const latestRL=S.rl.length?S.rl[S.rl.length-1]:null;

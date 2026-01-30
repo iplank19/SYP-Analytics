@@ -331,6 +331,21 @@ function renderBasisZScoreChart(){
   });
 }
 
+// P&L Calendar daily bar chart
+function renderPnLBarChart(labels,data){
+  if(typeof Chart==='undefined')return;
+  const ctx=document.getElementById('pnl-daily-bar-chart');
+  if(!ctx)return;
+  destroyChart('pnl-daily-bar');
+  const colors=data.map(v=>v>=0?'rgba(34,197,94,0.7)':'rgba(239,68,68,0.7)');
+  const borderColors=data.map(v=>v>=0?'#22c55e':'#ef4444');
+  window._charts['pnl-daily-bar']=new Chart(ctx,{
+    type:'bar',
+    data:{labels,datasets:[{label:'Daily P&L',data,backgroundColor:colors,borderColor:borderColors,borderWidth:1,borderRadius:3}]},
+    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{backgroundColor:'#1a2535',titleColor:'#e8eaed',bodyColor:'#e8eaed',borderColor:'#1e3a5f',borderWidth:1,callbacks:{label:function(ctx){return'Day '+ctx.label+': $'+ctx.parsed.y.toLocaleString(undefined,{minimumFractionDigits:0,maximumFractionDigits:0})}}}},scales:{x:{ticks:{color:'#6b7c93',font:{size:10}},grid:{display:false}},y:{ticks:{color:'#6b7c93',font:{size:10},callback:v=>'$'+v.toLocaleString()},grid:{color:'rgba(255,255,255,0.05)'}}}}
+  });
+}
+
 function generateSpreadTable(rlData){
   const spreads=[
     {name:'2x4/2x6',region:'west',calc:r=>(r.west?.['2x6#2']||0)-(r.west?.['2x4#2']||0)},

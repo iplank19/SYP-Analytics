@@ -470,6 +470,47 @@ function showConfirm(message,onConfirm){
   document.getElementById('confirm-yes-btn').onclick=function(){closeModal();onConfirm()};
 }
 
+// Export current view to PDF
+function exportPDF(){
+  if(typeof html2pdf==='undefined'){
+    showToast('html2pdf library not loaded','negative');
+    return;
+  }
+  showToast('Generating PDF...','info');
+  const content=document.getElementById('content');
+  if(!content)return;
+
+  // Save current theme and switch to light for white-background capture
+  const html=document.documentElement;
+  const prevTheme=html.getAttribute('data-theme');
+  html.setAttribute('data-theme','light');
+  content.classList.add('pdf-export-mode');
+
+  const viewName=NAV.find(n=>n.id===S.view)?.label||S.view;
+  const filename=`SYP_${viewName.replace(/\s+/g,'_')}_${today()}.pdf`;
+
+  const opt={
+    margin:8,
+    filename,
+    image:{type:'jpeg',quality:0.95},
+    html2canvas:{scale:2,useCORS:true,logging:false},
+    jsPDF:{unit:'mm',format:'a4',orientation:'landscape'}
+  };
+
+  html2pdf().set(opt).from(content).save().then(()=>{
+    // Restore theme
+    content.classList.remove('pdf-export-mode');
+    if(prevTheme)html.setAttribute('data-theme',prevTheme);
+    else html.removeAttribute('data-theme');
+    showToast('PDF exported: '+filename,'positive');
+  }).catch(err=>{
+    content.classList.remove('pdf-export-mode');
+    if(prevTheme)html.setAttribute('data-theme',prevTheme);
+    else html.removeAttribute('data-theme');
+    showToast('PDF export failed: '+err.message,'negative');
+  });
+}
+
 // Apply saved theme on load
 (function(){
   const saved=localStorage.getItem('syp_theme');
