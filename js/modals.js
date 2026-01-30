@@ -1984,20 +1984,72 @@ async function saveParsedRL(){
 
 function showImportModal(){
   document.getElementById('modal').innerHTML=`<div class="modal-overlay" onclick="closeModal()"><div class="modal wide" onclick="event.stopPropagation()">
-    <div class="modal-header"><span class="modal-title">📥 IMPORT ORDERS (CSV)</span><button class="modal-close" onclick="closeModal()">×</button></div>
+    <div class="modal-header"><span class="modal-title">📥 IMPORT ORDERS</span><button class="modal-close" onclick="closeModal()">×</button></div>
     <div class="modal-body" id="import-body">
-      <div style="text-align:center;padding:40px 20px">
-        <div style="font-size:14px;font-weight:600;margin-bottom:12px">Upload Daily Order CSV</div>
-        <div style="font-size:11px;color:var(--muted);margin-bottom:20px">AI will parse orders, group by Order #, and identify matched/short/long positions.</div>
-        <div style="margin-bottom:16px">
-          <label class="form-label">Order Date</label>
-          <input type="date" id="import-date" value="${today()}" style="padding:8px;width:200px">
+      <div style="padding:20px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+          <div>
+            <div style="font-size:14px;font-weight:600">Import Orders</div>
+            <div style="font-size:11px;color:var(--muted)">Paste any text — CSV, emails, order confirmations, or free-form descriptions.</div>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px">
+            <label class="form-label" style="margin:0;font-size:10px;white-space:nowrap">Order Date</label>
+            <input type="date" id="import-date" value="${today()}" style="padding:4px 8px;font-size:11px">
+          </div>
         </div>
-        <input type="file" id="import-file" accept=".csv" style="display:none" onchange="processCSVImport(event)">
-        <button class="btn btn-primary" onclick="document.getElementById('import-file').click()" style="padding:12px 32px;font-size:13px">Choose CSV File</button>
+        <div style="display:flex;gap:8px;margin-bottom:12px">
+          <button id="import-mode-ai" class="btn btn-primary btn-sm" onclick="setImportMode('ai')" style="font-size:10px">AI Parser</button>
+          <button id="import-mode-csv" class="btn btn-default btn-sm" onclick="setImportMode('csv')" style="font-size:10px">Classic CSV</button>
+        </div>
+        <div id="import-ai-section">
+          <textarea id="import-text" placeholder="Paste orders here — CSV data, email text, order confirmations, or free-form descriptions...&#10;&#10;Examples:&#10;• CSV rows with headers&#10;• &quot;Sold 5 units 2x4#2 10' to ABC Lumber at $580, buying from XYZ Mill at $450&quot;&#10;• Forwarded order confirmation emails&#10;• Any structured or unstructured order data" style="width:100%;height:200px;font-family:monospace;font-size:11px;padding:12px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);resize:vertical"></textarea>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px">
+            <div style="display:flex;align-items:center;gap:8px">
+              <input type="file" id="import-file-ai" accept=".csv,.txt" style="display:none" onchange="loadFileToTextarea(event)">
+              <button class="btn btn-default btn-sm" onclick="document.getElementById('import-file-ai').click()" style="font-size:10px">📎 Load File</button>
+              <span style="font-size:9px;color:var(--muted)">Or load a CSV/text file into the editor</span>
+            </div>
+            <button class="btn btn-primary" onclick="processAIImport()" style="padding:8px 24px;font-size:12px">Parse with AI</button>
+          </div>
+        </div>
+        <div id="import-csv-section" style="display:none">
+          <div style="text-align:center;padding:40px 20px;border:2px dashed var(--border);border-radius:8px">
+            <div style="font-size:12px;color:var(--muted);margin-bottom:16px">Upload a CSV file in the standard order format</div>
+            <input type="file" id="import-file" accept=".csv" style="display:none" onchange="processCSVImport(event)">
+            <button class="btn btn-primary" onclick="document.getElementById('import-file').click()" style="padding:10px 28px;font-size:12px">Choose CSV File</button>
+          </div>
+        </div>
       </div>
     </div>
   </div></div>`;
+  window._importMode='ai';
+}
+
+function setImportMode(mode){
+  window._importMode=mode;
+  const aiBtn=document.getElementById('import-mode-ai');
+  const csvBtn=document.getElementById('import-mode-csv');
+  const aiSection=document.getElementById('import-ai-section');
+  const csvSection=document.getElementById('import-csv-section');
+  if(mode==='ai'){
+    aiBtn.className='btn btn-primary btn-sm';
+    csvBtn.className='btn btn-default btn-sm';
+    aiSection.style.display='';
+    csvSection.style.display='none';
+  }else{
+    aiBtn.className='btn btn-default btn-sm';
+    csvBtn.className='btn btn-primary btn-sm';
+    aiSection.style.display='none';
+    csvSection.style.display='';
+  }
+}
+
+function loadFileToTextarea(event){
+  const file=event.target.files[0];
+  if(!file)return;
+  file.text().then(text=>{
+    document.getElementById('import-text').value=text;
+  });
 }
 
 async function processCSVImport(event){
@@ -2013,6 +2065,43 @@ async function processCSVImport(event){
       <div style="font-size:14px;font-weight:600;margin-bottom:8px">Parse Error</div>
       <div style="font-size:11px">${e.message}</div>
       <button class="btn btn-default" onclick="showImportModal()" style="margin-top:16px">Try Again</button>
+    </div>`;
+  }
+}
+
+async function processAIImport(){
+  const text=(document.getElementById('import-text')?.value||'').trim();
+  if(!text){alert('Paste some order text first.');return}
+  if(!S.apiKey){alert('Add your Anthropic API key in Settings first.');return}
+
+  const body=document.getElementById('import-body');
+  const parseBtn=body.querySelector('.btn-primary:last-child');
+  const origBtnText=parseBtn?parseBtn.textContent:'';
+  if(parseBtn){parseBtn.disabled=true;parseBtn.textContent='Parsing...';}
+
+  // Show loading state
+  const loadingEl=document.createElement('div');
+  loadingEl.id='ai-import-loading';
+  loadingEl.style.cssText='text-align:center;padding:20px;color:var(--muted);font-size:12px';
+  loadingEl.innerHTML='<div style="margin-bottom:8px">AI is parsing your orders...</div><div class="spinner" style="margin:0 auto"></div>';
+  const textarea=document.getElementById('import-text');
+  if(textarea)textarea.parentNode.insertBefore(loadingEl,textarea.nextSibling);
+
+  try{
+    const orders=await parseOrdersWithAI(text);
+    window._importOrders=orders;
+    showImportPreview(orders);
+  }catch(e){
+    const loadEl=document.getElementById('ai-import-loading');
+    if(loadEl)loadEl.remove();
+    if(parseBtn){parseBtn.disabled=false;parseBtn.textContent=origBtnText;}
+    document.getElementById('import-body').innerHTML=`<div style="text-align:center;padding:40px;color:var(--negative)">
+      <div style="font-size:14px;font-weight:600;margin-bottom:8px">AI Parse Error</div>
+      <div style="font-size:11px;max-height:200px;overflow:auto;text-align:left;background:var(--surface);padding:12px;border-radius:6px;margin-bottom:16px;white-space:pre-wrap;font-family:monospace">${e.message.replace(/</g,'&lt;')}</div>
+      <div style="display:flex;gap:8px;justify-content:center">
+        <button class="btn btn-default" onclick="showImportModal()" style="font-size:11px">Try Again</button>
+        <button class="btn btn-default" onclick="setImportMode('csv');showImportModal()" style="font-size:11px">Use Classic CSV</button>
+      </div>
     </div>`;
   }
 }

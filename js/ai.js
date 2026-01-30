@@ -745,3 +745,124 @@ function parseOrderCSV(csvText){
 
   return orders;
 }
+
+// AI-powered order parser — handles any text format (CSV, emails, free-form, order confirmations)
+async function parseOrdersWithAI(text){
+  if(!S.apiKey)throw new Error('API key required. Add your Anthropic API key in Settings.');
+
+  const customerNames=S.customers.filter(c=>c.type!=='mill').map(c=>c.name);
+  const millNames=S.customers.filter(c=>c.type==='mill').map(c=>c.name);
+
+  const systemPrompt=`You are a lumber trade order parser for Southern Yellow Pine (SYP). Extract structured order data from ANY text format the user provides — CSV data, pasted emails, order confirmations, free-form text descriptions, etc.
+
+PRODUCT FORMAT GUIDE:
+- Standard dimensions: 2x4, 2x6, 2x8, 2x10, 2x12
+- Timbers: 4x4, 4x6, 6x6, etc. (thick >= 4)
+- Grades: #1, #2, #3, CLEAR — written as 2x4#2, 2x6#1, 2x8 CLEAR, etc.
+- MSR/MEL: e.g. "2x4 MSR 2400f", "2x6 MSR 1650f" — include the full designation
+- Product string format: "{dim}{grade}" e.g. "2x4#2", "2x6#1", "2x10 CLEAR"
+
+PCS_PER_UNIT (pieces per unit/bundle):
+- 2x4: 208 pcs/unit
+- 2x6: 128 pcs/unit
+- 2x8: 96 pcs/unit
+- 2x10: 80 pcs/unit
+- 2x12: 64 pcs/unit
+- Timbers (4x4+): flat 20 MBF per order regardless of tally
+
+MBF CALCULATION:
+- MBF = (totalPieces × thick × wide × lengthFt) / 12 / 1000
+- totalPieces = units × pcsPerUnit
+
+REGION MAPPINGS:
+- West: TX, AR, LA, OK, NM, CO, AZ, UT, NV, CA, OR, WA, ID, MT, WY
+- East: NC, SC, GA, FL, VA, MD, DE, NJ, NY, PA, CT, MA, ME, NH, VT, RI, WV, DC
+- Central: all other US states (AL, MS, TN, KY, OH, IN, IL, MO, MI, WI, MN, IA, etc.)
+
+TRADER NAME MAP:
+${JSON.stringify(TRADER_MAP)}
+
+KNOWN CUSTOMERS (use for fuzzy matching):
+${customerNames.length?customerNames.join(', '):'(none)'}
+
+KNOWN MILLS (use for fuzzy matching):
+${millNames.length?millNames.join(', '):'(none)'}
+
+ORDER STATUS RULES:
+- "matched" = has BOTH a mill (buy side) AND a customer (sell side)
+- "short" = has a customer (sell) but NO mill (buy)
+- "long" = has a mill (buy) but NO customer (sell)
+
+OUTPUT FORMAT — Return ONLY a JSON array (no markdown, no explanation), each element:
+{
+  "orderNum": "string — order number or generated ID",
+  "status": "matched|short|long",
+  "buy": {
+    "trader": "full trader name or empty string",
+    "mill": "mill name",
+    "origin": "City, ST format or empty",
+    "product": "e.g. 2x4#2 or 2x4#2 / 2x6#2 for mixed",
+    "region": "west|central|east",
+    "items": [{ "product": "2x4#2", "length": "10", "price": 450, "volume": 34.67, "units": 5 }]
+  },
+  "sell": {
+    "trader": "full trader name or empty string",
+    "customer": "customer name",
+    "destination": "City, ST format or empty",
+    "product": "same as buy.product",
+    "region": "west|central|east",
+    "items": [{ "product": "2x4#2", "length": "10", "price": 580, "volume": 34.67, "units": 5 }]
+  }
+}
+
+RULES:
+- If buy side is missing, set "buy" to null
+- If sell side is missing, set "sell" to null
+- Prices should be numeric (no $ sign), in $/MBF
+- Volume in MBF (thousand board feet), calculated from units/pieces
+- Length as string (just the number, no apostrophe)
+- Match fuzzy customer/mill names to known names when possible
+- Group related line items under the same order number
+- For multi-product orders (e.g. 2x4 + 2x6 on one truck), list each as a separate item and set product to "2x4#2 / 2x6#2"
+- If no order number is present, generate sequential ones like "AI-001", "AI-002", etc.`;
+
+  const res=await fetch('https://api.anthropic.com/v1/messages',{
+    method:'POST',
+    headers:{
+      'Content-Type':'application/json',
+      'x-api-key':S.apiKey,
+      'anthropic-version':'2023-06-01',
+      'anthropic-dangerous-direct-browser-access':'true'
+    },
+    body:JSON.stringify({
+      model:'claude-sonnet-4-20250514',
+      max_tokens:4096,
+      system:systemPrompt,
+      messages:[{role:'user',content:`Parse the following into structured lumber trade orders:\n\n${text}`}]
+    })
+  });
+
+  if(!res.ok){
+    const err=await res.json().catch(()=>({}));
+    throw new Error(err.error?.message||`API error: ${res.status}`);
+  }
+
+  const data=await res.json();
+  const reply=data.content?.[0]?.text||'';
+
+  // Extract JSON from response — handle both raw JSON and markdown-wrapped JSON
+  let jsonStr=reply;
+  const jsonMatch=reply.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/);
+  if(jsonMatch)jsonStr=jsonMatch[1];
+  jsonStr=jsonStr.trim();
+
+  let orders;
+  try{
+    orders=JSON.parse(jsonStr);
+  }catch(e){
+    throw new Error('AI returned invalid JSON. Raw response:\n\n'+reply.slice(0,500));
+  }
+
+  if(!Array.isArray(orders))throw new Error('AI response is not an array of orders.');
+  return orders;
+}
