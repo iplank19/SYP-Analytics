@@ -943,6 +943,119 @@ def delete_mill(id):
 
 # ==================== END CRM API ====================
 
+# ==================== FUTURES DATA PROXY ====================
+
+# CME SYP futures months: F=Jan, H=Mar, K=May, N=Jul, U=Sep, X=Nov
+SYP_MONTHS = [
+    {'code': 'F', 'label': 'Jan', 'yahoo_code': 'F'},
+    {'code': 'H', 'label': 'Mar', 'yahoo_code': 'H'},
+    {'code': 'K', 'label': 'May', 'yahoo_code': 'K'},
+    {'code': 'N', 'label': 'Jul', 'yahoo_code': 'N'},
+    {'code': 'U', 'label': 'Sep', 'yahoo_code': 'U'},
+    {'code': 'X', 'label': 'Nov', 'yahoo_code': 'X'},
+]
+
+futures_cache = {'data': None, 'timestamp': 0}
+FUTURES_CACHE_TTL = 300  # 5 minutes
+
+@app.route('/api/futures/quotes')
+def futures_quotes():
+    """Fetch delayed SYP futures quotes from Yahoo Finance"""
+    now = time.time()
+    if futures_cache['data'] and (now - futures_cache['timestamp']) < FUTURES_CACHE_TTL:
+        return jsonify(futures_cache['data'])
+
+    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+    results = {'contracts': [], 'front': None, 'fetched_at': datetime.now().isoformat()}
+
+    # Determine current and next year for contract symbols
+    current_year = datetime.now().year
+    years = [current_year % 100, (current_year + 1) % 100]
+
+    # Fetch front-month quote
+    try:
+        r = requests.get(
+            'https://query1.finance.yahoo.com/v8/finance/chart/SYP=F?interval=1d&range=max',
+            headers=headers, timeout=10
+        )
+        if r.status_code == 200:
+            data = r.json()
+            if data.get('chart', {}).get('result'):
+                meta = data['chart']['result'][0]['meta']
+                results['front'] = {
+                    'price': meta.get('regularMarketPrice'),
+                    'previousClose': meta.get('previousClose'),
+                    'name': meta.get('shortName', 'SYP Front')
+                }
+                ts_list = data['chart']['result'][0].get('timestamp', [])
+                quote = data['chart']['result'][0].get('indicators', {}).get('quote', [{}])[0]
+                closes = quote.get('close', [])
+                opens = quote.get('open', [])
+                highs = quote.get('high', [])
+                lows = quote.get('low', [])
+                volumes = quote.get('volume', [])
+                results['front']['history'] = [
+                    {'timestamp': ts_list[i], 'close': closes[i],
+                     'open': opens[i] if i < len(opens) else None,
+                     'high': highs[i] if i < len(highs) else None,
+                     'low': lows[i] if i < len(lows) else None,
+                     'volume': volumes[i] if i < len(volumes) else None}
+                    for i in range(len(ts_list)) if i < len(closes) and closes[i] is not None
+                ]
+    except Exception as e:
+        print(f"Front month fetch error: {e}")
+
+    # Fetch individual contract months
+    for month in SYP_MONTHS:
+        for yr in years:
+            symbol = f"SYP{month['yahoo_code']}{yr}.CME"
+            try:
+                r = requests.get(
+                    f'https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?interval=1d&range=max',
+                    headers=headers, timeout=8
+                )
+                if r.status_code == 200:
+                    data = r.json()
+                    if data.get('chart', {}).get('result'):
+                        meta = data['chart']['result'][0]['meta']
+                        price = meta.get('regularMarketPrice')
+                        if price and price > 0:
+                            ts_list = data['chart']['result'][0].get('timestamp', [])
+                            cquote = data['chart']['result'][0].get('indicators', {}).get('quote', [{}])[0]
+                            closes = cquote.get('close', [])
+                            opens = cquote.get('open', [])
+                            highs = cquote.get('high', [])
+                            lows = cquote.get('low', [])
+                            volumes = cquote.get('volume', [])
+                            history = [
+                                {'timestamp': ts_list[i], 'close': closes[i],
+                                 'open': opens[i] if i < len(opens) else None,
+                                 'high': highs[i] if i < len(highs) else None,
+                                 'low': lows[i] if i < len(lows) else None,
+                                 'volume': volumes[i] if i < len(volumes) else None}
+                                for i in range(len(ts_list)) if i < len(closes) and closes[i] is not None
+                            ]
+                            results['contracts'].append({
+                                'symbol': symbol,
+                                'month': month['label'],
+                                'code': month['code'],
+                                'year': 2000 + yr,
+                                'price': price,
+                                'previousClose': meta.get('previousClose'),
+                                'history': history
+                            })
+            except Exception as e:
+                print(f"Contract fetch error {symbol}: {e}")
+            time.sleep(0.2)  # Rate limit
+
+    # Sort contracts by year then month order
+    month_order = {'F': 0, 'H': 1, 'K': 2, 'N': 3, 'U': 4, 'X': 5}
+    results['contracts'].sort(key=lambda c: (c['year'], month_order.get(c['code'], 99)))
+
+    futures_cache['data'] = results
+    futures_cache['timestamp'] = now
+    return jsonify(results)
+
 # Health check for Railway
 @app.route('/health')
 def health():

@@ -117,6 +117,9 @@ async function cloudSync(action='push'){
         // Goals and achievements
         traderGoals:S.traderGoals,
         achievements:S.achievements,
+        // Futures data
+        futuresContracts:S.futuresContracts,
+        futuresParams:S.futuresParams,
         updated_at:new Date().toISOString()
       };
       
@@ -212,6 +215,9 @@ async function cloudSync(action='push'){
         // Goals and achievements
         if(d.traderGoals){S.traderGoals=d.traderGoals;SS('traderGoals',S.traderGoals)}
         if(d.achievements){S.achievements=d.achievements;SS('achievements',S.achievements)}
+        // Futures data
+        if(d.futuresContracts){S.futuresContracts=d.futuresContracts;SS('futuresContracts',S.futuresContracts)}
+        if(d.futuresParams){S.futuresParams=d.futuresParams;SS('futuresParams',S.futuresParams)}
         // Save to local storage too
         await saveAllLocal();
         // Sync pulled customers/mills into SQLite (so loadCRMData finds them)
@@ -246,6 +252,9 @@ async function saveAllLocal(){
   await dbSet('marketBlurb',S.marketBlurb);
   await dbSet('freightBase',S.freightBase);
   await dbSet('shortHaulFloor',S.shortHaulFloor);
+  // Futures data
+  await dbSet('futuresContracts',S.futuresContracts);
+  await dbSet('futuresParams',S.futuresParams);
   // localStorage (backup for small data)
   SS('buys',S.buys);
   SS('sells',S.sells);
@@ -263,6 +272,9 @@ async function saveAllLocal(){
   SS('marketBlurb',S.marketBlurb);
   SS('freightBase',S.freightBase);
   SS('shortHaulFloor',S.shortHaulFloor);
+  // Futures data
+  SS('futuresContracts',S.futuresContracts);
+  SS('futuresParams',S.futuresParams);
 
   // ALWAYS sync trade data to cloud (universal dataset)
   // This ensures Admin sees all trader entries and vice versa
@@ -292,6 +304,9 @@ async function loadAllLocal(){
   S.freightBase=await dbGet('freightBase',LS('freightBase',450));
   S.apiKey=LS('apiKey','');
   S.aiMsgs=LS('aiMsgs',[]);
+  // Futures data
+  S.futuresContracts=await dbGet('futuresContracts',LS('futuresContracts',[]));
+  S.futuresParams=await dbGet('futuresParams',LS('futuresParams',{carryRate:0.08,storageCost:2,insuranceCost:1}));
 }
 
 // Sync pulled customers/mills into SQLite so loadCRMData finds them

@@ -4,13 +4,13 @@ const REGIONS=['west','central','east'];
 const DESTS=['Atlanta','Charlotte','Dallas','Memphis','Birmingham','Chicago','Houston','Nashville','Jacksonville','New Orleans'];
 const MILLS=['Canfor - DeQuincy','Canfor - Urbana','West Fraser - Huttig','West Fraser - Leola','Interfor - Monticello','Interfor - Georgetown','GP - Clarendon','GP - Camden','Rex Lumber - Bristol','Rex Lumber - Graceville','Weyerhaeuser - Dierks','Tolko - Leland'];
 const FREIGHT={west:{Atlanta:96,Charlotte:104,Dallas:40,Memphis:60,Birmingham:85,Chicago:110,Houston:55,Nashville:78},central:{Atlanta:83,Charlotte:91,Dallas:70,Memphis:50,Birmingham:60,Chicago:90,Houston:75,Nashville:55},east:{Atlanta:60,Charlotte:55,Dallas:120,Memphis:80,Birmingham:65,Chicago:84,Houston:115,Nashville:65}};
-const NAV=[{id:'dashboard',icon:'📊',label:'Dashboard'},{id:'leaderboard',icon:'🏆',label:'Leaderboard'},{id:'insights',icon:'🎯',label:'Daily Briefing'},{id:'blotter',icon:'📋',label:'Trade Blotter'},{id:'benchmark',icon:'🎯',label:'vs Market'},{id:'risk',icon:'⚠️',label:'Risk'},{id:'quotes',icon:'💰',label:'Quote Engine'},{id:'products',icon:'📦',label:'By Product'},{id:'crm',icon:'🏢',label:'CRM'},{id:'rldata',icon:'📈',label:'RL Data'},{id:'settings',icon:'⚙️',label:'Settings'}];
+const NAV=[{id:'dashboard',icon:'📊',label:'Dashboard'},{id:'leaderboard',icon:'🏆',label:'Leaderboard'},{id:'insights',icon:'🎯',label:'Daily Briefing'},{id:'blotter',icon:'📋',label:'Trade Blotter'},{id:'benchmark',icon:'🎯',label:'vs Market'},{id:'risk',icon:'⚠️',label:'Risk'},{id:'quotes',icon:'💰',label:'Quote Engine'},{id:'products',icon:'📦',label:'By Product'},{id:'crm',icon:'🏢',label:'CRM'},{id:'rldata',icon:'📈',label:'RL Data'},{id:'futures',icon:'📉',label:'Futures'},{id:'settings',icon:'⚙️',label:'Settings'}];
 
 // Nav groups for collapsible sidebar
 const NAV_GROUPS=[
   {label:'Trading',items:['dashboard','leaderboard','blotter','quotes']},
   {label:'Relationships',items:['crm','products']},
-  {label:'Analytics',items:['insights','benchmark','risk','rldata']},
+  {label:'Analytics',items:['insights','benchmark','risk','rldata','futures']},
   {label:'System',items:['settings']}
 ];
 
@@ -60,8 +60,83 @@ let S={
   traderGoals:LS('traderGoals',{}),
   achievements:LS('achievements',[]),
   crmViewMode:LS('crmViewMode','table'),
-  sidebarCollapsed:LS('sidebarCollapsed',false)
+  sidebarCollapsed:LS('sidebarCollapsed',false),
+  // Futures
+  futuresContracts:LS('futuresContracts',[]),
+  frontHistory:LS('frontHistory',[]),
+  futuresParams:LS('futuresParams',{basisLookback:8,zScoreSellThreshold:-1.5,zScoreBuyThreshold:1.5,defaultHoldWeeks:2,commissionPerContract:1.50}),
+  futuresTab:'chart',
+  aiModel:LS('aiModel','claude-opus-4-0-20250115')
 };
+
+// Migrate old carry-based futures params to new trader model
+if(S.futuresParams.carryRate!==undefined){
+  S.futuresParams={basisLookback:8,zScoreSellThreshold:-1.5,zScoreBuyThreshold:1.5,defaultHoldWeeks:2,commissionPerContract:1.50};
+  SS('futuresParams',S.futuresParams);
+}
+
+// Historical basis at RL dates: pair each RL print with nearest futures close
+function getHistoricalBasis(lookback){
+  const recentRL=S.rl.filter(r=>r.east&&r.east['2x4#2']).slice(-lookback);
+  if(!recentRL.length)return[];
+  const history=getFrontHistory();
+  const frontFut=S.futuresContracts&&S.futuresContracts.length?S.futuresContracts[0]:null;
+  const fallbackPrice=frontFut?frontFut.price:0;
+  return recentRL.map(r=>{
+    const cash=r.east['2x4#2'];
+    const rlTime=new Date(r.date+'T00:00:00').getTime();
+    let futPrice=fallbackPrice;
+    if(history.length){
+      let closest=history[0],minDiff=Math.abs(rlTime-closest.timestamp*1000);
+      for(let i=1;i<history.length;i++){
+        const diff=Math.abs(rlTime-history[i].timestamp*1000);
+        if(diff<minDiff){closest=history[i];minDiff=diff;}
+      }
+      futPrice=closest.close;
+    }
+    return{date:r.date,cash,futPrice,basis:cash-futPrice};
+  });
+}
+
+// Get front-month daily history (OHLCV) — works without RL data
+function getFrontHistory(){
+  // Prefer persisted frontHistory (continuous front month from SYP=F)
+  let history=S.frontHistory&&S.frontHistory.length?S.frontHistory:null;
+  // Fallback to first contract's history
+  if(!history){
+    const frontFut=S.futuresContracts&&S.futuresContracts.length?S.futuresContracts[0]:null;
+    history=frontFut&&frontFut.history&&frontFut.history.length?frontFut.history:null;
+  }
+  // Also check in-memory liveFutures
+  if(!history&&S.liveFutures&&S.liveFutures.front&&S.liveFutures.front.history){
+    history=S.liveFutures.front.history;
+  }
+  if(!history||!history.length)return[];
+  return history.slice().sort((a,b)=>a.timestamp-b.timestamp);
+}
+
+// Daily-resolution basis: every futures trading day with last-known cash carried forward
+// Returns data even without RL — basis/cash will be null if no RL overlap
+function getDailyBasis(){
+  const history=getFrontHistory();
+  if(!history.length)return[];
+  // Build sorted RL cash timeline
+  const rlEntries=S.rl.filter(r=>r.east&&r.east['2x4#2']).map(r=>({
+    time:new Date(r.date+'T00:00:00').getTime(),cash:r.east['2x4#2'],date:r.date
+  })).sort((a,b)=>a.time-b.time);
+  return history.map(h=>{
+    const t=h.timestamp*1000;
+    const d=new Date(t);
+    const dateStr=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+    // Carry forward: most recent RL at or before this trading day (+1 day tolerance)
+    let cash=null;
+    for(let ri=rlEntries.length-1;ri>=0;ri--){
+      if(rlEntries[ri].time<=t+86400000){cash=rlEntries[ri].cash;break;}
+    }
+    const basis=cash!==null?cash-h.close:null;
+    return{date:dateStr,cash,futPrice:h.close,open:h.open||null,high:h.high||null,low:h.low||null,volume:h.volume||null,basis};
+  });
+}
 
 const fmt=(v,d=0)=>v!=null&&!isNaN(v)?`$${Number(v).toLocaleString(undefined,{minimumFractionDigits:d,maximumFractionDigits:d})}`:'—';
 const fmtN=v=>v!=null&&!isNaN(v)?parseFloat(Number(v).toFixed(2)):'—';// max 2 decimals, no trailing zeros

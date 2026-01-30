@@ -538,3 +538,170 @@ async function confirmLinkShort(sellId){
   }
 }
 
+// Save futures contract data from the model tab inputs
+async function saveFuturesData(){
+  const months=['F','H','K','N','U','X'];
+  const labels=['Jan','Mar','May','Jul','Sep','Nov'];
+  const contracts=[];
+  months.forEach((m,i)=>{
+    const priceEl=document.getElementById('fut-price-'+m);
+    const dateEl=document.getElementById('fut-date-'+m);
+    if(priceEl){
+      const price=parseFloat(priceEl.value)||0;
+      const date=dateEl?dateEl.value:'';
+      if(price>0){
+        contracts.push({month:labels[i],code:m,price,date});
+      }
+    }
+  });
+  S.futuresContracts=contracts;
+  // Save params
+  const lb=parseInt(document.getElementById('fut-lookback')?.value);
+  const zs=parseFloat(document.getElementById('fut-z-sell')?.value);
+  const zb=parseFloat(document.getElementById('fut-z-buy')?.value);
+  const cm=parseFloat(document.getElementById('fut-commission')?.value);
+  if(!isNaN(lb))S.futuresParams.basisLookback=lb;
+  if(!isNaN(zs))S.futuresParams.zScoreSellThreshold=zs;
+  if(!isNaN(zb))S.futuresParams.zScoreBuyThreshold=zb;
+  if(!isNaN(cm))S.futuresParams.commissionPerContract=cm;
+  await saveAllLocal();
+  render();
+}
+
+// Fetch live SYP futures from Yahoo Finance via backend proxy
+async function fetchLiveFutures(){
+  const statusEl=document.getElementById('futures-fetch-status');
+  if(statusEl)statusEl.innerHTML='<span style="color:var(--muted)">Fetching live quotes...</span>';
+  try{
+    const r=await fetch('/api/futures/quotes');
+    const data=await r.json();
+    if(!data||!data.contracts||!data.contracts.length){
+      if(statusEl)statusEl.innerHTML='<span style="color:var(--negative)">No live data available</span>';
+      return;
+    }
+    // Store live data for charts — persist front month history for daily charts
+    S.liveFutures=data;
+    if(data.front&&data.front.history){
+      S.frontHistory=data.front.history;
+      SS('frontHistory',S.frontHistory);
+    }
+    // Auto-populate contract grid with live prices
+    const months=['F','H','K','N','U','X'];
+    const labels=['Jan','Mar','May','Jul','Sep','Nov'];
+    const contracts=[];
+    data.contracts.forEach(c=>{
+      contracts.push({month:c.month,code:c.code,price:c.price,date:new Date().toISOString().split('T')[0],year:c.year,symbol:c.symbol,previousClose:c.previousClose,history:c.history||[]});
+    });
+    S.futuresContracts=contracts;
+    await saveAllLocal();
+    if(statusEl){
+      const front=data.front;
+      const change=front&&front.previousClose?front.price-front.previousClose:null;
+      statusEl.innerHTML=`<span style="color:var(--positive)">Live quotes loaded</span>`
+        +`<span style="margin-left:12px;font-weight:600">Front: $${front?front.price:'—'}</span>`
+        +(change!==null?`<span style="margin-left:6px;color:${change>=0?'var(--positive)':'var(--negative)'}">${change>=0?'+':''}${change.toFixed(1)}</span>`:'')
+        +`<span style="margin-left:12px;color:var(--muted);font-size:10px">${data.contracts.length} contracts | ${new Date(data.fetched_at).toLocaleTimeString()}</span>`;
+    }
+    // Render charts with live data
+    renderForwardCurveChart();
+    renderLivePriceChart();
+  }catch(e){
+    if(statusEl)statusEl.innerHTML=`<span style="color:var(--negative)">Fetch failed: ${e.message}</span>`;
+  }
+}
+
+// Mill Direct Hedge Calculator
+function calcMillDirectHedge(){
+  const buy=parseFloat(document.getElementById('calc-buy')?.value)||0;
+  const sell=parseFloat(document.getElementById('calc-sell')?.value)||0;
+  const freight=parseFloat(document.getElementById('calc-freight')?.value)||0;
+  const volume=parseFloat(document.getElementById('calc-volume')?.value)||22;
+  const p=S.futuresParams;
+  const commission=p.commissionPerContract||1.50;
+  const lockedBasis=sell-buy;
+  const netMargin=lockedBasis-freight-commission;
+  const totalPL=Math.round(netMargin*volume);
+  const contracts=volume/22;
+  const perContract=Math.round(totalPL/Math.max(contracts,1));
+  // Compare to rolling average basis (uses historical futures prices paired with RL dates)
+  const lookback=p.basisLookback||8;
+  const historicalBasis=getHistoricalBasis(lookback);
+  const rollingBasisVals=historicalBasis.map(h=>h.basis);
+  const rollingAvg=rollingBasisVals.length?rollingBasisVals.reduce((a,b)=>a+b,0)/rollingBasisVals.length:null;
+  const vsAvg=rollingAvg!==null?Math.round(lockedBasis-rollingAvg):null;
+  const el=document.getElementById('calc-results');
+  if(!el)return;
+  el.innerHTML=`
+    <div style="padding:12px;background:var(--panel-alt);border-radius:6px;border:1px solid var(--border)">
+      <div style="font-size:10px;text-transform:uppercase;color:var(--muted);margin-bottom:4px">Locked Basis</div>
+      <div style="font-size:18px;font-weight:700;color:${lockedBasis>=0?'var(--positive)':'var(--negative)'}">$${lockedBasis}/MBF</div>
+      <div style="font-size:10px;color:var(--muted)">Sell - Buy</div>
+    </div>
+    <div style="padding:12px;background:var(--panel-alt);border-radius:6px;border:1px solid var(--border)">
+      <div style="font-size:10px;text-transform:uppercase;color:var(--muted);margin-bottom:4px">Net Margin</div>
+      <div style="font-size:18px;font-weight:700;color:${netMargin>=0?'var(--positive)':'var(--negative)'}">$${netMargin}/MBF</div>
+      <div style="font-size:10px;color:var(--muted)">Basis - Freight - Commission</div>
+    </div>
+    <div style="padding:12px;background:var(--panel-alt);border-radius:6px;border:1px solid var(--border)">
+      <div style="font-size:10px;text-transform:uppercase;color:var(--muted);margin-bottom:4px">Total P&L</div>
+      <div style="font-size:18px;font-weight:700;color:${totalPL>=0?'var(--positive)':'var(--negative)'}">$${totalPL.toLocaleString()}</div>
+      <div style="font-size:10px;color:var(--muted)">${volume} MBF (${contracts.toFixed(1)} contracts)</div>
+    </div>
+    <div style="padding:12px;background:var(--panel-alt);border-radius:6px;border:1px solid var(--border)">
+      <div style="font-size:10px;text-transform:uppercase;color:var(--muted);margin-bottom:4px">$/Contract</div>
+      <div style="font-size:18px;font-weight:700;color:${perContract>=0?'var(--positive)':'var(--negative)'}">$${perContract.toLocaleString()}</div>
+    </div>
+    <div style="padding:12px;background:var(--panel-alt);border-radius:6px;border:1px solid var(--border)">
+      <div style="font-size:10px;text-transform:uppercase;color:var(--muted);margin-bottom:4px">vs Avg Basis</div>
+      <div style="font-size:18px;font-weight:700;color:${vsAvg!==null?(vsAvg>=0?'var(--positive)':'var(--negative)'):'var(--muted)'}">${vsAvg!==null?(vsAvg>=0?'+':'')+vsAvg:'—'}</div>
+      <div style="font-size:10px;color:var(--muted)">${rollingAvg!==null?'Avg: $'+Math.round(rollingAvg):'No data'}</div>
+    </div>
+  `;
+}
+
+// Basis Target Calculator
+function calcBasisTarget(){
+  const entry=parseFloat(document.getElementById('bt-entry')?.value)||0;
+  const target=parseFloat(document.getElementById('bt-target')?.value)||0;
+  const volume=parseFloat(document.getElementById('bt-volume')?.value)||22;
+  const direction=document.getElementById('bt-direction')?.value||'long';
+  const p=S.futuresParams;
+  const commission=p.commissionPerContract||1.50;
+  const basisMove=direction==='long'?(target-entry):(entry-target);
+  const plPerMBF=basisMove-commission;
+  const totalPL=Math.round(plPerMBF*volume);
+  // Z-score at target basis
+  const lookback=p.basisLookback||8;
+  const historicalBasis=getHistoricalBasis(lookback);
+  const rollingBasisVals=historicalBasis.map(h=>h.basis);
+  const rollingAvg=rollingBasisVals.length?rollingBasisVals.reduce((a,b)=>a+b,0)/rollingBasisVals.length:null;
+  const rollingStdDev=rollingBasisVals.length>1?Math.sqrt(rollingBasisVals.reduce((s,v)=>s+Math.pow(v-rollingAvg,2),0)/(rollingBasisVals.length-1)):null;
+  const zAtTarget=(rollingAvg!==null&&rollingStdDev&&rollingStdDev>0)?(target-rollingAvg)/rollingStdDev:null;
+  const el=document.getElementById('bt-results');
+  if(!el)return;
+  el.innerHTML=`
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px">
+      <div style="padding:12px;background:var(--panel-alt);border-radius:6px;border:1px solid var(--border)">
+        <div style="font-size:10px;text-transform:uppercase;color:var(--muted);margin-bottom:4px">Basis Move</div>
+        <div style="font-size:18px;font-weight:700;color:${basisMove>=0?'var(--positive)':'var(--negative)'}">$${basisMove}/MBF</div>
+        <div style="font-size:10px;color:var(--muted)">${direction==='long'?'Target - Entry':'Entry - Target'}</div>
+      </div>
+      <div style="padding:12px;background:var(--panel-alt);border-radius:6px;border:1px solid var(--border)">
+        <div style="font-size:10px;text-transform:uppercase;color:var(--muted);margin-bottom:4px">P&L per MBF</div>
+        <div style="font-size:18px;font-weight:700;color:${plPerMBF>=0?'var(--positive)':'var(--negative)'}">$${plPerMBF.toFixed(2)}</div>
+        <div style="font-size:10px;color:var(--muted)">Move - $${commission} commission</div>
+      </div>
+      <div style="padding:12px;background:var(--panel-alt);border-radius:6px;border:1px solid var(--border)">
+        <div style="font-size:10px;text-transform:uppercase;color:var(--muted);margin-bottom:4px">Total P&L</div>
+        <div style="font-size:18px;font-weight:700;color:${totalPL>=0?'var(--positive)':'var(--negative)'}">$${totalPL.toLocaleString()}</div>
+        <div style="font-size:10px;color:var(--muted)">${volume} MBF</div>
+      </div>
+      <div style="padding:12px;background:var(--panel-alt);border-radius:6px;border:1px solid var(--border)">
+        <div style="font-size:10px;text-transform:uppercase;color:var(--muted);margin-bottom:4px">Z-Score at Target</div>
+        <div style="font-size:18px;font-weight:700;color:${zAtTarget!==null?(Math.abs(zAtTarget)>=1.5?'var(--negative)':'var(--positive)'):'var(--muted)'}">${zAtTarget!==null?zAtTarget.toFixed(2):'—'}</div>
+        <div style="font-size:10px;color:var(--muted)">${zAtTarget!==null?(zAtTarget<=p.zScoreSellThreshold?'SELL ZONE':zAtTarget>=p.zScoreBuyThreshold?'BUY ZONE':'NEUTRAL'):''}</div>
+      </div>
+    </div>
+  `;
+}
+

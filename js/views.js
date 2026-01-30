@@ -18,6 +18,10 @@ function renderBreadcrumbs(){
   if(S.view==='crm'&&S.crmTab){
     crumb+=` <span>›</span> <span class="bc-current">${S.crmTab.charAt(0).toUpperCase()+S.crmTab.slice(1)}</span>`;
   }
+  if(S.view==='futures'&&S.futuresTab){
+    const tabNames={chart:'Live Chart',model:'Model',basis:'Basis History',calc:'Calculator'};
+    crumb+=` <span>›</span> <span class="bc-current">${tabNames[S.futuresTab]||S.futuresTab}</span>`;
+  }
   bc.innerHTML=crumb;
 }
 
@@ -50,6 +54,36 @@ function toggleAIPanel(){
   if(S.aiPanelOpen)renderAIPanel();
 }
 
+function escapeHtml(t){return t.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+
+function renderMarkdown(text){
+  let h=escapeHtml(text);
+  // Code blocks (``` ... ```)
+  h=h.replace(/```(\w*)\n?([\s\S]*?)```/g,(m,lang,code)=>`<pre><code>${code.trim()}</code></pre>`);
+  // Inline code
+  h=h.replace(/`([^`\n]+)`/g,'<code>$1</code>');
+  // Bold
+  h=h.replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>');
+  // Italic
+  h=h.replace(/\*(.+?)\*/g,'<em>$1</em>');
+  // Numbered lists: lines starting with "1. ", "2. " etc
+  h=h.replace(/(^|\n)(\d+\.\s.+(?:\n\d+\.\s.+)*)/g,(m,pre,block)=>{
+    const items=block.trim().split('\n').map(l=>l.replace(/^\d+\.\s/,''));
+    return pre+'<ol>'+items.map(i=>'<li>'+i+'</li>').join('')+'</ol>';
+  });
+  // Bullet lists: lines starting with "- " or "• "
+  h=h.replace(/(^|\n)([•\-]\s.+(?:\n[•\-]\s.+)*)/g,(m,pre,block)=>{
+    const items=block.trim().split('\n').map(l=>l.replace(/^[•\-]\s/,''));
+    return pre+'<ul>'+items.map(i=>'<li>'+i+'</li>').join('')+'</ul>';
+  });
+  // Line breaks (but not inside block elements)
+  h=h.replace(/\n/g,'<br>');
+  // Clean up <br> after block elements
+  h=h.replace(/<\/(pre|ol|ul)><br>/g,'</$1>');
+  h=h.replace(/<br><(pre|ol|ul)>/g,'<$1>');
+  return h;
+}
+
 function renderAIPanel(){
   const msgs=document.getElementById('ai-msgs');
   if(!msgs)return;
@@ -61,7 +95,7 @@ function renderAIPanel(){
     msgs.innerHTML='<div class="empty-state" style="font-size:10px;padding:20px">Ask me anything about your trading data.<br><br>Examples:<br>• "How am I doing vs market?"<br>• "Which customers are most profitable?"<br>• "What\'s my margin by product?"</div>';
     return;
   }
-  msgs.innerHTML=S.aiMsgs.map(m=>`<div class="ai-msg ${m.role}">${m.content}</div>`).join('');
+  msgs.innerHTML=S.aiMsgs.map(m=>`<div class="ai-msg ${m.role}">${m.role==='user'?escapeHtml(m.content):renderMarkdown(m.content)}</div>`).join('');
   msgs.scrollTop=msgs.scrollHeight;
 }
 
@@ -2333,6 +2367,287 @@ function render(){
         ${!S.rlTab||S.rlTab==='charts'?chartsHTML:(S.rlTab==='analytics'?spreadsHTML:(S.rlTab==='compare'?compareHTML:detailHTML))}
       `}`;
   }
+  else if(S.view==='futures'){
+    const rl=S.rl.length?S.rl[S.rl.length-1]:null;
+    const cashPrice=(rl&&rl.east&&rl.east['2x4#2'])||0;
+    const cashDate=rl?rl.date:'';
+    const p=S.futuresParams;
+    const months=[{label:'Jan',code:'F'},{label:'Mar',code:'H'},{label:'May',code:'K'},{label:'Jul',code:'N'},{label:'Sep',code:'U'},{label:'Nov',code:'X'}];
+
+    // Z-Score computation for trader model (uses historical futures prices paired with RL dates)
+    const lookback=p.basisLookback||8;
+    const frontFut=S.futuresContracts&&S.futuresContracts.length?S.futuresContracts[0]:null;
+    const historicalBasis=getHistoricalBasis(lookback);
+    const currentBasis=cashPrice&&frontFut?cashPrice-frontFut.price:null;
+    const rollingBasisVals=historicalBasis.map(h=>h.basis);
+    const rollingAvg=rollingBasisVals.length?rollingBasisVals.reduce((a,b)=>a+b,0)/rollingBasisVals.length:null;
+    const rollingStdDev=rollingBasisVals.length>1?Math.sqrt(rollingBasisVals.reduce((s,v)=>s+Math.pow(v-rollingAvg,2),0)/(rollingBasisVals.length-1)):null;
+    const basisZScore=(currentBasis!==null&&rollingAvg!==null&&rollingStdDev&&rollingStdDev>0)?(currentBasis-rollingAvg)/rollingStdDev:null;
+    const tradeSignal=basisZScore!==null?(basisZScore<=p.zScoreSellThreshold?'SELL FUTURES':basisZScore>=p.zScoreBuyThreshold?'BUY FUTURES':'NEUTRAL'):null;
+
+    // Build contract rows for model tab
+    const contractMap={};
+    (S.futuresContracts||[]).forEach(c=>{contractMap[c.code]=c});
+    const contractRows=months.map((m,i)=>{
+      const c=contractMap[m.code]||{};
+      const futPrice=c.price||0;
+      const basis=futPrice&&cashPrice?cashPrice-futPrice:null;
+      // Per-contract Z-score: use rolling stats computed above
+      const vsAvg=(basis!==null&&rollingAvg!==null)?Math.round(basis-rollingAvg):null;
+      const contractZ=(basis!==null&&rollingAvg!==null&&rollingStdDev&&rollingStdDev>0)?(basis-rollingAvg)/rollingStdDev:null;
+      const contractSignal=contractZ!==null?(contractZ<=p.zScoreSellThreshold?'SELL':contractZ>=p.zScoreBuyThreshold?'BUY':'—'):null;
+      return{...m,futPrice,basis,vsAvg,contractZ,contractSignal,date:c.date||''};
+    });
+
+    // Basis history stats — daily resolution from futures history
+    const dailyAll=getDailyBasis();
+    const basisHistory=dailyAll;// all daily entries for table (includes null basis)
+    const basisWithCash=dailyAll.filter(b=>b.basis!==null);
+    const basisVals=basisWithCash.map(b=>b.basis);
+    const basisAvg=basisVals.length?Math.round(basisVals.reduce((a,b)=>a+b,0)/basisVals.length):null;
+    const basisMin=basisVals.length?Math.round(Math.min(...basisVals)):null;
+    const basisMax=basisVals.length?Math.round(Math.max(...basisVals)):null;
+    const basisCurrent=basisVals.length?Math.round(basisVals[basisVals.length-1]):null;
+    const basisStdDev=basisVals.length>1?Math.round(Math.sqrt(basisVals.reduce((s,v)=>s+Math.pow(v-(basisAvg||0),2),0)/basisVals.length)):null;
+    const dailyCount=dailyAll.length;
+    // Seasonal avg basis by month (only entries with actual basis)
+    const seasonalBasis={};
+    basisWithCash.forEach(b=>{
+      const mo=new Date(b.date+'T00:00:00').getMonth();
+      if(!seasonalBasis[mo])seasonalBasis[mo]={sum:0,cnt:0};
+      seasonalBasis[mo].sum+=b.basis;seasonalBasis[mo].cnt++;
+    });
+    const moNames=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+    if(!S.futuresTab)S.futuresTab='chart';
+
+    c.innerHTML=`
+      <div class="card" style="margin-bottom:0">
+        <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+          <span class="card-title">CME SYP FUTURES — BASIS & SIGNALS</span>
+          <div style="display:flex;gap:4px">
+            <button class="btn ${S.futuresTab==='chart'?'btn-primary':'btn-default'} btn-sm" onclick="S.futuresTab='chart';render()">Live Chart</button>
+            <button class="btn ${S.futuresTab==='model'?'btn-primary':'btn-default'} btn-sm" onclick="S.futuresTab='model';render()">Model</button>
+            <button class="btn ${S.futuresTab==='basis'?'btn-primary':'btn-default'} btn-sm" onclick="S.futuresTab='basis';render()">Basis History</button>
+            <button class="btn ${S.futuresTab==='calc'?'btn-primary':'btn-default'} btn-sm" onclick="S.futuresTab='calc';render()">Calculator</button>
+          </div>
+        </div>
+      </div>
+
+      ${S.futuresTab==='chart'?`
+      <div style="margin-top:12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <button class="btn btn-success" onclick="fetchLiveFutures()">Fetch Live Quotes</button>
+        <a href="https://www.tradingview.com/symbols/CME-SYP1!/" target="_blank" rel="noopener" class="btn btn-default" style="text-decoration:none">TradingView</a>
+        <a href="https://www.cmegroup.com/markets/agriculture/lumber-and-softs/southern-yellow-pine.quotes.html" target="_blank" rel="noopener" class="btn btn-default" style="text-decoration:none">CME Quotes</a>
+        <a href="https://www.barchart.com/futures/quotes/MYP*0/futures-prices" target="_blank" rel="noopener" class="btn btn-default" style="text-decoration:none">Barchart</a>
+      </div>
+      <div id="futures-fetch-status" style="margin-top:8px;font-size:12px"></div>
+
+      <div class="card" style="margin-top:12px">
+        <div class="card-header"><span class="card-title">SYP FRONT-MONTH DAILY</span></div>
+        <div class="card-body" style="height:300px">
+          <canvas id="syp-live-price-chart"></canvas>
+          ${!S.liveFutures||!S.liveFutures.front?'<div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--muted)">Click "Fetch Live Quotes" to load price data</div>':''}
+        </div>
+      </div>
+
+      <div class="grid-2" style="margin-top:12px">
+        <div class="card">
+          <div class="card-header"><span class="card-title">SYP FORWARD CURVE</span></div>
+          <div class="card-body" style="height:250px">
+            ${S.futuresContracts&&S.futuresContracts.length?'<canvas id="syp-curve-chart"></canvas>':'<div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--muted)">Fetch live quotes or enter prices in Model tab</div>'}
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-header"><span class="card-title">ACTIVE CONTRACTS</span></div>
+          <div class="card-body" style="overflow-y:auto">
+            ${S.futuresContracts&&S.futuresContracts.length?`
+              <table style="width:100%;font-size:12px">
+                <thead><tr style="color:var(--muted);font-size:10px;text-transform:uppercase">
+                  <th style="text-align:left;padding:6px 8px">Contract</th>
+                  <th style="text-align:right;padding:6px 8px">Price</th>
+                  <th style="text-align:right;padding:6px 8px">Basis</th>
+                  <th style="text-align:right;padding:6px 8px">Spread</th>
+                </tr></thead>
+                <tbody>${S.futuresContracts.map((c,i)=>{
+                  const basis=cashPrice?cashPrice-c.price:null;
+                  const prev=i>0?c.price-S.futuresContracts[i-1].price:null;
+                  return`<tr>
+                    <td style="padding:6px 8px;font-weight:600">${c.month}${c.year?' '+(c.year||''):''} <span style="color:var(--muted);font-weight:400">${c.code}</span></td>
+                    <td style="padding:6px 8px;text-align:right;font-weight:600">${fmt(c.price)}</td>
+                    <td style="padding:6px 8px;text-align:right;color:${basis!==null?(basis>=0?'var(--positive)':'var(--negative)'):'var(--muted)'}">${basis!==null?(basis>=0?'+':'')+basis:'—'}</td>
+                    <td style="padding:6px 8px;text-align:right;color:${prev!==null?(prev>0?'var(--negative)':'var(--positive)'):'var(--muted)'}">${prev!==null?(prev>0?'+':'')+prev:'—'}</td>
+                  </tr>`}).join('')}</tbody>
+              </table>
+              <div style="margin-top:8px;padding:8px;background:var(--panel-alt);border-radius:4px;font-size:11px">
+                <span style="color:var(--muted)">Cash (East 2x4#2):</span> <span style="font-weight:600">${cashPrice?fmt(cashPrice):'—'}</span>
+                ${cashDate?`<span style="color:var(--muted);margin-left:8px">as of</span> <span>${fmtD(cashDate)}</span>`:''}
+              </div>
+            `:'<div style="padding:20px;text-align:center;color:var(--muted)">Click "Fetch Live Quotes" to load contract data</div>'}
+          </div>
+        </div>
+      </div>
+      `:''}
+
+      ${S.futuresTab==='model'?`
+      <div class="kpi-grid" style="margin-top:12px">
+        <div class="kpi"><div class="kpi-label">CASH PRICE (EAST 2x4#2)</div><div><span class="kpi-value">${cashPrice?fmt(cashPrice):'—'}</span><span class="kpi-sub">${cashDate?fmtD(cashDate):''}</span></div></div>
+        <div class="kpi"><div class="kpi-label">FRONT BASIS</div><div><span class="kpi-value ${currentBasis!==null?(currentBasis>=0?'positive':'negative'):''}">${currentBasis!==null?(currentBasis>=0?'+':'')+currentBasis:'—'}</span></div></div>
+        <div class="kpi"><div class="kpi-label">BASIS Z-SCORE</div><div><span class="kpi-value ${basisZScore!==null?(Math.abs(basisZScore)>=1.5?'warn':''):''}">${basisZScore!==null?basisZScore.toFixed(2):'—'}</span></div></div>
+        <div class="kpi"><div class="kpi-label">SIGNAL</div><div><span class="kpi-value" style="color:${tradeSignal==='SELL FUTURES'?'var(--negative)':tradeSignal==='BUY FUTURES'?'var(--positive)':'var(--muted)'}">${tradeSignal||'—'}</span></div></div>
+      </div>
+
+      <div class="card" style="margin-top:12px">
+        <div class="card-header"><span class="card-title">CONTRACT GRID</span></div>
+        <div class="card-body" style="overflow-x:auto">
+          <table style="width:100%;font-size:12px">
+            <thead><tr style="color:var(--muted);font-size:10px;text-transform:uppercase">
+              <th style="text-align:left;padding:6px 8px">Month</th>
+              <th style="text-align:left;padding:6px 8px">Code</th>
+              <th style="text-align:right;padding:6px 8px">Futures Price</th>
+              <th style="text-align:right;padding:6px 8px">Basis</th>
+              <th style="text-align:right;padding:6px 8px">vs Avg</th>
+              <th style="text-align:right;padding:6px 8px">Z-Score</th>
+              <th style="text-align:right;padding:6px 8px">Signal</th>
+            </tr></thead>
+            <tbody>
+              ${contractRows.map(r=>`<tr>
+                <td style="padding:6px 8px;font-weight:600">${r.label}</td>
+                <td style="padding:6px 8px;color:var(--muted)">${r.code}</td>
+                <td style="padding:6px 8px;text-align:right"><input type="number" id="fut-price-${r.code}" value="${r.futPrice||''}" placeholder="0" style="width:80px;text-align:right" onchange="saveFuturesData()"></td>
+                <td style="padding:6px 8px;text-align:right;font-weight:600;color:${r.basis!==null?(r.basis>=0?'var(--positive)':'var(--negative)'):'var(--muted)'}">${r.basis!==null?(r.basis>=0?'+':'')+r.basis:'—'}</td>
+                <td style="padding:6px 8px;text-align:right;color:${r.vsAvg!==null?(r.vsAvg>=0?'var(--positive)':'var(--negative)'):'var(--muted)'}">${r.vsAvg!==null?(r.vsAvg>=0?'+':'')+r.vsAvg:'—'}</td>
+                <td style="padding:6px 8px;text-align:right;font-weight:600;color:${r.contractZ!==null?(Math.abs(r.contractZ)>=1.5?'var(--negative)':'var(--text)'):'var(--muted)'}">${r.contractZ!==null?r.contractZ.toFixed(2):'—'}</td>
+                <td style="padding:6px 8px;text-align:right;font-weight:600;color:${r.contractSignal==='SELL'?'var(--negative)':r.contractSignal==='BUY'?'var(--positive)':'var(--muted)'}">${r.contractSignal||'—'}</td>
+              </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top:12px">
+        <div class="card-header"><span class="card-title">SIGNAL PARAMETERS</span></div>
+        <div class="card-body">
+          <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:end">
+            <div class="form-group" style="margin:0"><label class="form-label">Lookback (RL prints)</label><input type="number" id="fut-lookback" value="${p.basisLookback||8}" min="2" max="52" style="width:80px" onchange="saveFuturesData()"></div>
+            <div class="form-group" style="margin:0"><label class="form-label">Sell Threshold (Z)</label><input type="number" id="fut-z-sell" value="${p.zScoreSellThreshold||-1.5}" step="0.1" style="width:80px" onchange="saveFuturesData()"></div>
+            <div class="form-group" style="margin:0"><label class="form-label">Buy Threshold (Z)</label><input type="number" id="fut-z-buy" value="${p.zScoreBuyThreshold||1.5}" step="0.1" style="width:80px" onchange="saveFuturesData()"></div>
+            <div class="form-group" style="margin:0"><label class="form-label">Commission ($/MBF)</label><input type="number" id="fut-commission" value="${p.commissionPerContract||1.50}" step="0.25" style="width:80px" onchange="saveFuturesData()"></div>
+            <div style="font-size:11px;color:var(--muted)">Z = (basis - avg) / stdDev over last N prints</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="grid-2" style="margin-top:12px">
+        <div class="card"><div class="card-header"><span class="card-title">BASIS Z-SCORE</span></div><div class="card-body" style="height:220px"><canvas id="basis-zscore-chart"></canvas></div></div>
+        <div class="card"><div class="card-header"><span class="card-title">CONTRACT SPECS</span></div><div class="card-body" style="font-size:11px">
+          <div style="display:grid;grid-template-columns:auto 1fr;gap:6px 12px;color:var(--muted)">
+            <span>Ticker:</span><span style="color:var(--text);font-weight:600">SYP</span>
+            <span>Exchange:</span><span style="color:var(--text)">CME Group</span>
+            <span>Size:</span><span style="color:var(--text)">22,000 board feet</span>
+            <span>Settlement:</span><span style="color:var(--text)">Cash-settled</span>
+            <span>Reference:</span><span style="color:var(--text)">Fastmarkets KD SYP East 2x4 RL FOB Mill</span>
+            <span>Tick:</span><span style="color:var(--text)">$0.50/MBF = $11.00/contract</span>
+            <span>Months:</span><span style="color:var(--text)">F H K N U X (Jan Mar May Jul Sep Nov)</span>
+            <span>Launch:</span><span style="color:var(--text)">March 2025</span>
+          </div>
+        </div></div>
+      </div>
+      `:''}
+
+      ${S.futuresTab==='basis'?`
+      <div class="kpi-grid" style="margin-top:12px">
+        <div class="kpi"><div class="kpi-label">CURRENT BASIS</div><div><span class="kpi-value ${basisCurrent!==null?(basisCurrent>=0?'positive':'negative'):''}">${basisCurrent!==null?'$'+basisCurrent:'—'}</span></div></div>
+        <div class="kpi"><div class="kpi-label">AVG BASIS</div><div><span class="kpi-value">${basisAvg!==null?'$'+basisAvg:'—'}</span></div></div>
+        <div class="kpi"><div class="kpi-label">MIN / MAX</div><div><span class="kpi-value">${basisMin!==null?'$'+basisMin+' / $'+basisMax:'—'}</span></div></div>
+        <div class="kpi"><div class="kpi-label">STD DEV</div><div><span class="kpi-value">${basisStdDev!==null?'$'+basisStdDev:'—'}</span></div></div>
+      </div>
+
+      <div class="card" style="margin-top:12px">
+        <div class="card-header"><span class="card-title">BASIS HISTORY (DAILY)</span></div>
+        <div class="card-body" style="height:280px"><canvas id="basis-history-chart"></canvas></div>
+      </div>
+
+      ${dailyCount>0?`<div class="grid-2" style="margin-top:12px">
+        <div class="card">
+          <div class="card-header"><span class="card-title">DAILY PRICE HISTORY (${dailyCount} days)</span></div>
+          <div class="card-body" style="max-height:300px;overflow-y:auto">
+            <table style="width:100%;font-size:11px">
+              <thead><tr style="color:var(--muted);text-transform:uppercase;font-size:10px">
+                <th style="text-align:left;padding:4px 8px">Date</th>
+                <th style="text-align:right;padding:4px 8px">Futures</th>
+                <th style="text-align:right;padding:4px 8px">Volume</th>
+                <th style="text-align:right;padding:4px 8px">Cash</th>
+                <th style="text-align:right;padding:4px 8px">Basis</th>
+              </tr></thead>
+              <tbody>${basisHistory.slice(-60).reverse().map(b=>`<tr>
+                <td style="padding:4px 8px">${fmtD(b.date)}</td>
+                <td style="padding:4px 8px;text-align:right;font-weight:600">${fmt(b.futPrice)}</td>
+                <td style="padding:4px 8px;text-align:right;color:var(--muted)">${b.volume?b.volume.toLocaleString():'—'}</td>
+                <td style="padding:4px 8px;text-align:right">${b.cash!==null?fmt(b.cash):'<span style="color:var(--muted)">—</span>'}</td>
+                <td style="padding:4px 8px;text-align:right;font-weight:600;color:${b.basis!==null?(b.basis>=0?'var(--positive)':'var(--negative)'):'var(--muted)'}">${b.basis!==null?'$'+Math.round(b.basis):'—'}</td>
+              </tr>`).join('')}</tbody>
+            </table>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-header"><span class="card-title">SEASONAL PATTERN (AVG BASIS BY MONTH)</span></div>
+          <div class="card-body">
+            <table style="width:100%;font-size:11px">
+              <thead><tr style="color:var(--muted);text-transform:uppercase;font-size:10px">
+                <th style="text-align:left;padding:4px 8px">Month</th>
+                <th style="text-align:right;padding:4px 8px">Avg Basis</th>
+                <th style="text-align:right;padding:4px 8px">Samples</th>
+              </tr></thead>
+              <tbody>${moNames.map((name,i)=>{
+                const s=seasonalBasis[i];
+                return s?`<tr>
+                  <td style="padding:4px 8px">${name}</td>
+                  <td style="padding:4px 8px;text-align:right;font-weight:600;color:${Math.round(s.sum/s.cnt)>=0?'var(--positive)':'var(--negative)'}">$${Math.round(s.sum/s.cnt)}</td>
+                  <td style="padding:4px 8px;text-align:right;color:var(--muted)">${s.cnt}</td>
+                </tr>`:''}).filter(Boolean).join('')}
+                ${Object.keys(seasonalBasis).length===0?'<tr><td colspan="3" style="padding:12px;color:var(--muted);text-align:center">No data — enter futures prices and RL data</td></tr>':''}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>`:`<div class="card" style="margin-top:12px"><div class="card-body" style="text-align:center;padding:40px;color:var(--muted)">Click "Fetch Live Quotes" on the Live Chart tab to load historical futures data. Add RL data to see basis overlay.</div></div>`}
+      `:''}
+
+      ${S.futuresTab==='calc'?`
+      <div class="card" style="margin-top:12px">
+        <div class="card-header"><span class="card-title">MILL DIRECT HEDGE CALCULATOR</span></div>
+        <div class="card-body">
+          <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:end;margin-bottom:20px">
+            <div class="form-group" style="margin:0"><label class="form-label">Mill Buy Price ($/MBF)</label><input type="number" id="calc-buy" value="${cashPrice||''}" placeholder="0" style="width:100px" onchange="calcMillDirectHedge()"></div>
+            <div class="form-group" style="margin:0"><label class="form-label">Futures Sell Price ($/MBF)</label><input type="number" id="calc-sell" value="${frontFut?frontFut.price:''}" placeholder="0" style="width:100px" onchange="calcMillDirectHedge()"></div>
+            <div class="form-group" style="margin:0"><label class="form-label">Freight ($/MBF)</label><input type="number" id="calc-freight" value="0" placeholder="0" style="width:80px" onchange="calcMillDirectHedge()"></div>
+            <div class="form-group" style="margin:0"><label class="form-label">Volume (MBF)</label><input type="number" id="calc-volume" value="22" style="width:80px" onchange="calcMillDirectHedge()"></div>
+          </div>
+          <div id="calc-results" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px">
+          </div>
+        </div>
+      </div>
+      <div class="card" style="margin-top:12px">
+        <div class="card-header"><span class="card-title">BASIS TARGET CALCULATOR</span></div>
+        <div class="card-body">
+          <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:end;margin-bottom:20px">
+            <div class="form-group" style="margin:0"><label class="form-label">Entry Basis ($/MBF)</label><input type="number" id="bt-entry" value="${currentBasis||''}" placeholder="0" style="width:100px" onchange="calcBasisTarget()"></div>
+            <div class="form-group" style="margin:0"><label class="form-label">Target Basis ($/MBF)</label><input type="number" id="bt-target" value="" placeholder="0" style="width:100px" onchange="calcBasisTarget()"></div>
+            <div class="form-group" style="margin:0"><label class="form-label">Volume (MBF)</label><input type="number" id="bt-volume" value="22" style="width:80px" onchange="calcBasisTarget()"></div>
+            <div class="form-group" style="margin:0"><label class="form-label">Direction</label><select id="bt-direction" onchange="calcBasisTarget()" style="width:90px"><option value="long">Long</option><option value="short">Short</option></select></div>
+          </div>
+          <div id="bt-results" style="font-size:13px;color:var(--muted)"></div>
+        </div>
+      </div>
+      `:''}
+    `;
+    // Run calc functions and charts after DOM renders
+    if(S.futuresTab==='chart')setTimeout(()=>{renderForwardCurveChart();renderLivePriceChart()},10);
+    if(S.futuresTab==='model')setTimeout(()=>{renderBasisZScoreChart()},10);
+    if(S.futuresTab==='basis')setTimeout(()=>{renderBasisChart()},10);
+    if(S.futuresTab==='calc')setTimeout(()=>{calcMillDirectHedge();calcBasisTarget()},10);
+  }
   else if(S.view==='settings'){
     const sbUrl=LS('supabaseUrl','')||DEFAULT_SUPABASE_URL;
     const sbKey=LS('supabaseKey','')||DEFAULT_SUPABASE_KEY;
@@ -2347,6 +2662,14 @@ function render(){
           <div style="color:var(--muted);font-size:10px;margin-top:4px">Get your key at console.anthropic.com • Required for AI features</div>
         </div>
         <button class="btn btn-primary" onclick="saveKey()">Save API Key</button>
+        <div class="form-group" style="margin-top:16px">
+          <label class="form-label">AI Chat Model</label>
+          <select id="ai-model" onchange="S.aiModel=this.value;save('aiModel',S.aiModel)" style="width:100%;max-width:500px;padding:8px">
+            <option value="claude-opus-4-0-20250115"${S.aiModel==='claude-opus-4-0-20250115'?' selected':''}>Claude Opus 4 (Best reasoning, higher cost)</option>
+            <option value="claude-sonnet-4-20250514"${S.aiModel==='claude-sonnet-4-20250514'?' selected':''}>Claude Sonnet 4 (Fast, lower cost)</option>
+          </select>
+          <div style="color:var(--muted);font-size:10px;margin-top:4px">Opus is used for chat; Sonnet is always used for order parsing & quote pricing</div>
+        </div>
       </div></div>
       
       <div class="card"><div class="card-header"><span class="card-title warn">🔒 YOUR PROFILE: ${S.trader}</span></div><div class="card-body">

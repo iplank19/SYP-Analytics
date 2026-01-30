@@ -6,6 +6,85 @@ window._charts={};
 function destroyChart(id){if(window._charts[id]){window._charts[id].destroy();delete window._charts[id]}}
 function destroyAllCharts(){Object.keys(window._charts).forEach(destroyChart)}
 
+// SYP Forward Curve chart — plots contract prices across months
+function renderForwardCurveChart(){
+  if(typeof Chart==='undefined')return;
+  const ctx=document.getElementById('syp-curve-chart');
+  if(!ctx||!S.futuresContracts||!S.futuresContracts.length)return;
+  destroyChart('syp-curve');
+  const rl=S.rl.length?S.rl[S.rl.length-1]:null;
+  const cashPrice=(rl&&rl.east&&rl.east['2x4#2'])||0;
+  const labels=S.futuresContracts.map(c=>c.month);
+  const prices=S.futuresContracts.map(c=>c.price);
+  const datasets=[{
+    label:'Futures Price',data:prices,borderColor:'#f5a623',backgroundColor:'rgba(245,166,35,0.15)',tension:0.3,fill:true,pointRadius:5,pointBackgroundColor:'#f5a623',borderWidth:2.5
+  }];
+  // Add cash price line if available
+  if(cashPrice){
+    datasets.push({
+      label:'Cash (East 2x4#2)',data:labels.map(()=>cashPrice),borderColor:'#3b82f6',borderWidth:2,borderDash:[6,4],pointRadius:0,fill:false
+    });
+  }
+  window._charts['syp-curve']=new Chart(ctx,{
+    type:'line',
+    data:{labels,datasets},
+    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{color:'#6b7c93',font:{size:11,family:'Inter'}}},tooltip:{mode:'index',intersect:false,backgroundColor:'#1a2535',titleColor:'#e8eaed',bodyColor:'#e8eaed',borderColor:'#1e3a5f',borderWidth:1}},scales:{x:{ticks:{color:'#6b7c93',font:{size:11}},grid:{color:'rgba(255,255,255,0.05)'}},y:{ticks:{color:'#6b7c93',font:{size:10},callback:v=>'$'+v},grid:{color:'rgba(255,255,255,0.05)'}}}}
+  });
+}
+
+// Live SYP daily price chart with volume — uses persisted front history as fallback
+function renderLivePriceChart(){
+  if(typeof Chart==='undefined')return;
+  const ctx=document.getElementById('syp-live-price-chart');
+  if(!ctx)return;
+  destroyChart('syp-live-price');
+  const history=getFrontHistory();
+  if(history.length<2)return;
+  const labels=history.map(h=>{const d=new Date(h.timestamp*1000);return d.toLocaleDateString('en-US',{month:'short',day:'numeric'})});
+  const prices=history.map(h=>h.close);
+  const volumes=history.map(h=>h.volume||null);
+  const hasVol=volumes.some(v=>v&&v>0);
+  const datasets=[{label:'SYP Front Month',data:prices,borderColor:'#f5a623',backgroundColor:'rgba(245,166,35,0.1)',tension:0.3,fill:true,pointRadius:0,borderWidth:2.5,yAxisID:'y'}];
+  if(hasVol){
+    datasets.push({label:'Volume',data:volumes,type:'bar',backgroundColor:'rgba(255,255,255,0.08)',borderColor:'rgba(255,255,255,0.15)',borderWidth:1,yAxisID:'yVol',barPercentage:0.8,categoryPercentage:1.0,order:10});
+  }
+  const scales={x:{ticks:{color:'#6b7c93',font:{size:10},maxTicksLimit:12},grid:{color:'rgba(255,255,255,0.05)'}},y:{ticks:{color:'#6b7c93',font:{size:10},callback:v=>'$'+v},grid:{color:'rgba(255,255,255,0.05)'}}};
+  if(hasVol)scales.yVol={display:false,beginAtZero:true,max:Math.max(...volumes.filter(Boolean))*4};
+  window._charts['syp-live-price']=new Chart(ctx,{
+    type:'line',
+    data:{labels,datasets},
+    options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},plugins:{legend:{labels:{color:'#6b7c93',font:{size:11,family:'Inter'},filter:item=>item.text!=='Volume'}},tooltip:{mode:'index',intersect:false,backgroundColor:'#1a2535',titleColor:'#e8eaed',bodyColor:'#e8eaed',borderColor:'#1e3a5f',borderWidth:1,callbacks:{label:function(ctx){if(ctx.dataset.label==='Volume')return'Vol: '+(ctx.parsed.y?ctx.parsed.y.toLocaleString():'—');return'$'+ctx.parsed.y+'/MBF'}}}},scales}
+  });
+}
+
+// Cash vs Futures over time — daily resolution from front-month history
+function renderCashVsFuturesChart(){
+  if(typeof Chart==='undefined')return;
+  const ctx=document.getElementById('syp-cash-fut-chart');
+  if(!ctx)return;
+  destroyChart('syp-cash-fut');
+  const daily=getDailyBasis();
+  if(daily.length<2)return;
+  const nearestFut=S.futuresContracts&&S.futuresContracts.length?S.futuresContracts[0]:null;
+  const labels=daily.map(d=>fmtD(d.date));
+  const futData=daily.map(d=>d.futPrice);
+  const hasCash=daily.some(d=>d.cash!==null);
+  const datasets=[
+    {label:(nearestFut?nearestFut.month:'SYP')+' Futures',data:futData,borderColor:'#f5a623',backgroundColor:'rgba(245,166,35,0.1)',tension:0.3,fill:false,pointRadius:0,borderWidth:2.5}
+  ];
+  if(hasCash){
+    datasets.push({label:'Cash (East 2x4#2)',data:daily.map(d=>d.cash),borderColor:'#3b82f6',backgroundColor:'rgba(59,130,246,0.1)',tension:0.3,fill:false,pointRadius:0,borderWidth:2});
+    datasets.push({label:'Basis',data:daily.map(d=>d.basis!==null?Math.round(d.basis):null),borderColor:'#00d4aa',backgroundColor:'rgba(0,212,170,0.1)',tension:0.3,fill:true,pointRadius:0,borderWidth:2,yAxisID:'y1'});
+  }
+  const scales={x:{ticks:{color:'#6b7c93',font:{size:9},maxTicksLimit:12,maxRotation:45},grid:{color:'rgba(255,255,255,0.05)'}},y:{position:'left',ticks:{color:'#6b7c93',font:{size:10},callback:v=>'$'+v},grid:{color:'rgba(255,255,255,0.05)'}}};
+  if(hasCash)scales.y1={position:'right',ticks:{color:'#00d4aa',font:{size:10},callback:v=>'$'+v},grid:{display:false}};
+  window._charts['syp-cash-fut']=new Chart(ctx,{
+    type:'line',
+    data:{labels,datasets},
+    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{color:'#6b7c93',font:{size:10,family:'Inter'}}},tooltip:{mode:'index',intersect:false,backgroundColor:'#1a2535',titleColor:'#e8eaed',bodyColor:'#e8eaed'}},scales}
+  });
+}
+
 // Chart.js dashboard charts
 function renderDashboardCharts(){
   if(typeof Chart==='undefined')return;
@@ -186,6 +265,70 @@ function generateBarChart(data,color){
     const y=val>=0?midY-height:midY;
     return`<rect x="${x}%" y="${y}%" width="${barWidth*0.8}%" height="${height}%" fill="${val>=0?color:'var(--negative)'}" opacity="0.8"/>`;
   }).join('');
+}
+
+// Futures basis history chart
+function renderBasisChart(){
+  if(typeof Chart==='undefined')return;
+  const ctx=document.getElementById('basis-history-chart');
+  if(!ctx)return;
+  destroyChart('basis-history');
+  const daily=getDailyBasis();
+  if(daily.length<2)return;
+  const nearestFut=S.futuresContracts&&S.futuresContracts.length?S.futuresContracts[0]:null;
+  const labels=daily.map(d=>fmtD(d.date));
+  const futData=daily.map(d=>d.futPrice);
+  const volData=daily.map(d=>d.volume);
+  const hasCash=daily.some(d=>d.cash!==null);
+  const datasets=[
+    {label:(nearestFut?nearestFut.month:'SYP')+' Futures',data:futData,borderColor:'#f5a623',backgroundColor:'rgba(245,166,35,0.1)',tension:0.3,fill:false,pointRadius:0,borderWidth:2.5,yAxisID:'y'}
+  ];
+  if(hasCash){
+    datasets.push({label:'Cash (East 2x4#2)',data:daily.map(d=>d.cash),borderColor:'#3b82f6',backgroundColor:'rgba(59,130,246,0.1)',tension:0.3,fill:false,pointRadius:0,borderWidth:2,yAxisID:'y'});
+    datasets.push({label:'Basis',data:daily.map(d=>d.basis!==null?Math.round(d.basis):null),borderColor:'#00d4aa',backgroundColor:'rgba(0,212,170,0.15)',tension:0.3,fill:true,pointRadius:0,borderWidth:2,yAxisID:'y2'});
+  }
+  // Volume bars
+  const hasVol=volData.some(v=>v&&v>0);
+  if(hasVol){
+    datasets.push({label:'Volume',data:volData,type:'bar',backgroundColor:'rgba(255,255,255,0.08)',borderColor:'rgba(255,255,255,0.15)',borderWidth:1,yAxisID:'yVol',barPercentage:0.8,categoryPercentage:1.0,order:10});
+  }
+  const scales={x:{ticks:{color:'#6b7c93',font:{size:10},maxTicksLimit:12},grid:{color:'rgba(255,255,255,0.05)'}},y:{position:'left',ticks:{color:'#6b7c93',font:{size:10},callback:v=>'$'+v},grid:{color:'rgba(255,255,255,0.05)'}}};
+  if(hasCash)scales.y2={position:'right',ticks:{color:'#00d4aa',font:{size:10},callback:v=>'$'+v},grid:{display:false}};
+  if(hasVol)scales.yVol={position:'right',display:false,beginAtZero:true,max:Math.max(...volData.filter(Boolean))*4};
+  window._charts['basis-history']=new Chart(ctx,{
+    type:'line',
+    data:{labels,datasets},
+    options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},plugins:{legend:{labels:{color:'#6b7c93',font:{size:11,family:'Inter'},filter:item=>item.text!=='Volume'}},tooltip:{mode:'index',intersect:false,backgroundColor:'#1a2535',titleColor:'#e8eaed',bodyColor:'#e8eaed',borderColor:'#1e3a5f',borderWidth:1,callbacks:{label:function(ctx){if(ctx.dataset.label==='Volume')return'Vol: '+(ctx.parsed.y?ctx.parsed.y.toLocaleString():'—');return ctx.dataset.label+': $'+ctx.parsed.y}}}},scales}
+  });
+}
+
+// Basis Z-Score chart — Z-score over last N RL prints with threshold lines
+function renderBasisZScoreChart(){
+  if(typeof Chart==='undefined')return;
+  const ctx=document.getElementById('basis-zscore-chart');
+  if(!ctx)return;
+  destroyChart('basis-zscore');
+  const p=S.futuresParams;
+  const dailyAll=getDailyBasis();
+  const daily=dailyAll.filter(d=>d.basis!==null);
+  if(daily.length<3)return;
+  const basisVals=daily.map(d=>d.basis);
+  const avg=basisVals.reduce((a,b)=>a+b,0)/basisVals.length;
+  const stdDev=Math.sqrt(basisVals.reduce((s,v)=>s+Math.pow(v-avg,2),0)/(basisVals.length-1));
+  if(!stdDev||stdDev===0)return;
+  const zScores=basisVals.map(v=>parseFloat(((v-avg)/stdDev).toFixed(2)));
+  const labels=daily.map(d=>fmtD(d.date));
+  const sellThresh=p.zScoreSellThreshold||-1.5;
+  const buyThresh=p.zScoreBuyThreshold||1.5;
+  window._charts['basis-zscore']=new Chart(ctx,{
+    type:'line',
+    data:{labels,datasets:[
+      {label:'Z-Score',data:zScores,borderColor:'#f5a623',backgroundColor:'rgba(245,166,35,0.1)',tension:0.3,fill:true,pointRadius:0,borderWidth:2.5,segment:{borderColor:ctx2=>{const v=ctx2.p1.parsed.y;return v<=sellThresh?'#ff6b6b':v>=buyThresh?'#00d4aa':'#f5a623';}}},
+      {label:'Sell Threshold',data:labels.map(()=>sellThresh),borderColor:'#ff6b6b',borderWidth:2,borderDash:[6,4],pointRadius:0,fill:false},
+      {label:'Buy Threshold',data:labels.map(()=>buyThresh),borderColor:'#00d4aa',borderWidth:2,borderDash:[6,4],pointRadius:0,fill:false}
+    ]},
+    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{color:'#6b7c93',font:{size:11,family:'Inter'}}},tooltip:{mode:'index',intersect:false,backgroundColor:'#1a2535',titleColor:'#e8eaed',bodyColor:'#e8eaed',borderColor:'#1e3a5f',borderWidth:1}},scales:{x:{ticks:{color:'#6b7c93',font:{size:10},maxTicksLimit:10},grid:{color:'rgba(255,255,255,0.05)'}},y:{ticks:{color:'#6b7c93',font:{size:10}},grid:{color:'rgba(255,255,255,0.05)'}}}}
+  });
 }
 
 function generateSpreadTable(rlData){

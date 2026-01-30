@@ -1,4 +1,7 @@
 // SYP Analytics - AI Functions
+const AI_MODEL_CHAT=()=>S.aiModel||'claude-opus-4-0-20250115';
+const AI_MODEL_UTILITY='claude-sonnet-4-20250514';
+
 const AI_TOOLS=[
   // Orders - Create
   {name:'create_buy',desc:'Create a buy order',params:['mill','product','price','volume','region','length','shipWeek','notes']},
@@ -40,6 +43,18 @@ const AI_TOOLS=[
   {name:'set_freight_settings',desc:'Set freight calculator settings',params:['freightBase','stateRates','shortHaulFloor']},
   // Navigation
   {name:'navigate',desc:'Navigate to a different view',params:['view']},
+  // Analytics
+  {name:'get_matched_trades',desc:'Get matched buy+sell pairs with P&L',params:['product','customer','limit']},
+  {name:'get_open_orders',desc:'Get unshipped buys and undelivered sells',params:['product']},
+  {name:'get_position_detail',desc:'Detailed position by product with avg prices, volumes, exposure',params:['product']},
+  {name:'get_price_history',desc:'RL price history for a product/region over last N weeks',params:['product','region','weeks']},
+  {name:'get_customer_summary',desc:'Full customer profile: volume, revenue, avg price, recent orders',params:['customer']},
+  {name:'get_mill_summary',desc:'Full mill profile: volume, avg cost, products supplied',params:['mill']},
+  {name:'analyze_margin',desc:'Margin breakdown by product, customer, or time period',params:['groupBy','filter']},
+  {name:'get_top_customers',desc:'Ranked customer list by volume, profit, or order count',params:['sortBy','limit']},
+  {name:'get_top_products',desc:'Ranked product list by volume, margin, or P&L',params:['sortBy','limit']},
+  {name:'suggest_coverage',desc:'Identify short positions needing mill coverage',params:[]},
+  {name:'generate_briefing',desc:'Generate daily trading briefing',params:[]},
   // Utility
   {name:'clear_chat',desc:'Clear AI chat history',params:[]},
   {name:'refresh',desc:'Refresh the current view',params:[]}
@@ -380,6 +395,112 @@ function executeAITool(name,params){
         render();
         return{success:true,message:'View refreshed'};
       }
+      case 'get_matched_trades':{
+        const buyByOrder=buildBuyByOrder();
+        let matches=[];
+        S.sells.forEach(s=>{
+          const ord=String(s.orderNum||s.linkedPO||s.oc||'').trim();
+          const buy=ord?buyByOrder[ord]:null;
+          if(!buy)return;
+          if(params.product&&!s.product?.toLowerCase().includes(params.product.toLowerCase()))return;
+          if(params.customer&&!s.customer?.toLowerCase().includes(params.customer.toLowerCase()))return;
+          const vol=s.volume||0;const frtMBF=vol>0?(s.freight||0)/vol:0;
+          const sellFob=(s.price||0)-frtMBF;const margin=sellFob-(buy.price||0);
+          matches.push({orderNum:ord,product:s.product,customer:s.customer,mill:buy.mill,buyPrice:buy.price,sellDlvd:s.price,freight:s.freight,sellFob:Math.round(sellFob),volume:vol,margin:Math.round(margin),profit:Math.round(margin*vol),date:s.date});
+        });
+        matches.sort((a,b)=>(b.profit||0)-(a.profit||0));
+        return{success:true,data:matches.slice(0,parseInt(params.limit)||20)};
+      }
+      case 'get_open_orders':{
+        let unshipped=S.buys.filter(b=>!b.shipped);
+        let undelivered=S.sells.filter(s=>!s.delivered);
+        if(params.product){const p=params.product.toLowerCase();unshipped=unshipped.filter(b=>b.product?.toLowerCase().includes(p));undelivered=undelivered.filter(s=>s.product?.toLowerCase().includes(p));}
+        return{success:true,data:{
+          unshippedBuys:unshipped.map(b=>({id:b.id,date:b.date,mill:b.mill,product:b.product,price:b.price,volume:b.volume,region:b.region,shipWeek:b.shipWeek})),
+          undeliveredSells:undelivered.map(s=>({id:s.id,date:s.date,customer:s.customer,product:s.product,price:s.price,volume:s.volume,shipWeek:s.shipWeek}))
+        }};
+      }
+      case 'get_position_detail':{
+        const detail={};const filter=params.product?.toLowerCase();
+        S.buys.forEach(b=>{
+          if(filter&&!b.product?.toLowerCase().includes(filter))return;
+          const k=b.product;if(!detail[k])detail[k]={bought:0,sold:0,bVal:0,sVal:0,mills:new Set(),customers:new Set()};
+          detail[k].bought+=b.volume||0;detail[k].bVal+=(b.price||0)*(b.volume||0);if(b.mill)detail[k].mills.add(b.mill);
+        });
+        S.sells.forEach(s=>{
+          if(filter&&!s.product?.toLowerCase().includes(filter))return;
+          const k=s.product;if(!detail[k])detail[k]={bought:0,sold:0,bVal:0,sVal:0,mills:new Set(),customers:new Set()};
+          detail[k].sold+=s.volume||0;const frt=s.volume>0?(s.freight||0)/s.volume:0;detail[k].sVal+=((s.price||0)-frt)*(s.volume||0);if(s.customer)detail[k].customers.add(s.customer);
+        });
+        const result=Object.entries(detail).map(([prod,d])=>({product:prod,bought:d.bought,sold:d.sold,net:d.bought-d.sold,position:d.bought-d.sold>0?'LONG':d.bought-d.sold<0?'SHORT':'FLAT',avgBuy:d.bought>0?Math.round(d.bVal/d.bought):0,avgSell:d.sold>0?Math.round(d.sVal/d.sold):0,exposure:Math.round(Math.abs(d.bought-d.sold)*(d.bought>0?d.bVal/d.bought:400)),mills:[...d.mills],customers:[...d.customers]}));
+        return{success:true,data:result};
+      }
+      case 'get_price_history':{
+        const prod=params.product||'2x4#2';const region=params.region||'west';const weeks=parseInt(params.weeks)||8;
+        const history=S.rl.slice(-weeks).map(r=>({date:r.date,price:r[region]?.[prod]||null})).filter(h=>h.price!==null);
+        return{success:true,data:{product:prod,region,history}};
+      }
+      case 'get_customer_summary':{
+        const name=(params.customer||'').toLowerCase();
+        const cust=S.customers.find(c=>c.name?.toLowerCase().includes(name));
+        if(!cust)return{success:false,message:'Customer not found'};
+        const sells=S.sells.filter(s=>s.customer?.toLowerCase().includes(name));
+        const totalVol=sells.reduce((s,x)=>s+(x.volume||0),0);
+        const totalRev=sells.reduce((s,x)=>s+(x.price||0)*(x.volume||0),0);
+        const recent=sells.slice(0,10).map(s=>({date:s.date,product:s.product,price:s.price,volume:s.volume}));
+        const products={};sells.forEach(s=>{products[s.product]=(products[s.product]||0)+(s.volume||0)});
+        return{success:true,data:{name:cust.name,destination:cust.destination,locations:cust.locations,email:cust.email,totalVolume:totalVol,totalRevenue:Math.round(totalRev),avgPrice:totalVol>0?Math.round(totalRev/totalVol):0,orderCount:sells.length,productMix:products,recentOrders:recent}};
+      }
+      case 'get_mill_summary':{
+        const name=(params.mill||'').toLowerCase();
+        const buys=S.buys.filter(b=>b.mill?.toLowerCase().includes(name));
+        const totalVol=buys.reduce((s,b)=>s+(b.volume||0),0);
+        const totalCost=buys.reduce((s,b)=>s+(b.price||0)*(b.volume||0),0);
+        const products={};buys.forEach(b=>{products[b.product]=(products[b.product]||0)+(b.volume||0)});
+        const recent=buys.slice(0,10).map(b=>({date:b.date,product:b.product,price:b.price,volume:b.volume}));
+        return{success:true,data:{mill:name,totalVolume:totalVol,totalCost:Math.round(totalCost),avgCost:totalVol>0?Math.round(totalCost/totalVol):0,orderCount:buys.length,productMix:products,recentOrders:recent}};
+      }
+      case 'analyze_margin':{
+        const groupBy=params.groupBy||'product';
+        const buyByOrder=buildBuyByOrder();const groups={};
+        S.sells.forEach(s=>{
+          const ord=String(s.orderNum||s.linkedPO||s.oc||'').trim();const buy=ord?buyByOrder[ord]:null;if(!buy)return;
+          let key;if(groupBy==='customer')key=s.customer||'Unknown';else if(groupBy==='month')key=(s.date||'').substring(0,7);else key=s.product||'Unknown';
+          if(params.filter&&!key.toLowerCase().includes(params.filter.toLowerCase()))return;
+          if(!groups[key])groups[key]={vol:0,profit:0};
+          const vol=s.volume||0;const frt=vol>0?(s.freight||0)/vol:0;const sellFob=(s.price||0)-frt;
+          groups[key].vol+=vol;groups[key].profit+=(sellFob-(buy.price||0))*vol;
+        });
+        const result=Object.entries(groups).map(([k,v])=>({[groupBy]:k,volume:Math.round(v.vol*100)/100,profit:Math.round(v.profit),margin:v.vol>0?Math.round(v.profit/v.vol):0})).sort((a,b)=>b.profit-a.profit);
+        return{success:true,data:result};
+      }
+      case 'get_top_customers':{
+        const data=calcTopCustomers(S.sells);
+        const sortBy=params.sortBy||'volume';
+        if(sortBy==='profit')data.sort((a,b)=>(b.profit||0)-(a.profit||0));
+        else if(sortBy==='orders')data.sort((a,b)=>(b.orders||0)-(a.orders||0));
+        return{success:true,data:data.slice(0,parseInt(params.limit)||10)};
+      }
+      case 'get_top_products':{
+        const{byVolume,byProfit}=calcTopProducts(S.buys,S.sells);
+        const sortBy=params.sortBy||'volume';
+        return{success:true,data:(sortBy==='profit'?byProfit:byVolume).slice(0,parseInt(params.limit)||10)};
+      }
+      case 'suggest_coverage':{
+        const pos={};
+        S.buys.forEach(b=>{pos[b.product]=(pos[b.product]||0)+(b.volume||0)});
+        S.sells.forEach(s=>{pos[s.product]=(pos[s.product]||0)-(s.volume||0)});
+        const shorts=Object.entries(pos).filter(([k,v])=>v<0).map(([product,net])=>{
+          const supplierMills=[...new Set(S.buys.filter(b=>b.product===product).map(b=>b.mill).filter(Boolean))];
+          return{product,shortMBF:Math.abs(net),suggestedMills:supplierMills.slice(0,5)};
+        });
+        return{success:true,data:shorts.length?shorts:[{message:'No short positions found'}]};
+      }
+      case 'generate_briefing':{
+        if(typeof generateDailyBriefing==='function')generateDailyBriefing();
+        S.view='insights';render();
+        return{success:true,message:'Generating daily briefing... Navigated to Daily Briefing view.'};
+      }
       default:
         return{success:false,message:`Unknown tool: ${name}`};
     }
@@ -396,34 +517,83 @@ async function sendAI(){
   
   const a=analytics();
   const latestRL=S.rl.length?S.rl[S.rl.length-1]:null;
-  
-  // Build context
+
+  // --- Full RL price snapshot ---
   let rlSummary='No RL data available.';
   if(latestRL){
-    const prices=[];
+    const rlLines=[];
     ['west','central','east'].forEach(r=>{
-      ['2x4#2','2x6#2','2x8#2'].forEach(p=>{
-        if(latestRL[r]?.[p])prices.push(`${r} ${p}: $${latestRL[r][p]}`);
+      const prods=Object.entries(latestRL[r]||{}).map(([p,v])=>`${p}: $${v}`).join(', ');
+      if(prods)rlLines.push(`${r.toUpperCase()}: ${prods}`);
+    });
+    rlSummary=`Latest RL (${latestRL.date}):\n${rlLines.join('\n')}`;
+  }
+
+  // --- RL week-over-week trends ---
+  let rlTrends='';
+  if(S.rl.length>=2){
+    const prev=S.rl[S.rl.length-2];
+    const changes=[];
+    ['west','central','east'].forEach(r=>{
+      ['2x4#2','2x6#2','2x8#2','2x10#2','2x12#2'].forEach(p=>{
+        const curr=latestRL?.[r]?.[p];const pr=prev?.[r]?.[p];
+        if(curr&&pr&&curr!==pr)changes.push(`${r} ${p}: ${curr>pr?'+':''}$${curr-pr} (${pr} -> ${curr})`);
       });
     });
-    rlSummary=`Latest RL (${latestRL.date}): ${prices.slice(0,6).join(', ')}`;
+    if(changes.length)rlTrends='Week-over-week changes:\n'+changes.join('\n');
   }
-  
-  // Position summary
-  const positions={};
-  S.buys.forEach(b=>{const k=b.product;if(!positions[k])positions[k]={b:0,s:0};positions[k].b+=b.volume||0});
-  S.sells.forEach(s=>{const k=s.product;if(!positions[k])positions[k]={b:0,s:0};positions[k].s+=s.volume||0});
-  const posSummary=Object.entries(positions).filter(([k,v])=>v.b!==v.s).map(([k,v])=>`${k}: ${v.b-v.s>0?'LONG':'SHORT'} ${Math.abs(v.b-v.s)} MBF`).join(', ')||'Flat';
-  
-  // Customer list
-  const custList=S.customers.filter(c=>c.type!=='mill').map(c=>c.name).slice(0,10).join(', ');
-  
-  // Quote items
+
+  // --- Detailed position breakdown ---
+  const posData={};
+  S.buys.forEach(b=>{
+    const k=b.product;if(!posData[k])posData[k]={b:0,s:0,bVal:0,sVal:0};
+    posData[k].b+=b.volume||0;posData[k].bVal+=(b.price||0)*(b.volume||0);
+  });
+  S.sells.forEach(s=>{
+    const k=s.product;if(!posData[k])posData[k]={b:0,s:0,bVal:0,sVal:0};
+    posData[k].s+=s.volume||0;
+    const frtMBF=s.volume>0?(s.freight||0)/s.volume:0;
+    posData[k].sVal+=((s.price||0)-frtMBF)*(s.volume||0);
+  });
+  const posDetails=Object.entries(posData).map(([k,v])=>{
+    const net=v.b-v.s;const avgB=v.b>0?(v.bVal/v.b).toFixed(0):'?';const avgS=v.s>0?(v.sVal/v.s).toFixed(0):'?';
+    return`${k}: bought ${v.b.toFixed(1)} MBF (avg $${avgB}), sold ${v.s.toFixed(1)} MBF (avg $${avgS} FOB), net ${net>0?'LONG':net<0?'SHORT':'FLAT'} ${Math.abs(net).toFixed(1)} MBF`;
+  }).join('\n')||'No positions';
+
+  // --- Recent trades ---
+  const recentBuys=S.buys.slice(0,20).map(b=>`BUY: ${b.date||'?'} | ${b.mill||'?'} | ${b.product} | $${b.price} | ${b.volume} MBF | ${b.region||'?'} | shipped:${b.shipped}`).join('\n')||'None';
+  const recentSells=S.sells.slice(0,20).map(s=>`SELL: ${s.date||'?'} | ${s.customer||'?'} | ${s.destination||'?'} | ${s.product} | $${s.price} DLVD | frt:$${s.freight||0} | ${s.volume} MBF | delivered:${s.delivered}`).join('\n')||'None';
+
+  // --- Full customer and mill lists ---
+  const custList=S.customers.filter(c=>c.type!=='mill').map(c=>`${c.name} (${c.destination||c.locations?.[0]||'?'})${c.email?' <'+c.email+'>':''}`).join('\n')||'None';
+  const millList=S.customers.filter(c=>c.type==='mill').concat(S.mills||[]).map(m=>`${m.name} (${m.location||m.destination||'?'}, ${m.region||'?'})`).join('\n')||'None';
+
+  // --- Open orders ---
+  const unshippedBuys=S.buys.filter(b=>!b.shipped);
+  const undeliveredSells=S.sells.filter(s=>!s.delivered);
+  const openOrders=`Unshipped buys: ${unshippedBuys.length} (${unshippedBuys.reduce((s,b)=>s+(b.volume||0),0).toFixed(1)} MBF)\nUndelivered sells: ${undeliveredSells.length} (${undeliveredSells.reduce((s,x)=>s+(x.volume||0),0).toFixed(1)} MBF)`;
+
+  // --- Top customers by volume ---
+  const custVol={};S.sells.forEach(s=>{const c=s.customer||'Unknown';custVol[c]=(custVol[c]||0)+(s.volume||0)});
+  const topCusts=Object.entries(custVol).sort((a,b)=>b[1]-a[1]).slice(0,10).map(([c,v])=>`${c}: ${v.toFixed(0)} MBF`).join(', ')||'None';
+
+  // --- Freight lanes ---
+  const laneSummary=S.lanes.slice(0,20).map(l=>`${l.origin} -> ${l.dest}: ${l.miles} mi`).join('\n')||'No lanes configured';
+
+  // --- Futures ---
+  let futuresSummary='No futures data';
+  if(S.futuresContracts&&S.futuresContracts.length){
+    const front=S.futuresContracts[0];futuresSummary=`Front month: $${front.price} (${front.symbol||'?'})`;
+    const latestCash=latestRL?.east?.['2x4#2'];
+    if(latestCash)futuresSummary+=`, Basis (cash-futures): $${latestCash-front.price}`;
+  }
+
+  // --- Quote items ---
   const quoteItems=S.quoteItems.map(i=>`${i.product} from ${i.origin} @ $${i.fob}`).join(', ')||'Empty';
 
   const toolDefs=AI_TOOLS.map(t=>`- ${t.name}(${t.params.join(', ')}): ${t.desc}`).join('\n');
-  
-  const ctx=`You are an AI trading assistant for SYP (Southern Yellow Pine) lumber trading at Buckeye Pacific. You have FULL CONTROL over the entire platform and can execute ANY action.
+
+  const ctx=`You are an expert AI trading assistant for SYP (Southern Yellow Pine) lumber trading at Buckeye Pacific. You have FULL CONTROL over the entire platform and can execute ANY action. You are knowledgeable about lumber markets, pricing, freight, and trading strategy.
 
 CAPABILITIES:
 - CREATE, UPDATE, DELETE buy orders and sell orders
@@ -431,7 +601,9 @@ CAPABILITIES:
 - Control the quote engine
 - Navigate between views
 - Update settings and freight rates
-- Access all trading data and analytics
+- Access all trading data, analytics, and market intelligence
+- Analyze positions, margins, and customer profitability
+- Suggest trading strategies based on market conditions
 
 AVAILABLE TOOLS:
 ${toolDefs}
@@ -446,38 +618,112 @@ IMPORTANT WORKFLOW FOR DELETIONS:
 2. Then use delete_buy or delete_sell with the specific ID
 3. For bulk deletions, use delete_buys or delete_sells with criteria or IDs
 
-You can use multiple tools in one response.
+You can use multiple tools in one response. After tool results come back, you can reason about them and call more tools if needed.
 
-CURRENT STATE:
-- ${rlSummary}
-- Positions: ${posSummary}
-- Inventory: ${a.inv} MBF, Margin: ${fmt(a.margin)}, Profit: ${fmt(a.profit)}
-- Customers: ${custList}
-- Quote Engine Items: ${quoteItems}
-- Freight: Base $${S.freightBase}/load, Floor $${S.shortHaulFloor}/MBF
-- Buy orders: ${S.buys.length}, Sell orders: ${S.sells.length}
+CURRENT MARKET:
+${rlSummary}
+${rlTrends}
+${futuresSummary}
+
+POSITIONS:
+${posDetails}
+Summary: Inventory ${a.inv} MBF, Margin ${fmt(a.margin)}/MBF, Profit ${fmt(a.profit)}
+
+OPEN ORDERS:
+${openOrders}
+
+RECENT BUYS (last 20):
+${recentBuys}
+
+RECENT SELLS (last 20):
+${recentSells}
+
+TOP CUSTOMERS: ${topCusts}
+
+CUSTOMERS:
+${custList}
+
+MILLS:
+${millList}
+
+FREIGHT LANES:
+${laneSummary}
+Settings: Base $${S.freightBase}/load, Floor $${S.shortHaulFloor}/MBF
+
+QUOTE ENGINE: ${quoteItems}
 
 ALWAYS use tools to execute actions. Never just describe what you would do - actually do it.
-When deleting, first search to find the correct IDs, then delete.`;
+When deleting, first search to find the correct IDs, then delete.
+When analyzing data, use the analytical tools (get_matched_trades, analyze_margin, get_position_detail, etc.) to get precise numbers rather than estimating from the context above.`;
 
   await runAIWithTools(ctx,msg);
 }
 
 async function runAIWithTools(systemCtx,userMsg,depth=0){
-  if(depth>5){S.aiMsgs.push({role:'assistant',content:'Max tool depth reached.'});render();return}
-  
-  const messages=S.aiMsgs.slice(-10).map(m=>({role:m.role,content:m.content}));
-  
+  if(depth>5){S.aiMsgs.push({role:'assistant',content:'I\'ve reached the maximum number of tool calls for this request. Here\'s what I\'ve done so far.'});SS('aiMsgs',S.aiMsgs);render();return}
+
+  const messages=S.aiMsgs.slice(-12).map(m=>({role:m.role,content:m.content}));
+
   try{
     const res=await fetch('https://api.anthropic.com/v1/messages',{
       method:'POST',
       headers:{'Content-Type':'application/json','x-api-key':S.apiKey,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
-      body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:2048,system:systemCtx,messages})
+      body:JSON.stringify({model:AI_MODEL_CHAT(),max_tokens:4096,stream:true,system:systemCtx,messages})
     });
-    const data=await res.json();
-    let reply=data.content?.[0]?.text||data.error?.message||'Error';
-    
-    // Check for tool calls
+
+    if(!res.ok){
+      const err=await res.json().catch(()=>({}));
+      throw new Error(err.error?.message||`API error: ${res.status}`);
+    }
+
+    // Stream the response
+    let reply='';
+    const streamIdx=S.aiMsgs.length;
+    S.aiMsgs.push({role:'assistant',content:''});
+    render();
+
+    const reader=res.body.getReader();
+    const decoder=new TextDecoder();
+    let buffer='';
+    let lastRender=0;
+
+    while(true){
+      const{done,value}=await reader.read();
+      if(done)break;
+      buffer+=decoder.decode(value,{stream:true});
+      const lines=buffer.split('\n');
+      buffer=lines.pop();
+      for(const line of lines){
+        if(line.startsWith('data: ')){
+          const data=line.slice(6).trim();
+          if(data==='[DONE]')break;
+          try{
+            const event=JSON.parse(data);
+            if(event.type==='content_block_delta'&&event.delta?.text){
+              reply+=event.delta.text;
+              // Throttle DOM updates to ~60fps
+              const now=Date.now();
+              if(now-lastRender>50){
+                lastRender=now;
+                S.aiMsgs[streamIdx].content=reply;
+                const msgsEl=document.getElementById('ai-msgs');
+                if(msgsEl){
+                  const msgDiv=msgsEl.children[streamIdx];
+                  if(msgDiv)msgDiv.innerHTML=typeof renderMarkdown==='function'?renderMarkdown(reply):reply;
+                  msgsEl.scrollTop=msgsEl.scrollHeight;
+                }
+              }
+            }
+          }catch(e){/* skip malformed SSE events */}
+        }
+      }
+    }
+
+    // Final render of complete reply
+    S.aiMsgs[streamIdx].content=reply;
+    render();
+
+    // Check for tool calls in completed reply
     const toolRegex=/```tool\s*\n?([\s\S]*?)\n?```/g;
     const toolCalls=[];
     let match;
@@ -487,37 +733,34 @@ async function runAIWithTools(systemCtx,userMsg,depth=0){
         toolCalls.push(toolData);
       }catch(e){console.error('Tool parse error:',e)}
     }
-    
+
     if(toolCalls.length>0){
-      // Execute tools and show results
+      // Execute tools
       const results=[];
       for(const tc of toolCalls){
         const result=executeAITool(tc.tool,tc.params||{});
         results.push({tool:tc.tool,result});
-        // Show tool execution in chat
-        reply=reply.replace(/```tool[\s\S]*?```/,'');
       }
-      
-      // Clean up reply and add tool results
-      reply=reply.trim();
-      const toolResultsText=results.map(r=>`✅ ${r.tool}: ${r.result.message||JSON.stringify(r.result.data).slice(0,200)}`).join('\n');
-      
-      if(reply)S.aiMsgs.push({role:'assistant',content:reply});
+
+      // Clean tool blocks from the streamed reply
+      let cleanReply=reply.replace(/```tool[\s\S]*?```/g,'').trim();
+      S.aiMsgs[streamIdx].content=cleanReply;
+
+      // Show tool results
+      const toolResultsText=results.map(r=>`${r.result.success?'✅':'❌'} ${r.tool}: ${r.result.message||JSON.stringify(r.result.data).slice(0,300)}`).join('\n');
       S.aiMsgs.push({role:'assistant',content:toolResultsText});
-      
-      // Re-render to show updates
       render();
-      
-      // Continue conversation if AI might want to do more
-      // (commented out to avoid loops - enable if needed)
-      // await runAIWithTools(systemCtx,'Tool results: '+JSON.stringify(results),depth+1);
-    }else{
-      S.aiMsgs.push({role:'assistant',content:reply});
+      SS('aiMsgs',S.aiMsgs);
+
+      // Feed results back for multi-turn reasoning
+      S.aiMsgs.push({role:'user',content:'[SYSTEM] Tool execution results:\n'+JSON.stringify(results.map(r=>({tool:r.tool,...r.result})))});
+      await runAIWithTools(systemCtx,null,depth+1);
+      return;
     }
   }catch(e){
     S.aiMsgs.push({role:'assistant',content:'Error: '+e.message});
   }
-  
+
   SS('aiMsgs',S.aiMsgs);
   render();
 }
