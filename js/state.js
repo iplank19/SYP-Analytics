@@ -66,8 +66,11 @@ let S={
   frontHistory:LS('frontHistory',[]),
   futuresParams:LS('futuresParams',{basisLookback:8,zScoreSellThreshold:-1.5,zScoreBuyThreshold:1.5,defaultHoldWeeks:2,commissionPerContract:1.50}),
   futuresTab:'chart',
-  aiModel:LS('aiModel','claude-opus-4-0-20250115')
+  aiModel:LS('aiModel','claude-opus-4-0-20250514')
 };
+
+// Migrate bad model ID
+if(S.aiModel==='claude-opus-4-0-20250115'){S.aiModel='claude-opus-4-0-20250514';SS('aiModel',S.aiModel);}
 
 // Migrate old carry-based futures params to new trader model
 if(S.futuresParams.carryRate!==undefined){
