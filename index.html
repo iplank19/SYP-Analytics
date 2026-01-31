@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SYP Analytics - Buckeye Pacific</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.2/html2pdf.bundle.min.js"></script>
+</head>
+<body>
+<!-- Mobile Header -->
+<div class="mobile-header">
+  <button class="hamburger" onclick="toggleMobileSidebar()">&#9776;</button>
+  <div class="logo">SYP ANALYTICS</div>
+  <button class="hamburger" onclick="S.view='settings';closeMobileSidebar();render()">&#9881;&#65039;</button>
+</div>
+
+<!-- Sidebar Overlay -->
+<div class="sidebar-overlay" id="sidebar-overlay" onclick="closeMobileSidebar()"></div>
+
+<!-- Mobile Bottom Nav -->
+<div class="mobile-nav">
+  <div class="mobile-nav-items">
+    <button class="mobile-nav-item" onclick="S.view='dashboard';closeMobileSidebar();render()" id="mnav-dashboard">
+      <span>&#128202;</span>
+      <span>Home</span>
+    </button>
+    <button class="mobile-nav-item" onclick="S.view='insights';closeMobileSidebar();render()" id="mnav-insights">
+      <span>&#127919;</span>
+      <span>Briefing</span>
+    </button>
+    <button class="mobile-nav-item" onclick="S.view='charts';closeMobileSidebar();render()" id="mnav-charts">
+      <span>&#128200;</span>
+      <span>Charts</span>
+    </button>
+    <button class="mobile-nav-item" onclick="S.view='quotes';closeMobileSidebar();render()" id="mnav-quotes">
+      <span>&#128176;</span>
+      <span>Quotes</span>
+    </button>
+    <button class="mobile-nav-item" onclick="S.view='blotter';closeMobileSidebar();render()" id="mnav-blotter">
+      <span>&#128203;</span>
+      <span>Trades</span>
+    </button>
+  </div>
+</div>
+
+<!-- Toast Container -->
+<div class="toast-container" id="toast-container"></div>
+
+<div id="app">
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-header">
+      <div class="logo">SYP ANALYTICS</div>
+      <div class="company">Buckeye Pacific</div>
+      <button class="theme-toggle" onclick="toggleTheme()" title="Toggle theme">&#9681; Theme</button>
+      <div style="margin-top:12px">
+        <select id="trader-select" onchange="setTrader(this.value)" style="width:100%;padding:8px;background:var(--panel);border:1px solid var(--accent);color:var(--accent);font-weight:600;border-radius:4px;font-size:12px"></select>
+      </div>
+    </div>
+    <nav class="nav" id="nav"></nav>
+    <div class="sidebar-footer">
+      <div class="mkt-label">MARKET 2x4#2</div>
+      <div class="mkt-row west"><span>West</span><span class="price" id="mkt-w">&mdash;</span></div>
+      <div class="mkt-row central"><span>Central</span><span class="price" id="mkt-c">&mdash;</span></div>
+      <div class="mkt-row east"><span>East</span><span class="price" id="mkt-e">&mdash;</span></div>
+      <div class="mkt-date" id="mkt-d"></div>
+    </div>
+  </aside>
+  <main class="main">
+    <div class="breadcrumbs" id="breadcrumbs"></div>
+    <header class="header">
+      <div class="header-left">
+        <h1 id="title">&#128202; Dashboard</h1>
+        <div class="filters">
+          <select id="f-date"><option value="7d">7 Days</option><option value="14d">14 Days</option><option value="30d" selected>30 Days</option><option value="90d">90 Days</option><option value="all">All Time</option></select>
+          <select id="f-prod"><option value="all">All Products</option></select>
+          <select id="f-reg"><option value="all">All Regions</option><option value="west">West</option><option value="central">Central</option><option value="east">East</option></select>
+        </div>
+      </div>
+      <div class="header-right">
+        <button class="btn btn-success" onclick="showBuyModal()">+ BUY</button>
+        <button class="btn btn-primary" onclick="showSellModal()">+ SELL</button>
+      </div>
+    </header>
+    <div class="content" id="content"></div>
+  </main>
+  <aside class="ai-sidepanel collapsed" id="ai-panel">
+    <div class="ai-sidepanel-header">
+      <span class="ai-sidepanel-title">AI Assistant</span>
+      <button class="ai-sidepanel-close" onclick="toggleAIPanel()">&#10005;</button>
+    </div>
+    <div class="ai-messages" id="ai-msgs"></div>
+    <div class="ai-input-area">
+      <textarea id="ai-in" placeholder="Ask anything about your data..." onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendAI()}"></textarea>
+      <button class="btn btn-primary btn-sm" onclick="sendAI()">Send</button>
+    </div>
+  </aside>
+</div>
+<button class="ai-toggle" onclick="toggleAIPanel()" title="AI Assistant" style="display:none">&#129302;</button>
+<div id="modal"></div>
+
+<!-- Scripts loaded in dependency order -->
+<script src="js/state.js"></script>
+<script src="js/data.js"></script>
+<script src="js/utils.js"></script>
+<script src="js/analytics.js"></script>
+<script src="js/charts.js"></script>
+<script src="js/views.js"></script>
+<script src="js/modals.js"></script>
+<script src="js/quotes.js"></script>
+<script src="js/crm.js"></script>
+<script src="js/trades.js"></script>
+<script src="js/ai.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
