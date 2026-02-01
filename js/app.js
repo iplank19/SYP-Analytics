@@ -253,6 +253,17 @@ async function clearAll(){
   render();
 }
 
+// Status bar clock
+function initStatusBar(){
+  const clockEl=document.getElementById('status-clock');
+  const traderEl=document.getElementById('status-trader');
+  if(traderEl)traderEl.textContent=S.trader||'—';
+  if(clockEl){
+    const tick=()=>{const now=new Date();clockEl.textContent=now.toLocaleTimeString('en-US',{hour12:false})};
+    tick();setInterval(tick,1000);
+  }
+}
+
 // INIT
 async function init(){
   // Always require login
@@ -306,6 +317,7 @@ async function init(){
   document.getElementById('ai-panel').classList.toggle('collapsed',!S.aiPanelOpen);
   document.querySelector('.ai-toggle').style.display='';
 
+  initStatusBar();
   render();
   
   // Show sync status

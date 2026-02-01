@@ -170,7 +170,7 @@ async function renderIntelTrends() {
     const products = Object.keys(trends);
     if (!products.length) return;
 
-    const colors = ['#5b8af5','#e8734a','#4a9e6e','#e05252','#6e9ecf','#c084fc','#f59e0b','#ec4899','#22d3ee','#a3e635'];
+    const colors = ['#4d8df7','#ffab40','#00e676','#ff5252','#64b5f6','#c084fc','#f59e0b','#ec4899','#22d3ee','#a3e635'];
 
     // ---- Price chart: avg price over time per product ----
     const priceCanvas = document.getElementById('intel-price-chart');
@@ -195,13 +195,13 @@ async function renderIntelTrends() {
           responsive: true, maintainAspectRatio: false,
           interaction: {mode: 'nearest', intersect: false},
           scales: {
-            x: {type: 'category', grid: {color: 'rgba(255,255,255,0.05)'}, ticks: {color: '#888', font: {size: 9}, maxTicksLimit: 12}},
-            y: {grid: {color: 'rgba(255,255,255,0.05)'}, ticks: {color: '#888', font: {size: 9}, callback: v => '$' + v}, title: {display: true, text: 'Avg FOB $/MBF', color: '#888', font: {size: 10}}}
+            x: {type: 'category', grid: {color: 'rgba(28,28,42,0.8)'}, ticks: {color: '#5a6270', font: {size: 9}, maxTicksLimit: 12}},
+            y: {grid: {color: 'rgba(28,28,42,0.8)'}, ticks: {color: '#5a6270', font: {size: 9}, callback: v => '$' + v}, title: {display: true, text: 'Avg FOB $/MBF', color: '#5a6270', font: {size: 10}}}
           },
           plugins: {
-            legend: {position: 'bottom', labels: {color: '#888', font: {size: 9}, boxWidth: 10, padding: 6}},
+            legend: {position: 'bottom', labels: {color: '#5a6270', font: {size: 9}, boxWidth: 10, padding: 6}},
             tooltip: {callbacks: {label: ctx => ctx.dataset.label + ': $' + ctx.parsed.y}},
-            title: {display: true, text: 'Average Price Trend', color: '#888', font: {size: 11}}
+            title: {display: true, text: 'Average Price Trend', color: '#5a6270', font: {size: 11}}
           }
         }
       });
@@ -230,8 +230,8 @@ async function renderIntelTrends() {
             {
               label: 'Quote Count',
               data: dates.map(d => byDate[d].quotes),
-              backgroundColor: 'rgba(91,138,245,0.4)',
-              borderColor: 'rgba(91,138,245,0.8)',
+              backgroundColor: 'rgba(77,141,247,0.4)',
+              borderColor: 'rgba(77,141,247,0.8)',
               borderWidth: 1,
               yAxisID: 'y'
             },
@@ -239,7 +239,7 @@ async function renderIntelTrends() {
               label: 'Mills Offering',
               data: dates.map(d => byDate[d].mills),
               type: 'line',
-              borderColor: '#e8734a',
+              borderColor: '#ffab40',
               borderWidth: 2,
               pointRadius: 2,
               tension: 0.3,
@@ -252,13 +252,13 @@ async function renderIntelTrends() {
           responsive: true, maintainAspectRatio: false,
           interaction: {mode: 'index', intersect: false},
           scales: {
-            x: {grid: {color: 'rgba(255,255,255,0.05)'}, ticks: {color: '#888', font: {size: 9}, maxTicksLimit: 12}},
-            y: {position: 'left', grid: {color: 'rgba(255,255,255,0.05)'}, ticks: {color: '#888', font: {size: 9}}, title: {display: true, text: 'Quotes/Day', color: '#888', font: {size: 10}}},
-            y1: {position: 'right', grid: {drawOnChartArea: false}, ticks: {color: '#e8734a', font: {size: 9}}, title: {display: true, text: 'Mills', color: '#e8734a', font: {size: 10}}}
+            x: {grid: {color: 'rgba(28,28,42,0.8)'}, ticks: {color: '#5a6270', font: {size: 9}, maxTicksLimit: 12}},
+            y: {position: 'left', grid: {color: 'rgba(28,28,42,0.8)'}, ticks: {color: '#5a6270', font: {size: 9}}, title: {display: true, text: 'Quotes/Day', color: '#5a6270', font: {size: 10}}},
+            y1: {position: 'right', grid: {drawOnChartArea: false}, ticks: {color: '#ffab40', font: {size: 9}}, title: {display: true, text: 'Mills', color: '#ffab40', font: {size: 10}}}
           },
           plugins: {
-            legend: {position: 'bottom', labels: {color: '#888', font: {size: 9}, boxWidth: 10, padding: 6}},
-            title: {display: true, text: 'Market Activity', color: '#888', font: {size: 11}}
+            legend: {position: 'bottom', labels: {color: '#5a6270', font: {size: 9}, boxWidth: 10, padding: 6}},
+            title: {display: true, text: 'Market Activity', color: '#5a6270', font: {size: 11}}
           }
         }
       });

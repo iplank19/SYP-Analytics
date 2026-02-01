@@ -364,7 +364,7 @@ async function renderTrendChart() {
       byMill[q.mill_name].push({x: q.date, y: q.price});
     });
 
-    const colors = ['#5b8af5','#e8734a','#4a9e6e','#e05252','#6e9ecf','#c084fc','#f59e0b','#ec4899','#22d3ee','#a3e635','#fb923c','#818cf8'];
+    const colors = ['#4d8df7','#ffab40','#00e676','#ff5252','#64b5f6','#c084fc','#f59e0b','#ec4899','#22d3ee','#a3e635','#fb923c','#818cf8'];
     const datasets = Object.entries(byMill).map(([mill, points], i) => ({
       label: mill,
       data: points,
@@ -384,11 +384,11 @@ async function renderTrendChart() {
         maintainAspectRatio: false,
         interaction: {mode: 'nearest', intersect: false},
         scales: {
-          x: {type: 'category', grid: {color: 'rgba(255,255,255,0.05)'}, ticks: {color: '#888', font: {size: 10}}},
-          y: {grid: {color: 'rgba(255,255,255,0.05)'}, ticks: {color: '#888', font: {size: 10}, callback: v => '$' + v}}
+          x: {type: 'category', grid: {color: 'rgba(28,28,42,0.8)'}, ticks: {color: '#5a6270', font: {size: 10}}},
+          y: {grid: {color: 'rgba(28,28,42,0.8)'}, ticks: {color: '#5a6270', font: {size: 10}, callback: v => '$' + v}}
         },
         plugins: {
-          legend: {position: 'bottom', labels: {color: '#888', font: {size: 10}, boxWidth: 12, padding: 8}},
+          legend: {position: 'bottom', labels: {color: '#5a6270', font: {size: 10}, boxWidth: 12, padding: 8}},
           tooltip: {callbacks: {label: ctx => ctx.dataset.label + ': $' + ctx.parsed.y}}
         }
       }

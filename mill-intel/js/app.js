@@ -157,6 +157,21 @@ async function loadDbInfo() {
   }
 }
 
+// Status bar clock
+function initStatusBar() {
+  const clockEl = document.getElementById('status-clock');
+  const traderEl = document.getElementById('status-trader');
+  if (traderEl) traderEl.textContent = S.trader || '—';
+  if (clockEl) {
+    const tick = () => {
+      const now = new Date();
+      clockEl.textContent = now.toLocaleTimeString('en-US', { hour12: false });
+    };
+    tick();
+    setInterval(tick, 1000);
+  }
+}
+
 // ----- INIT -----
 
 function init() {
@@ -171,6 +186,7 @@ function init() {
     document.getElementById('sidebar')?.classList.add('collapsed');
   }
 
+  initStatusBar();
   render();
 }
 
