@@ -65,6 +65,8 @@ let S={
   futuresContracts:LS('futuresContracts',[]),
   frontHistory:LS('frontHistory',[]),
   futuresParams:LS('futuresParams',{basisLookback:8,zScoreSellThreshold:-1.5,zScoreBuyThreshold:1.5,defaultHoldWeeks:2,commissionPerContract:1.50}),
+  dashChartRange:LS('dashChartRange','1M'),
+  dashboardOrder:LS('dashboardOrder',null),
   futuresTab:'chart',
   calendarMonth:null,
   aiModel:LS('aiModel','claude-opus-4-20250514')

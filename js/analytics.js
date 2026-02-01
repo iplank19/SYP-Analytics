@@ -205,6 +205,29 @@ function calcWeeklyPerformance(allBuys,allSells){
   return weeks;
 }
 
+// Market Movers — biggest week-over-week RL price changes
+function calcMarketMovers(){
+  if(S.rl.length<2)return[];
+  const latest=S.rl[S.rl.length-1];
+  const prev=S.rl[S.rl.length-2];
+  const movers=[];
+  const products=['2x4#2','2x6#2','2x8#2','2x10#2','2x12#2'];
+  const regions=['west','central','east'];
+  regions.forEach(reg=>{
+    products.forEach(prod=>{
+      const curr=latest[reg]?.[prod];
+      const old=prev[reg]?.[prod];
+      if(curr&&old&&old>0){
+        const change=curr-old;
+        const pct=(change/old)*100;
+        movers.push({product:prod,region:reg,curr,old,change,pct});
+      }
+    });
+  });
+  movers.sort((a,b)=>Math.abs(b.change)-Math.abs(a.change));
+  return movers.slice(0,5);
+}
+
 // Daily P&L aggregation for calendar heatmap
 // Groups matched sell trades by sell date, calculates profit per trade
 // Ignores date filter so calendar can show any month; respects trader filter
