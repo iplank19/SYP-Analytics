@@ -486,27 +486,30 @@
 <div class="mobile-nav">
   <div class="mobile-nav-items">
     <button class="mobile-nav-item" onclick="S.view='dashboard';closeMobileSidebar();render()" id="mnav-dashboard">
-      <span>📊</span>
+      <span>&#128202;</span>
       <span>Home</span>
     </button>
     <button class="mobile-nav-item" onclick="S.view='insights';closeMobileSidebar();render()" id="mnav-insights">
-      <span>🎯</span>
+      <span>&#127919;</span>
       <span>Briefing</span>
     </button>
     <button class="mobile-nav-item" onclick="S.view='charts';closeMobileSidebar();render()" id="mnav-charts">
-      <span>📈</span>
+      <span>&#128200;</span>
       <span>Charts</span>
     </button>
     <button class="mobile-nav-item" onclick="S.view='quotes';closeMobileSidebar();render()" id="mnav-quotes">
-      <span>💰</span>
+      <span>&#128176;</span>
       <span>Quotes</span>
     </button>
     <button class="mobile-nav-item" onclick="S.view='blotter';closeMobileSidebar();render()" id="mnav-blotter">
-      <span>📋</span>
+      <span>&#128203;</span>
       <span>Trades</span>
     </button>
   </div>
 </div>
+
+<!-- Toast Container -->
+<div class="toast-container" id="toast-container"></div>
 
 <div id="app">
   <!-- Live Market Ticker -->
