@@ -299,6 +299,109 @@ async function saveAllLocal(){
       cloudSync('push').catch(e=>console.warn('Auto cloud sync failed:',e));
     },2000);
   }
+
+  // Auto-sync data to Mill Intel platform (non-blocking)
+  syncRLToMillIntel().catch(e=>console.warn('Mill Intel RL sync:',e));
+  syncMillQuotesToMillIntel().catch(e=>console.warn('Mill Intel quote sync:',e));
+}
+
+// ---------- MILL INTEL CROSS-PLATFORM SYNC ----------
+
+const MILL_INTEL_URL=LS('millIntelUrl','')||'http://localhost:5001';
+let _milSyncTimer=null;
+
+// Push RL data from SYP Analytics → Mill Intel rl_prices table
+async function syncRLToMillIntel(){
+  if(!S.rl||!S.rl.length)return;
+  // Debounce: only sync once every 3s
+  return new Promise(resolve=>{
+    clearTimeout(_milSyncTimer);
+    _milSyncTimer=setTimeout(async()=>{
+      try{
+        const entries=[];
+        S.rl.forEach(rl=>{
+          if(!rl.date)return;
+          // 1. Composite prices (main RL values)
+          ['west','central','east'].forEach(region=>{
+            Object.entries(rl[region]||{}).forEach(([product,price])=>{
+              if(price&&typeof price==='number'){
+                entries.push({date:rl.date,product,region,price});
+              }
+            });
+          });
+          // 2. Specified lengths (length-specific RL values)
+          if(rl.specified_lengths){
+            ['west','central','east'].forEach(region=>{
+              Object.entries(rl.specified_lengths[region]||{}).forEach(([product,lengths])=>{
+                if(lengths&&typeof lengths==='object'){
+                  Object.entries(lengths).forEach(([len,price])=>{
+                    if(price&&typeof price==='number'){
+                      entries.push({date:rl.date,product:`${product} ${len}'`,region,price});
+                    }
+                  });
+                }
+              });
+            });
+          }
+          // 3. Timbers
+          if(rl.timbers){
+            ['west','central','east'].forEach(region=>{
+              Object.entries(rl.timbers[region]||{}).forEach(([product,lengths])=>{
+                if(lengths&&typeof lengths==='object'){
+                  Object.entries(lengths).forEach(([len,price])=>{
+                    if(price&&typeof price==='number'){
+                      entries.push({date:rl.date,product:`${product} ${len}'`,region,price});
+                    }
+                  });
+                }
+              });
+            });
+          }
+        });
+        if(!entries.length){resolve();return}
+        const res=await fetch(MILL_INTEL_URL+'/api/rl',{
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body:JSON.stringify(entries)
+        });
+        if(res.ok){
+          const r=await res.json();
+          console.log(`Mill Intel RL sync: ${r.created} entries pushed`);
+        }
+        resolve();
+      }catch(e){
+        // Mill Intel may not be running — that's OK
+        console.debug('Mill Intel not reachable:',e.message);
+        resolve();
+      }
+    },3000);
+  });
+}
+
+// Push mill quotes from Analytics → Mill Intel (for Smart Quotes sourcing)
+async function syncMillQuotesToMillIntel(){
+  if(!S.millQuotes||!S.millQuotes.length)return;
+  try{
+    const res=await fetch(MILL_INTEL_URL+'/api/quotes',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify(S.millQuotes.map(q=>({
+        mill:q.mill||q.mill_name||'',
+        product:q.product||'',
+        price:q.price||q.fob||0,
+        length:q.length||'RL',
+        volume:q.volume||0,
+        shipWindow:q.shipWindow||q.ship_window||q.ship||'prompt',
+        date:q.date||new Date().toISOString().slice(0,10),
+        trader:q.trader||S.trader,
+        city:q.city||q.location||'',
+        source:'syp_analytics'
+      })))
+    });
+    if(res.ok)console.log('Mill Intel quote sync complete');
+  }catch(e){
+    console.debug('Mill Intel quote sync skip:',e.message);
+  }
 }
 
 // Load from IndexedDB first, fall back to localStorage
