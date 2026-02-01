@@ -273,10 +273,10 @@ function showLoginScreen(){
   document.getElementById('app').innerHTML=`
     <div style="display:flex;align-items:center;justify-content:center;height:100vh;background:var(--bg)">
       <div style="background:var(--panel);border:1px solid var(--border);padding:40px;width:320px;text-align:center">
-        <div style="background:linear-gradient(135deg,var(--accent),#00a080);padding:12px;font-weight:700;font-size:16px;color:var(--bg);margin-bottom:24px">SYP ANALYTICS</div>
+        <div style="background:linear-gradient(135deg,var(--accent),#3a5eb8);padding:12px;font-weight:700;font-size:16px;color:var(--bg);margin-bottom:24px">SYP ANALYTICS</div>
         <div style="color:var(--muted);font-size:11px;margin-bottom:20px">Buckeye Pacific</div>
         <select id="login-trader" style="width:100%;padding:12px;margin-bottom:12px;text-align:center;font-size:14px">
-          ${ALL_LOGINS.map(t=>`<option value="${t}"${t==='Admin'?' style="font-weight:bold;color:#f5a623"':''}>${t==='Admin'?'🔑 Admin':t}</option>`).join('')}
+          ${ALL_LOGINS.map(t=>`<option value="${t}"${t==='Admin'?' style="font-weight:bold;color:#e8734a"':''}>${t==='Admin'?'🔑 Admin':t}</option>`).join('')}
         </select>
         <input type="password" id="login-password" placeholder="Enter your password" style="width:100%;padding:12px;margin-bottom:16px;text-align:center" onkeydown="if(event.key==='Enter')doLogin()">
         <button class="btn btn-primary" style="width:100%" onclick="doLogin()">Login</button>
@@ -447,6 +447,8 @@ function toggleSidebar(){
   sidebar.classList.toggle('collapsed');
   S.sidebarCollapsed=sidebar.classList.contains('collapsed');
   SS('sidebarCollapsed',S.sidebarCollapsed);
+  const btn=sidebar.querySelector('.sidebar-toggle-btn');
+  if(btn)btn.innerHTML=S.sidebarCollapsed?'&#9654;':'&#9664;';
 }
 
 // Toggle light/dark theme
@@ -515,10 +517,11 @@ function exportPDF(){
 (function(){
   const saved=localStorage.getItem('syp_theme');
   if(saved)document.documentElement.setAttribute('data-theme',saved);
-  // Apply saved sidebar state
-  if(LS('sidebarCollapsed',false)){
+  // Apply saved sidebar state (default to collapsed on first visit)
+  const sidebarCollapsed=localStorage.getItem('syp_sidebarCollapsed')===null?true:LS('sidebarCollapsed',false);
+  if(sidebarCollapsed){
     const sb=document.getElementById('sidebar');
-    if(sb)sb.classList.add('collapsed');
+    if(sb){sb.classList.add('collapsed');const btn=sb.querySelector('.sidebar-toggle-btn');if(btn)btn.innerHTML='&#9654;';}
   }
 })();
 

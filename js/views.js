@@ -161,11 +161,11 @@ function renderPnLCalendar(){
     let tradeCount='';
     if(dp){
       const alpha=Math.min(0.75,Math.max(0.15,Math.abs(dp.total)/maxAbs*0.75));
-      bg=dp.total>=0?`rgba(34,197,94,${alpha.toFixed(2)})`:`rgba(239,68,68,${alpha.toFixed(2)})`;
+      bg=dp.total>=0?`rgba(74,158,110,${alpha.toFixed(2)})`:`rgba(224,82,82,${alpha.toFixed(2)})`;
       amtHtml=`<div class="pnl-cal-amt" style="color:${dp.total>=0?'var(--positive)':'var(--negative)'}">${dp.total>=0?'+':''}$${Math.abs(Math.round(dp.total)).toLocaleString()}</div>`;
       tradeCount=`<div class="pnl-cal-trades">${dp.trades.length} trade${dp.trades.length!==1?'s':''}</div>`;
     }else{
-      bg='rgba(107,124,147,0.08)';
+      bg='rgba(85,91,101,0.08)';
     }
     grid+=`<div class="pnl-cal-cell" style="background:${bg}" onclick="showPnLDayDetail('${key}')">
       <div class="pnl-cal-day">${d}</div>${amtHtml}${tradeCount}
@@ -227,6 +227,67 @@ function showPnLDayDetail(dateKey){
   </div>`;
 }
 
+// Focus mode: expand a card to full viewport
+function expandCard(btn){
+  const card=btn.closest('.card');
+  if(!card)return;
+  const overlay=document.createElement('div');
+  overlay.className='card-expand-overlay';
+  overlay.onclick=function(){collapseCard(card,overlay);};
+  document.body.appendChild(overlay);
+  card.classList.add('card-expanded');
+  btn.innerHTML='&#x2715;';
+  btn.setAttribute('title','Close');
+  btn.onclick=function(){collapseCard(card,overlay);};
+}
+function collapseCard(card,overlay){
+  card.classList.remove('card-expanded');
+  if(overlay&&overlay.parentNode)overlay.parentNode.removeChild(overlay);
+  const btn=card.querySelector('.card-expand-btn');
+  if(btn){btn.innerHTML='&#x26F6;';btn.setAttribute('title','Expand');btn.onclick=function(){expandCard(btn);};}
+  // Re-render charts inside the card in case canvas was resized
+  if(card.querySelector('canvas')&&typeof renderDashboardCharts==='function')setTimeout(renderDashboardCharts,50);
+}
+
+// Drag-to-reorder dashboard sections
+let _draggedSection=null;
+function dashDragStart(e){
+  _draggedSection=e.currentTarget;
+  e.currentTarget.style.opacity='0.4';
+  e.dataTransfer.effectAllowed='move';
+  e.dataTransfer.setData('text/plain',e.currentTarget.dataset.section);
+}
+function dashDragOver(e){
+  e.preventDefault();
+  e.dataTransfer.dropEffect='move';
+  const target=e.currentTarget;
+  if(target!==_draggedSection&&target.classList.contains('dash-section')){
+    target.classList.add('drag-over');
+  }
+}
+function dashDrop(e){
+  e.preventDefault();
+  const target=e.currentTarget;
+  target.classList.remove('drag-over');
+  if(!_draggedSection||target===_draggedSection)return;
+  const parent=target.parentNode;
+  const sections=Array.from(parent.querySelectorAll('.dash-section'));
+  const fromIdx=sections.indexOf(_draggedSection);
+  const toIdx=sections.indexOf(target);
+  if(fromIdx<0||toIdx<0)return;
+  if(fromIdx<toIdx){parent.insertBefore(_draggedSection,target.nextSibling);}
+  else{parent.insertBefore(_draggedSection,target);}
+  // Save new order
+  const newOrder=Array.from(parent.querySelectorAll('.dash-section')).map(el=>el.dataset.section).filter(Boolean);
+  S.dashboardOrder=newOrder;
+  SS('dashboardOrder',newOrder);
+}
+function dashDragEnd(e){
+  e.currentTarget.style.opacity='1';
+  document.querySelectorAll('.dash-section.drag-over').forEach(el=>el.classList.remove('drag-over'));
+  _draggedSection=null;
+}
+
 function render(){
   renderNav();renderMkt();renderBreadcrumbs();
   updateMobileNav();
@@ -240,204 +301,135 @@ function render(){
       c.innerHTML=`<div class="empty-state" style="padding:80px"><div style="font-size:48px;margin-bottom:20px">${S.trader==='Admin'?'🔑':'📊'}</div><h2 style="margin-bottom:12px;color:var(--text)">Welcome, ${S.trader}!</h2><p style="margin-bottom:24px">${S.trader==='Admin'?'No department trades yet. Traders can add trades from their accounts.':'Start by adding your trades or importing Random Lengths data.'}</p><div style="display:flex;gap:12px;justify-content:center"><button class="btn btn-success" onclick="showBuyModal()">+ Add Buy</button><button class="btn btn-primary" onclick="showSellModal()">+ Add Sell</button><button class="btn btn-warn" onclick="go('rldata')">Import RL Data</button></div></div>`;
       return;
     }
-    c.innerHTML=`
+    // --- Dashboard data prep ---
+    const weeklyPerf=calcWeeklyPerformance(S.buys,S.sells);
+    const wpBuyVols=weeklyPerf.map(w=>w.buyVol);
+    const wpSellVols=weeklyPerf.map(w=>w.sellVol);
+    const wpProfits=weeklyPerf.map(w=>w.profit);
+    const wpInvDeltas=weeklyPerf.map(w=>w.buyVol-w.sellVol);
+    const currWk=weeklyPerf[weeklyPerf.length-1]||{buyVol:0,sellVol:0,profit:0};
+    const prevWk=weeklyPerf[weeklyPerf.length-2]||{buyVol:0,sellVol:0,profit:0};
+    function wowDelta(curr,prev){
+      if(!prev||prev===0)return '';
+      const pct=((curr-prev)/Math.abs(prev)*100);
+      const cls=pct>=0?'up':'down';
+      const arrow=pct>=0?'&#9650;':'&#9660;';
+      return '<div class="kpi-delta '+cls+'">'+arrow+' '+Math.abs(pct).toFixed(1)+'%</div>';
+    }
+    // Stale data check
+    const _now=new Date();
+    const _latestRL=S.rl.length?new Date(S.rl[S.rl.length-1].date):null;
+    const _latestBuy=a.buys.length?new Date(a.buys[0].date):null;
+    const _latestSell=a.sells.length?new Date(a.sells[0].date):null;
+    const _latestTrade=_latestBuy&&_latestSell?new Date(Math.max(_latestBuy,_latestSell)):(_latestBuy||_latestSell);
+    const rlStale=_latestRL?(_now-_latestRL)>7*86400000:false;
+    const tradeStale=_latestTrade?(_now-_latestTrade)>14*86400000:false;
+    const staleBadge='<span class="stale-badge"><span class="stale-dot"></span>Data may be stale</span>';
+    // Market movers
+    const movers=calcMarketMovers();
+    // KPI threshold border helper
+    function kpiBorder(cond){return cond?'border-left:3px solid '+cond:'';}
+    const invBorder=a.inv<-50?'var(--negative)':Math.abs(a.inv)>25?'var(--warn)':'';
+    const marginBorder=a.margin<0?'var(--negative)':a.marginPct>10?'var(--positive)':'';
+    const profitBorder=a.profit>0?'var(--positive)':a.profit<0?'var(--negative)':'';
+
+    // --- Build dashboard sections ---
+    const _sections={};
+
+    _sections['kpis']=`
       <div class="kpi-grid">
-        <div class="kpi"><div class="kpi-label">BUY VOLUME</div><div><span class="kpi-value">${fmtN(a.bVol)} MBF</span><span class="kpi-sub">${fmt(a.bVal)}</span></div></div>
-        <div class="kpi"><div class="kpi-label">SELL VOLUME</div><div><span class="kpi-value">${fmtN(a.sVol)} MBF</span><span class="kpi-sub">${fmt(a.sVal)}</span></div></div>
-        <div class="kpi"><div class="kpi-label">MATCHED VOL</div><div><span class="kpi-value">${fmtN(a.matchedVol)} MBF</span></div></div>
-        <div class="kpi"><div class="kpi-label">OPEN POSITION</div><div><span class="kpi-value ${a.inv>0?'warn':a.inv<0?'negative':''}">${fmtN(a.inv)} MBF</span><span class="kpi-sub">${a.inv>0?'long':a.inv<0?'short':'flat'}</span></div></div>
-        <div class="kpi"><div class="kpi-label">MARGIN (MATCHED)</div><div><span class="kpi-value ${a.margin>=0?'positive':'negative'}">${fmt(Math.round(a.margin))}</span><span class="kpi-sub">${fmtPct(a.marginPct)}</span></div></div>
-        <div class="kpi"><div class="kpi-label">REALIZED PROFIT</div><div><span class="kpi-value ${a.profit>=0?'positive':'negative'}">${fmt(Math.round(a.profit))}</span></div></div>
-      </div>
+        <div class="kpi"><div class="kpi-label">BUY VOLUME</div><div class="kpi-content"><div><span class="kpi-value">${fmtN(a.bVol)} MBF</span><span class="kpi-sub">${fmt(a.bVal)}</span>${wowDelta(currWk.buyVol,prevWk.buyVol)}</div><canvas id="spark-bvol" class="kpi-spark" width="60" height="24"></canvas></div></div>
+        <div class="kpi"><div class="kpi-label">SELL VOLUME</div><div class="kpi-content"><div><span class="kpi-value">${fmtN(a.sVol)} MBF</span><span class="kpi-sub">${fmt(a.sVal)}</span>${wowDelta(currWk.sellVol,prevWk.sellVol)}</div><canvas id="spark-svol" class="kpi-spark" width="60" height="24"></canvas></div></div>
+        <div class="kpi"><div class="kpi-label">MATCHED VOL</div><div class="kpi-content"><div><span class="kpi-value">${fmtN(a.matchedVol)} MBF</span></div><canvas id="spark-mvol" class="kpi-spark" width="60" height="24"></canvas></div></div>
+        <div class="kpi" style="${kpiBorder(invBorder)}"><div class="kpi-label">OPEN POSITION</div><div class="kpi-content"><div><span class="kpi-value ${a.inv>0?'warn':a.inv<0?'negative':''}">${fmtN(a.inv)} MBF</span><span class="kpi-sub">${a.inv>0?'long':a.inv<0?'short':'flat'}</span>${wowDelta(currWk.buyVol-currWk.sellVol,prevWk.buyVol-prevWk.sellVol)}</div><canvas id="spark-inv" class="kpi-spark" width="60" height="24"></canvas></div></div>
+        <div class="kpi" style="${kpiBorder(marginBorder)}"><div class="kpi-label">MARGIN (MATCHED)</div><div class="kpi-content"><div><span class="kpi-value ${a.margin>=0?'positive':'negative'}">${fmt(Math.round(a.margin))}</span><span class="kpi-sub">${fmtPct(a.marginPct)}</span>${wowDelta(currWk.profit,prevWk.profit)}</div><canvas id="spark-margin" class="kpi-spark" width="60" height="24"></canvas></div></div>
+        <div class="kpi" style="${kpiBorder(profitBorder)}"><div class="kpi-label">REALIZED PROFIT</div><div class="kpi-content"><div><span class="kpi-value ${a.profit>=0?'positive':'negative'}">${fmt(Math.round(a.profit))}</span>${wowDelta(currWk.profit,prevWk.profit)}</div><canvas id="spark-profit" class="kpi-spark" width="60" height="24"></canvas></div></div>
+      </div>`;
+
+    _sections['info-row']=`
       <div class="grid-3" style="margin-bottom:20px">
-        <div class="card"><div class="card-header"><span class="card-title">POSITION vs RL</span></div><div class="card-body">
-          <div style="display:flex;justify-content:space-between;margin-bottom:12px"><span style="color:var(--muted)">Avg vs Market</span><span style="font-size:18px;font-weight:700;color:${a.avgVsRL<=0?'var(--positive)':'var(--negative)'}">${a.avgVsRL<=0?'▼':'▲'} ${fmt(Math.abs(a.avgVsRL))}</span></div>
+        <div class="card"><div class="card-header"><span class="card-title">POSITION vs RL</span><button class="card-expand-btn" onclick="expandCard(this)" title="Expand">&#x26F6;</button></div><div class="card-body">
+          <div style="display:flex;justify-content:space-between;margin-bottom:12px"><span style="color:var(--muted)">Avg vs Market</span><span style="font-size:18px;font-weight:700;color:${a.avgVsRL<=0?'var(--positive)':'var(--negative)'}">${a.avgVsRL<=0?'&#9660;':'&#9650;'} ${fmt(Math.abs(a.avgVsRL))}</span></div>
           <div style="display:flex;justify-content:space-between"><span style="color:var(--muted)">Total Impact</span><span style="font-weight:600;color:${a.totVsRL<=0?'var(--positive)':'var(--negative)'}">${fmt(Math.abs(Math.round(a.totVsRL)))} ${a.totVsRL<=0?'saved':'over'}</span></div>
         </div></div>
-        <div class="card"><div class="card-header"><span class="card-title">INVENTORY</span></div><div class="card-body">
+        <div class="card"><div class="card-header"><span class="card-title">INVENTORY</span><button class="card-expand-btn" onclick="expandCard(this)" title="Expand">&#x26F6;</button></div><div class="card-body">
           <div style="display:flex;justify-content:space-between;margin-bottom:12px"><span style="color:var(--muted)">Open Volume</span><span style="font-size:18px;font-weight:700;color:${a.inv>0?'var(--warn)':'var(--text)'}">${fmtN(a.inv)} MBF</span></div>
           <div style="display:flex;justify-content:space-between"><span style="color:var(--muted)">Est. Value</span><span style="font-weight:600">${fmt(Math.round(a.inv*a.avgB))}</span></div>
         </div></div>
-        <div class="card"><div class="card-header"><span class="card-title warn">FREIGHT</span></div><div class="card-body">
+        <div class="card"><div class="card-header"><span class="card-title warn">FREIGHT</span><button class="card-expand-btn" onclick="expandCard(this)" title="Expand">&#x26F6;</button></div><div class="card-body">
           <div style="display:flex;justify-content:space-between;margin-bottom:12px"><span style="color:var(--muted)">Avg per MBF</span><span style="font-size:18px;font-weight:700;color:var(--warn)">${fmt(Math.round(a.avgFr))}</span></div>
           <div style="display:flex;justify-content:space-between"><span style="color:var(--muted)">Total Cost</span><span style="font-weight:600">${fmt(Math.round(a.avgFr*a.sVol))}</span></div>
         </div></div>
-      </div>
+      </div>`;
+
+    _sections['market-movers']=movers.length?`
+      <div class="card" style="margin-bottom:20px"><div class="card-header"><span class="card-title">MARKET MOVERS</span><span style="font-size:9px;color:var(--muted);margin-left:8px">Week-over-Week RL Changes</span><button class="card-expand-btn" onclick="expandCard(this)" title="Expand">&#x26F6;</button></div>
+        <div class="card-body" style="padding:0">
+          ${movers.map(m=>'<div class="mover-item"><div><span class="mover-name">'+m.product+'</span><span class="mover-region"> ('+m.region+')</span></div><div><span class="mover-change '+(m.change>0?'positive':'negative')+'">'+(m.change>0?'&#9650;':'&#9660;')+' '+fmt(Math.abs(m.change))+'</span><span class="mover-pct '+(m.change>0?'positive':'negative')+'">'+(m.pct>0?'+':'')+m.pct.toFixed(1)+'%</span></div></div>').join('')}
+        </div></div>`:'';
+
+    _sections['price-region']=`
       <div class="grid-2-1" style="margin-bottom:20px">
-        <div class="card"><div class="card-header"><span class="card-title">PRICE TRENDS — 2x4#2</span></div><div class="card-body">
-          ${S.rl.length?`<div class="chart-container">${S.rl.slice(-8).map(r=>`<div class="chart-bar-group"><div class="chart-bars"><div class="chart-bar west" style="height:${Math.max(2,(r.west?.['2x4#2']||340)-340)*0.8}px"></div><div class="chart-bar central" style="height:${Math.max(2,(r.central?.['2x4#2']||340)-340)*0.8}px"></div><div class="chart-bar east" style="height:${Math.max(2,(r.east?.['2x4#2']||340)-340)*0.8}px"></div></div><span class="chart-label">${fmtD(r.date)}</span></div>`).join('')}</div><div class="chart-legend"><div class="legend-item"><div class="legend-dot west"></div><span class="legend-text">West</span></div><div class="legend-item"><div class="legend-dot central"></div><span class="legend-text">Central</span></div><div class="legend-item"><div class="legend-dot east"></div><span class="legend-text">East</span></div></div>`:'<div class="empty-state">No RL data yet</div>'}
+        <div class="card"><div class="card-header"><span class="card-title">PRICE TRENDS — 2x4#2</span>${rlStale?staleBadge:''}<div class="range-selector">${['1W','1M','3M','YTD'].map(r=>'<button class="range-btn '+(S.dashChartRange===r?'active':'')+'" onclick="S.dashChartRange=\''+r+'\';SS(\'dashChartRange\',\''+r+'\');renderDashboardCharts()">'+r+'</button>').join('')}</div><button class="card-expand-btn" onclick="expandCard(this)" title="Expand">&#x26F6;</button></div><div class="card-body">
+          ${S.rl.length?'<div style="height:160px"><canvas id="dashboard-price-chart"></canvas></div>':'<div class="empty-state">No RL data yet</div>'}
         </div></div>
-        <div class="card"><div class="card-header"><span class="card-title">REGION MIX</span></div><div class="card-body">
-          ${a.bVol?REGIONS.map(r=>{const pct=a.bVol?(a.byReg[r].vol/a.bVol*100):0;const col={west:'accent',central:'warn',east:'info'}[r];return`<div style="margin-bottom:16px"><div style="display:flex;justify-content:space-between;margin-bottom:4px"><span style="text-transform:uppercase;font-size:10px">${r}</span><span style="color:var(--muted);font-size:10px">${fmtN(a.byReg[r].vol)} MBF (${pct.toFixed(0)}%)</span></div><div class="progress-bar"><div class="progress-fill ${col}" style="width:${pct}%"></div></div></div>`}).join(''):'<div class="empty-state">No buys yet</div>'}
+        <div class="card"><div class="card-header"><span class="card-title">REGION MIX</span><button class="card-expand-btn" onclick="expandCard(this)" title="Expand">&#x26F6;</button></div><div class="card-body">
+          ${a.bVol?REGIONS.map(r=>{const pct=a.bVol?(a.byReg[r].vol/a.bVol*100):0;const col={west:'accent',central:'warn',east:'info'}[r];return'<div style="margin-bottom:16px"><div style="display:flex;justify-content:space-between;margin-bottom:4px"><span style="text-transform:uppercase;font-size:10px">'+r+'</span><span style="color:var(--muted);font-size:10px">'+fmtN(a.byReg[r].vol)+' MBF ('+pct.toFixed(0)+'%)</span></div><div class="progress-bar"><div class="progress-fill '+col+'" style="width:'+pct+'%"></div></div></div>'}).join(''):'<div class="empty-state">No buys yet</div>'}
         </div></div>
-      </div>
+      </div>`;
+
+    _sections['activity']=`
       <div class="grid-2">
-        <div class="card"><div class="card-header"><span class="card-title positive">RECENT BUYS</span></div>
-          ${a.buys.length?a.buys.slice(0,5).map(b=>`<div class="activity-item"><div><div class="activity-main">${b.product} @ ${fmt(b.price)}</div><div class="activity-sub">${b.mill} • ${b.date}</div></div><div class="activity-right"><div class="activity-value positive">${fmtN(b.volume)} MBF</div><span class="badge ${b.shipped?'badge-success':'badge-pending'}">${b.shipped?'Shipped':'Pending'}</span></div></div>`).join(''):'<div class="empty-state">No buys yet</div>'}
+        <div class="card"><div class="card-header"><span class="card-title positive">RECENT BUYS</span>${tradeStale?staleBadge:''}<button class="card-expand-btn" onclick="expandCard(this)" title="Expand">&#x26F6;</button></div>
+          ${a.buys.length?a.buys.slice(0,5).map(b=>'<div class="activity-item"><div><div class="activity-main">'+b.product+' @ '+fmt(b.price)+'</div><div class="activity-sub">'+b.mill+' &bull; '+b.date+'</div></div><div class="activity-right"><div class="activity-value positive">'+fmtN(b.volume)+' MBF</div><span class="badge '+(b.shipped?'badge-success':'badge-pending')+'">'+(b.shipped?'Shipped':'Pending')+'</span></div></div>').join(''):'<div class="empty-state">No buys yet</div>'}
         </div>
-        <div class="card"><div class="card-header"><span class="card-title">RECENT SELLS</span></div>
-          ${a.sells.length?a.sells.slice(0,5).map(x=>`<div class="activity-item"><div><div class="activity-main">${x.product} @ ${fmt(x.price)} DLVD</div><div class="activity-sub">${x.customer} • ${x.destination}</div></div><div class="activity-right"><div class="activity-value accent">${fmtN(x.volume)} MBF</div><span class="badge ${x.delivered?'badge-success':'badge-pending'}">${x.delivered?'Delivered':'Pending'}</span></div></div>`).join(''):'<div class="empty-state">No sells yet</div>'}
+        <div class="card"><div class="card-header"><span class="card-title">RECENT SELLS</span>${tradeStale?staleBadge:''}<button class="card-expand-btn" onclick="expandCard(this)" title="Expand">&#x26F6;</button></div>
+          ${a.sells.length?a.sells.slice(0,5).map(x=>'<div class="activity-item"><div><div class="activity-main">'+x.product+' @ '+fmt(x.price)+' DLVD</div><div class="activity-sub">'+x.customer+' &bull; '+x.destination+'</div></div><div class="activity-right"><div class="activity-value accent">'+fmtN(x.volume)+' MBF</div><span class="badge '+(x.delivered?'badge-success':'badge-pending')+'">'+(x.delivered?'Delivered':'Pending')+'</span></div></div>').join(''):'<div class="empty-state">No sells yet</div>'}
         </div>
-      </div>
+      </div>`;
 
-      <!-- ADVANCED ANALYTICS SECTION -->
-      ${(()=>{
-        // Calculate advanced analytics
-        const topProducts=calcTopProducts(a.buys,a.sells);
-        const topCustomers=calcTopCustomers(a.sells);
-        const agingSummary=calcAgingSummary(a.buys);
-        const weeklyPerf=calcWeeklyPerformance(S.buys,S.sells);
+    // Build advanced analytics section
+    const topProducts=calcTopProducts(a.buys,a.sells);
+    const topCustomers=calcTopCustomers(a.sells);
+    const agingSummary=calcAgingSummary(a.buys);
 
-        return `
-        <div style="margin-top:24px;padding-top:20px;border-top:2px solid var(--border)">
-          <h3 style="color:var(--accent);margin-bottom:16px;font-size:14px">📈 Advanced Analytics</h3>
+    _sections['advanced']=`
+      <div style="margin-top:24px;padding-top:20px;border-top:2px solid var(--border)">
+        <h3 style="color:var(--accent);margin-bottom:16px;font-size:14px">Advanced Analytics</h3>
+        <div class="grid-3" style="margin-bottom:20px">
+          <div class="card"><div class="card-header"><span class="card-title">TOP PRODUCTS (Vol)</span><button class="card-expand-btn" onclick="expandCard(this)" title="Expand">&#x26F6;</button></div><div class="card-body" style="padding:0">
+            ${topProducts.byVolume.slice(0,5).map((p,i)=>'<div class="activity-item" style="padding:8px 12px"><div style="display:flex;align-items:center;gap:8px"><span style="color:'+(i===0?'gold':i===1?'silver':i===2?'#cd7f32':'var(--muted)')+';font-weight:700;width:18px">'+(i+1)+'</span><span style="font-weight:500">'+p.product+'</span></div><span style="font-weight:600">'+fmtN(p.volume)+' MBF</span></div>').join('')||'<div class="empty-state" style="padding:20px">No data</div>'}
+          </div></div>
+          <div class="card"><div class="card-header"><span class="card-title">TOP CUSTOMERS</span><button class="card-expand-btn" onclick="expandCard(this)" title="Expand">&#x26F6;</button></div><div class="card-body" style="padding:0">
+            ${topCustomers.slice(0,5).map((c,i)=>'<div class="activity-item" style="padding:8px 12px"><div style="display:flex;align-items:center;gap:8px"><span style="color:'+(i===0?'gold':i===1?'silver':i===2?'#cd7f32':'var(--muted)')+';font-weight:700;width:18px">'+(i+1)+'</span><div><div style="font-weight:500">'+c.customer+'</div><div style="font-size:9px;color:var(--muted)">'+c.orders+' orders</div></div></div><div style="text-align:right"><div style="font-weight:600">'+fmtN(c.volume)+' MBF</div><div style="font-size:9px;color:var(--positive)">'+fmt(c.profit)+'</div></div></div>').join('')||'<div class="empty-state" style="padding:20px">No sales yet</div>'}
+          </div></div>
+          <div class="card"><div class="card-header"><span class="card-title warn">INVENTORY AGING</span><button class="card-expand-btn" onclick="expandCard(this)" title="Expand">&#x26F6;</button></div><div class="card-body">
+            <div style="margin-bottom:12px"><div style="display:flex;justify-content:space-between;margin-bottom:4px"><span style="font-size:10px;color:var(--positive)">0-7 days</span><span style="font-weight:600">${fmtN(agingSummary.fresh)} MBF</span></div><div class="progress-bar"><div class="progress-fill accent" style="width:${agingSummary.total?agingSummary.fresh/agingSummary.total*100:0}%"></div></div></div>
+            <div style="margin-bottom:12px"><div style="display:flex;justify-content:space-between;margin-bottom:4px"><span style="font-size:10px;color:var(--muted)">8-14 days</span><span style="font-weight:600">${fmtN(agingSummary.week)} MBF</span></div><div class="progress-bar"><div class="progress-fill info" style="width:${agingSummary.total?agingSummary.week/agingSummary.total*100:0}%"></div></div></div>
+            <div style="margin-bottom:12px"><div style="display:flex;justify-content:space-between;margin-bottom:4px"><span style="font-size:10px;color:var(--warn)">15-30 days</span><span style="font-weight:600">${fmtN(agingSummary.twoWeek)} MBF</span></div><div class="progress-bar"><div class="progress-fill warn" style="width:${agingSummary.total?agingSummary.twoWeek/agingSummary.total*100:0}%"></div></div></div>
+            <div><div style="display:flex;justify-content:space-between;margin-bottom:4px"><span style="font-size:10px;color:var(--negative)">30+ days</span><span style="font-weight:600;color:var(--negative)">${fmtN(agingSummary.old)} MBF</span></div><div class="progress-bar"><div class="progress-fill" style="width:${agingSummary.total?agingSummary.old/agingSummary.total*100:0}%;background:var(--negative)"></div></div></div>
+          </div></div>
+        </div>
+        <div class="card"><div class="card-header"><span class="card-title">WEEKLY PERFORMANCE (Last 8 Weeks)</span><span style="font-size:9px;color:var(--muted)">Volume & Profit Trends</span><button class="card-expand-btn" onclick="expandCard(this)" title="Expand">&#x26F6;</button></div><div class="card-body">
+          ${weeklyPerf.length?'<div style="display:flex;gap:4px;align-items:flex-end;height:140px;padding:10px 0;border-bottom:1px solid var(--border)">'+weeklyPerf.map(w=>{const maxVol=Math.max(...weeklyPerf.map(x=>x.buyVol+x.sellVol))||1;const buyH=Math.max(4,(w.buyVol/maxVol)*100);const sellH=Math.max(4,(w.sellVol/maxVol)*100);return'<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:2px"><div style="display:flex;gap:2px;align-items:flex-end;height:100px"><div style="width:14px;background:var(--positive);border-radius:2px 2px 0 0;height:'+buyH+'px" title="Buy: '+fmtN(w.buyVol)+' MBF"></div><div style="width:14px;background:var(--accent);border-radius:2px 2px 0 0;height:'+sellH+'px" title="Sell: '+fmtN(w.sellVol)+' MBF"></div></div><div style="font-size:8px;color:var(--muted);text-align:center">'+w.label+'</div><div style="font-size:9px;color:'+(w.profit>=0?'var(--positive)':'var(--negative)')+'">'+(w.profit>=0?'+':'')+Math.round(w.profit/1000)+'k</div></div>'}).join('')+'</div><div class="chart-legend" style="margin-top:8px"><div class="legend-item"><div style="width:10px;height:10px;background:var(--positive)"></div><span class="legend-text">Buys</span></div><div class="legend-item"><div style="width:10px;height:10px;background:var(--accent)"></div><span class="legend-text">Sells</span></div></div>':'<div class="empty-state">Not enough data for weekly trends</div>'}
+        </div></div>
+        <div class="grid-2" style="margin-top:16px">
+          <div class="card"><div class="card-header"><span class="card-title positive">MOST PROFITABLE PRODUCTS</span><button class="card-expand-btn" onclick="expandCard(this)" title="Expand">&#x26F6;</button></div><div style="overflow-x:auto"><table style="font-size:11px"><thead><tr><th>Product</th><th class="right">Margin</th><th class="right">Volume</th><th class="right">Profit</th></tr></thead><tbody>
+            ${topProducts.byProfit.slice(0,5).map(p=>'<tr><td class="bold">'+p.product+'</td><td class="right '+(p.margin>=0?'positive':'negative')+'">'+fmt(Math.round(p.margin))+'/MBF</td><td class="right">'+fmtN(p.volume)+' MBF</td><td class="right '+(p.profit>=0?'positive':'negative')+' bold">'+fmt(Math.round(p.profit))+'</td></tr>').join('')||'<tr><td colspan="4" class="empty-state">No matched trades</td></tr>'}
+          </tbody></table></div></div>
+          <div class="card"><div class="card-header"><span class="card-title negative">LEAST PROFITABLE PRODUCTS</span><button class="card-expand-btn" onclick="expandCard(this)" title="Expand">&#x26F6;</button></div><div style="overflow-x:auto"><table style="font-size:11px"><thead><tr><th>Product</th><th class="right">Margin</th><th class="right">Volume</th><th class="right">Profit</th></tr></thead><tbody>
+            ${topProducts.byProfit.slice(-5).reverse().filter(p=>p.profit<topProducts.byProfit[0]?.profit).map(p=>'<tr><td class="bold">'+p.product+'</td><td class="right '+(p.margin>=0?'positive':'negative')+'">'+fmt(Math.round(p.margin))+'/MBF</td><td class="right">'+fmtN(p.volume)+' MBF</td><td class="right '+(p.profit>=0?'positive':'negative')+' bold">'+fmt(Math.round(p.profit))+'</td></tr>').join('')||'<tr><td colspan="4" class="empty-state">All products profitable!</td></tr>'}
+          </tbody></table></div></div>
+        </div>
+      </div>`;
 
-          <div class="grid-3" style="margin-bottom:20px">
-            <!-- Top Products -->
-            <div class="card">
-              <div class="card-header"><span class="card-title">TOP PRODUCTS (Vol)</span></div>
-              <div class="card-body" style="padding:0">
-                ${topProducts.byVolume.slice(0,5).map((p,i)=>`
-                  <div class="activity-item" style="padding:8px 12px">
-                    <div style="display:flex;align-items:center;gap:8px">
-                      <span style="color:${i===0?'gold':i===1?'silver':i===2?'#cd7f32':'var(--muted)'};font-weight:700;width:18px">${i+1}</span>
-                      <span style="font-weight:500">${p.product}</span>
-                    </div>
-                    <span style="font-weight:600">${fmtN(p.volume)} MBF</span>
-                  </div>
-                `).join('')||'<div class="empty-state" style="padding:20px">No data</div>'}
-              </div>
-            </div>
+    // --- Assemble dashboard in saved order with drag-to-reorder ---
+    const _defaultOrder=['kpis','info-row','market-movers','price-region','activity','advanced'];
+    const _order=(S.dashboardOrder||_defaultOrder).filter(id=>_sections[id]!==undefined&&_sections[id]!=='');
+    // Add any missing sections
+    _defaultOrder.forEach(id=>{if(!_order.includes(id)&&_sections[id])_order.push(id);});
 
-            <!-- Top Customers -->
-            <div class="card">
-              <div class="card-header"><span class="card-title">TOP CUSTOMERS</span></div>
-              <div class="card-body" style="padding:0">
-                ${topCustomers.slice(0,5).map((c,i)=>`
-                  <div class="activity-item" style="padding:8px 12px">
-                    <div style="display:flex;align-items:center;gap:8px">
-                      <span style="color:${i===0?'gold':i===1?'silver':i===2?'#cd7f32':'var(--muted)'};font-weight:700;width:18px">${i+1}</span>
-                      <div>
-                        <div style="font-weight:500">${c.customer}</div>
-                        <div style="font-size:9px;color:var(--muted)">${c.orders} orders</div>
-                      </div>
-                    </div>
-                    <div style="text-align:right">
-                      <div style="font-weight:600">${fmtN(c.volume)} MBF</div>
-                      <div style="font-size:9px;color:var(--positive)">${fmt(c.profit)}</div>
-                    </div>
-                  </div>
-                `).join('')||'<div class="empty-state" style="padding:20px">No sales yet</div>'}
-              </div>
-            </div>
-
-            <!-- Inventory Aging -->
-            <div class="card">
-              <div class="card-header"><span class="card-title warn">INVENTORY AGING</span></div>
-              <div class="card-body">
-                <div style="margin-bottom:12px">
-                  <div style="display:flex;justify-content:space-between;margin-bottom:4px">
-                    <span style="font-size:10px;color:var(--positive)">0-7 days</span>
-                    <span style="font-weight:600">${fmtN(agingSummary.fresh)} MBF</span>
-                  </div>
-                  <div class="progress-bar"><div class="progress-fill accent" style="width:${agingSummary.total?agingSummary.fresh/agingSummary.total*100:0}%"></div></div>
-                </div>
-                <div style="margin-bottom:12px">
-                  <div style="display:flex;justify-content:space-between;margin-bottom:4px">
-                    <span style="font-size:10px;color:var(--muted)">8-14 days</span>
-                    <span style="font-weight:600">${fmtN(agingSummary.week)} MBF</span>
-                  </div>
-                  <div class="progress-bar"><div class="progress-fill info" style="width:${agingSummary.total?agingSummary.week/agingSummary.total*100:0}%"></div></div>
-                </div>
-                <div style="margin-bottom:12px">
-                  <div style="display:flex;justify-content:space-between;margin-bottom:4px">
-                    <span style="font-size:10px;color:var(--warn)">15-30 days</span>
-                    <span style="font-weight:600">${fmtN(agingSummary.twoWeek)} MBF</span>
-                  </div>
-                  <div class="progress-bar"><div class="progress-fill warn" style="width:${agingSummary.total?agingSummary.twoWeek/agingSummary.total*100:0}%"></div></div>
-                </div>
-                <div>
-                  <div style="display:flex;justify-content:space-between;margin-bottom:4px">
-                    <span style="font-size:10px;color:var(--negative)">30+ days</span>
-                    <span style="font-weight:600;color:var(--negative)">${fmtN(agingSummary.old)} MBF</span>
-                  </div>
-                  <div class="progress-bar"><div class="progress-fill" style="width:${agingSummary.total?agingSummary.old/agingSummary.total*100:0}%;background:var(--negative)"></div></div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <!-- Weekly Performance Chart -->
-          <div class="card">
-            <div class="card-header">
-              <span class="card-title">WEEKLY PERFORMANCE (Last 8 Weeks)</span>
-              <span style="font-size:9px;color:var(--muted)">Volume & Profit Trends</span>
-            </div>
-            <div class="card-body">
-              ${weeklyPerf.length?`
-              <div style="display:flex;gap:4px;align-items:flex-end;height:140px;padding:10px 0;border-bottom:1px solid var(--border)">
-                ${weeklyPerf.map(w=>{
-                  const maxVol=Math.max(...weeklyPerf.map(x=>x.buyVol+x.sellVol))||1;
-                  const buyH=Math.max(4,(w.buyVol/(maxVol))*100);
-                  const sellH=Math.max(4,(w.sellVol/(maxVol))*100);
-                  return`
-                  <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:2px">
-                    <div style="display:flex;gap:2px;align-items:flex-end;height:100px">
-                      <div style="width:14px;background:var(--positive);border-radius:2px 2px 0 0;height:${buyH}px" title="Buy: ${fmtN(w.buyVol)} MBF"></div>
-                      <div style="width:14px;background:var(--accent);border-radius:2px 2px 0 0;height:${sellH}px" title="Sell: ${fmtN(w.sellVol)} MBF"></div>
-                    </div>
-                    <div style="font-size:8px;color:var(--muted);text-align:center">${w.label}</div>
-                    <div style="font-size:9px;color:${w.profit>=0?'var(--positive)':'var(--negative)'}">${w.profit>=0?'+':''}${Math.round(w.profit/1000)}k</div>
-                  </div>`;
-                }).join('')}
-              </div>
-              <div class="chart-legend" style="margin-top:8px">
-                <div class="legend-item"><div style="width:10px;height:10px;background:var(--positive)"></div><span class="legend-text">Buys</span></div>
-                <div class="legend-item"><div style="width:10px;height:10px;background:var(--accent)"></div><span class="legend-text">Sells</span></div>
-              </div>
-              `:'<div class="empty-state">Not enough data for weekly trends</div>'}
-            </div>
-          </div>
-
-          <!-- Top Products by Profit -->
-          <div class="grid-2" style="margin-top:16px">
-            <div class="card">
-              <div class="card-header"><span class="card-title positive">MOST PROFITABLE PRODUCTS</span></div>
-              <div style="overflow-x:auto"><table style="font-size:11px">
-                <thead><tr><th>Product</th><th class="right">Margin</th><th class="right">Volume</th><th class="right">Profit</th></tr></thead>
-                <tbody>
-                  ${topProducts.byProfit.slice(0,5).map(p=>`
-                    <tr>
-                      <td class="bold">${p.product}</td>
-                      <td class="right ${p.margin>=0?'positive':'negative'}">${fmt(Math.round(p.margin))}/MBF</td>
-                      <td class="right">${fmtN(p.volume)} MBF</td>
-                      <td class="right ${p.profit>=0?'positive':'negative'} bold">${fmt(Math.round(p.profit))}</td>
-                    </tr>
-                  `).join('')||'<tr><td colspan="4" class="empty-state">No matched trades</td></tr>'}
-                </tbody>
-              </table></div>
-            </div>
-
-            <div class="card">
-              <div class="card-header"><span class="card-title negative">LEAST PROFITABLE PRODUCTS</span></div>
-              <div style="overflow-x:auto"><table style="font-size:11px">
-                <thead><tr><th>Product</th><th class="right">Margin</th><th class="right">Volume</th><th class="right">Profit</th></tr></thead>
-                <tbody>
-                  ${topProducts.byProfit.slice(-5).reverse().filter(p=>p.profit<topProducts.byProfit[0]?.profit).map(p=>`
-                    <tr>
-                      <td class="bold">${p.product}</td>
-                      <td class="right ${p.margin>=0?'positive':'negative'}">${fmt(Math.round(p.margin))}/MBF</td>
-                      <td class="right">${fmtN(p.volume)} MBF</td>
-                      <td class="right ${p.profit>=0?'positive':'negative'} bold">${fmt(Math.round(p.profit))}</td>
-                    </tr>
-                  `).join('')||'<tr><td colspan="4" class="empty-state">All products profitable!</td></tr>'}
-                </tbody>
-              </table></div>
-            </div>
-          </div>
-        </div>`;
-      })()}
-      <div style="margin-top:16px;text-align:right"><button class="btn btn-info" onclick="exportPDF()">Export PDF</button></div>`;
+    c.innerHTML=_order.map(id=>'<div class="dash-section" data-section="'+id+'" draggable="true" ondragstart="dashDragStart(event)" ondragover="dashDragOver(event)" ondrop="dashDrop(event)" ondragend="dashDragEnd(event)"><span class="dash-drag-handle" title="Drag to reorder">&#8942;&#8942;</span>'+_sections[id]+'</div>').join('')+'<div style="margin-top:16px;text-align:right"><button class="btn btn-info" onclick="exportPDF()">Export PDF</button></div>';
   }
   else if(S.view==='leaderboard'){
     // Enhanced Department Leaderboard with time periods, achievements, goals
@@ -640,7 +632,7 @@ function render(){
       ${S.trader==='Admin'?`
       <!-- Admin Section: Goal Setting -->
       <div class="card" style="margin-top:16px;border-color:var(--warn)">
-        <div class="card-header" style="background:linear-gradient(90deg,rgba(245,166,35,0.2),transparent)">
+        <div class="card-header" style="background:linear-gradient(90deg,rgba(232,115,74,0.2),transparent)">
           <span class="card-title warn">🔑 ADMIN: TEAM GOALS & MANAGEMENT</span>
         </div>
         <div class="card-body">
@@ -1359,7 +1351,7 @@ function render(){
       <!-- Uncovered Sells -->
       ${uncoveredSells.length?`
       <div class="card" style="margin-top:16px;border-color:var(--negative)">
-        <div class="card-header" style="background:rgba(239,68,68,0.1)"><span class="card-title negative">UNCOVERED SELLS (Need Coverage)</span><span style="color:var(--negative);font-size:10px">${fmtN(uncoveredVol)} MBF at risk</span></div>
+        <div class="card-header" style="background:rgba(224,82,82,0.1)"><span class="card-title negative">UNCOVERED SELLS (Need Coverage)</span><span style="color:var(--negative);font-size:10px">${fmtN(uncoveredVol)} MBF at risk</span></div>
         <div style="overflow-x:auto;max-height:250px"><table><thead><tr><th>Order #</th><th>Date</th><th>Customer</th><th>Product</th><th>Len</th><th class="right">Volume</th><th class="right">Price</th><th></th></tr></thead><tbody>
           ${uncoveredSells.slice(0,10).map(s=>{
             const ord=String(s.orderNum||s.linkedPO||s.oc||'').trim();
@@ -1401,7 +1393,7 @@ function render(){
     const avgMargin=selectedItems.length?selectedItems.reduce((s,i)=>s+((i.fob||0)-(i.cost||0)),0)/selectedItems.length:0;
     
     c.innerHTML=`
-      ${S.trader==='Admin'?`<div style="margin-bottom:12px;padding:8px 12px;background:rgba(245,166,35,0.1);border:1px solid #f5a623;border-radius:4px;font-size:11px;color:#f5a623">🔑 <strong>Admin View</strong> — This is the Admin quote engine. Each trader has their own separate quote items and profiles.</div>`:''}
+      ${S.trader==='Admin'?`<div style="margin-bottom:12px;padding:8px 12px;background:rgba(232,115,74,0.1);border:1px solid #e8734a;border-radius:4px;font-size:11px;color:#e8734a">🔑 <strong>Admin View</strong> — This is the Admin quote engine. Each trader has their own separate quote items and profiles.</div>`:''}
       <!-- Profile Selector -->
       <div class="card" style="margin-bottom:12px;padding:10px">
         <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
@@ -1914,7 +1906,7 @@ function render(){
 
         ${hasReminders?`
         <!-- REMINDER DASHBOARD -->
-        <div style="background:linear-gradient(135deg,rgba(239,68,68,0.1),rgba(245,166,35,0.1));border:1px solid var(--negative);border-radius:8px;padding:16px;margin-bottom:20px">
+        <div style="background:linear-gradient(135deg,rgba(224,82,82,0.1),rgba(232,115,74,0.1));border:1px solid var(--negative);border-radius:8px;padding:16px;margin-bottom:20px">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
             <h3 style="margin:0;color:var(--negative);font-size:14px">🔔 ACTION REQUIRED</h3>
             <div style="display:flex;gap:12px;font-size:11px">
@@ -2179,9 +2171,9 @@ function render(){
                 </div>
               </div>
               <div style="display:flex;justify-content:center;gap:24px;font-size:11px">
-                <span><span style="display:inline-block;width:16px;height:3px;background:#00c896;margin-right:6px;border-radius:2px"></span>West</span>
-                <span><span style="display:inline-block;width:16px;height:3px;background:#f5a623;margin-right:6px;border-radius:2px"></span>Central</span>
-                <span><span style="display:inline-block;width:16px;height:3px;background:#4a9eff;margin-right:6px;border-radius:2px"></span>East</span>
+                <span><span style="display:inline-block;width:16px;height:3px;background:#5b8af5;margin-right:6px;border-radius:2px"></span>West</span>
+                <span><span style="display:inline-block;width:16px;height:3px;background:#e8734a;margin-right:6px;border-radius:2px"></span>Central</span>
+                <span><span style="display:inline-block;width:16px;height:3px;background:#6e9ecf;margin-right:6px;border-radius:2px"></span>East</span>
               </div>
             `:'<div class="empty-state">Need at least 2 weeks of data for charts</div>'}
           </div>
@@ -2543,7 +2535,7 @@ function render(){
       </div></div>
       
       <div class="card"><div class="card-header"><span class="card-title info">☁️ CLOUD SYNC</span></div><div class="card-body">
-        <div style="margin-bottom:16px;padding:12px;background:rgba(34,197,94,0.1);border:1px solid var(--positive);border-radius:4px">
+        <div style="margin-bottom:16px;padding:12px;background:rgba(74,158,110,0.1);border:1px solid var(--positive);border-radius:4px">
           <span style="color:var(--positive)">✓ Cloud sync pre-configured</span>
           <span style="color:var(--muted);margin-left:12px">Team ID: ${sbUser}</span>
         </div>
@@ -2591,6 +2583,20 @@ function render(){
   
   // Draw charts after DOM update
   if(S.view==='rldata'&&(!S.rlTab||S.rlTab==='charts'))setTimeout(drawCharts,10);
+  if(S.view==='dashboard'){
+    setTimeout(renderDashboardCharts,10);
+    // Draw KPI sparklines
+    setTimeout(()=>{
+      const a=analytics();
+      const wp=calcWeeklyPerformance(S.buys,S.sells);
+      drawSparkline('spark-bvol',wp.map(w=>w.buyVol),'#5b8af5');
+      drawSparkline('spark-svol',wp.map(w=>w.sellVol),'#e8734a');
+      drawSparkline('spark-mvol',wp.map(w=>Math.min(w.buyVol,w.sellVol)),'#4a9e6e');
+      drawSparkline('spark-inv',wp.map(w=>w.buyVol-w.sellVol),'#6e9ecf');
+      drawSparkline('spark-margin',wp.map(w=>w.sellVol>0?w.profit/w.sellVol:0),'#4a9e6e');
+      drawSparkline('spark-profit',wp.map(w=>w.profit),'#5b8af5');
+    },20);
+  }
 
   // Render AI side panel
   if(S.aiPanelOpen)renderAIPanel();

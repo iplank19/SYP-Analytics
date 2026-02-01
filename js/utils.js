@@ -154,7 +154,7 @@ function canEdit(trade){
 
 // Get trader color for display
 function traderColor(t){
-  const colors={'Admin':'#f5a623','Ian P':'var(--accent)','Aubrey M':'#f5a623','Hunter S':'#4a9eff','Sawyer R':'#a855f7','Jackson M':'#ec4899','John W':'#14b8a6'};
+  const colors={'Admin':'#e8734a','Ian P':'var(--accent)','Aubrey M':'#e8734a','Hunter S':'#6e9ecf','Sawyer R':'#a855f7','Jackson M':'#ec4899','John W':'#14b8a6'};
   return colors[t]||'var(--muted)';
 }
 
