@@ -1,7 +1,51 @@
 // SYP Analytics - App Init & Settings
 // SETTINGS
-function saveKey(){S.apiKey=document.getElementById('api-key').value.trim();SS('apiKey',S.apiKey);alert('Saved!')}
-function saveFlatRate(){S.flatRate=parseFloat(document.getElementById('flat-rate').value)||3.50;SS('flatRate',S.flatRate);alert('Flat rate saved: $'+S.flatRate+'/mile')}
+function saveKey(){S.apiKey=document.getElementById('api-key').value.trim();SS('apiKey',S.apiKey);showToast('API key saved!','positive')}
+function saveFlatRate(){S.flatRate=parseFloat(document.getElementById('flat-rate').value)||3.50;SS('flatRate',S.flatRate);showToast('Flat rate saved: $'+S.flatRate+'/mile','positive')}
+
+// PPU Settings
+function savePPUSettings(){
+  const inputs=document.querySelectorAll('.ppu-input');
+  const newPPU={};
+  inputs.forEach(inp=>{
+    const dim=inp.dataset.dim;
+    const val=parseInt(inp.value);
+    if(dim&&val>0)newPPU[dim]=val;
+  });
+  S.ppu=newPPU;
+  SS('ppu',S.ppu);
+  showToast('PPU settings saved!','positive');
+}
+
+function resetPPUDefaults(){
+  S.ppu={
+    '2x4':208,'2x6':128,'2x8':96,'2x10':80,'2x12':64,
+    '2x3':294,'2x14':52,
+    '1x4':416,'1x6':256,'1x8':192,'1x10':160,'1x12':128,
+    '4x4':64,'4x6':42,'6x6':24
+  };
+  SS('ppu',S.ppu);
+  showToast('PPU reset to defaults','info');
+  render();
+}
+
+function addPPUDimension(){
+  const dim=document.getElementById('new-ppu-dim').value.trim();
+  const val=parseInt(document.getElementById('new-ppu-val').value);
+  if(!dim||!dim.match(/^\d+x\d+$/i)){
+    showToast('Invalid dimension format (use NxN like 2x4)','negative');
+    return;
+  }
+  if(!val||val<=0){
+    showToast('Enter a valid PPU value','negative');
+    return;
+  }
+  if(!S.ppu)S.ppu={};
+  S.ppu[dim.toLowerCase()]=val;
+  SS('ppu',S.ppu);
+  showToast(`Added ${dim} = ${val} pcs/unit`,'positive');
+  render();
+}
 
 // Trader Goals (Admin)
 function saveTraderGoal(trader){
@@ -104,9 +148,9 @@ function saveSupabaseConfig(){
   
   if(url&&key){
     initSupabase(url,key);
-    alert('Supabase configured! You can now sync to cloud.');
+    showToast('Supabase configured! You can now sync to cloud.','positive');
   }else{
-    alert('Supabase disabled (URL or key missing)');
+    showToast('Supabase disabled (URL or key missing)','warn');
   }
   render();
 }
@@ -141,7 +185,7 @@ function toggleAutoSync(){
 }
 
 function expCSV(t){
-  const d=t==='buys'?S.buys:S.sells;if(!d.length){alert('No data');return}
+  const d=t==='buys'?S.buys:S.sells;if(!d.length){showToast('No data to export','warn');return}
   const h=t==='buys'?['Date','Mill','Region','Product','Price','Volume','Shipped','Notes']:['Date','Customer','Dest','Product','DLVD','Freight','FOB','Volume','Delivered','Notes'];
   const rows=d.map(x=>t==='buys'?[x.date,x.mill,x.region,x.product,x.price,x.volume,x.shipped?'Y':'N',x.notes]:[x.date,x.customer,x.destination,x.product,x.price,x.freight,x.price-x.freight,x.volume,x.delivered?'Y':'N',x.notes]);
   const csv=[h,...rows].map(r=>r.map(c=>`"${c||''}"`).join(',')).join('\n');
@@ -193,9 +237,9 @@ async function impData(e){
       if(d.shortHaulFloor!==undefined){S.shortHaulFloor=d.shortHaulFloor}
       migrateTraderNames();
       await saveAllLocal();
-      alert('Imported! All data including quote engine settings restored.');
+      showToast('Imported! All data restored.','positive');
       render();
-    }catch(err){alert('Error: '+err.message)}
+    }catch(err){showToast('Import error: '+err.message,'negative')}
   };
   r.readAsText(f);e.target.value='';
 }
@@ -232,7 +276,9 @@ async function init(){
   const sbKey=LS('supabaseKey','')||DEFAULT_SUPABASE_KEY;
   if(sbUrl&&sbKey){
     initSupabase(sbUrl,sbKey);
-    // Auto-pull on load
+    // Auto-pull on load with loading indicator
+    const content=document.getElementById('content');
+    if(content)content.innerHTML='<div style="display:flex;align-items:center;justify-content:center;height:60vh;color:var(--muted)"><div style="text-align:center"><div style="font-size:24px;margin-bottom:12px">☁️</div><div>Syncing from cloud...</div></div></div>';
     try{
       const result=await cloudSync('pull');
       if(result.success){

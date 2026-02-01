@@ -4,8 +4,8 @@ const AI_MODEL_UTILITY='claude-sonnet-4-20250514';
 
 const AI_TOOLS=[
   // Orders - Create
-  {name:'create_buy',desc:'Create a buy order',params:['mill','product','price','volume','region','length','shipWeek','notes']},
-  {name:'create_sell',desc:'Create a sell order',params:['customer','destination','product','price','freight','volume','length','shipWeek','notes']},
+  {name:'create_buy',desc:'Create a buy order',params:['mill','product','price','volume','region','length','shipWeek','orderNum','notes']},
+  {name:'create_sell',desc:'Create a sell order',params:['customer','destination','product','price','freight','volume','length','shipWeek','orderNum','notes']},
   // Orders - Read
   {name:'get_buys',desc:'Get all buy orders (optionally filtered)',params:['product','mill','limit']},
   {name:'get_sells',desc:'Get all sell orders (optionally filtered)',params:['product','customer','limit']},
@@ -65,8 +65,11 @@ function executeAITool(name,params){
   try{
     switch(name){
       case 'create_buy':{
+        const buyId=genId();
         const buy={
-          id:genId(),
+          id:buyId,
+          orderNum:params.orderNum||'',
+          po:params.orderNum||'',
           date:today(),
           mill:params.mill||'',
           product:params.product||'2x4#2',
@@ -76,7 +79,8 @@ function executeAITool(name,params){
           length:params.length||'RL',
           shipWeek:params.shipWeek||'',
           notes:params.notes||'Created by AI',
-          shipped:false
+          shipped:false,
+          trader:S.trader==='Admin'?'Ian P':S.trader
         };
         S.buys.unshift(buy);
         save('buys',S.buys);
@@ -85,6 +89,9 @@ function executeAITool(name,params){
       case 'create_sell':{
         const sell={
           id:genId(),
+          orderNum:params.orderNum||'',
+          linkedPO:params.orderNum||'',
+          oc:params.orderNum||'',
           date:today(),
           customer:params.customer||'',
           destination:params.destination||'',
@@ -95,7 +102,8 @@ function executeAITool(name,params){
           length:params.length||'RL',
           shipWeek:params.shipWeek||'',
           notes:params.notes||'Created by AI',
-          delivered:false
+          delivered:false,
+          trader:S.trader==='Admin'?'Ian P':S.trader
         };
         S.sells.unshift(sell);
         save('sells',S.sells);
@@ -169,9 +177,9 @@ function executeAITool(name,params){
         return{success:true,message:`Added customer: ${cust.name}`,data:cust};
       }
       case 'add_mill':{
-        const mill={id:genId(),name:params.name,location:params.location,region:params.region||'west',type:'mill'};
-        S.customers.push(mill);
-        save('customers',S.customers);
+        const mill={id:genId(),name:params.name,location:params.location,region:params.region||'west',type:'mill',trader:S.trader==='Admin'?'Ian P':S.trader};
+        S.mills.push(mill);
+        save('mills',S.mills);
         return{success:true,message:`Added mill: ${mill.name} (${mill.location})`,data:mill};
       }
       case 'update_customer':{
@@ -302,6 +310,7 @@ function executeAITool(name,params){
         let count=0;
         if(params.all==='true'||params.all===true){
           count=S.buys.length;
+          if(count>10)return{success:false,message:`⚠️ Refusing to bulk-delete all ${count} buys via AI. Use Settings > Clear All Data or delete individually.`};
           S.buys=[];
         }else if(params.ids){
           const ids=(Array.isArray(params.ids)?params.ids:params.ids.split(',')).map(id=>parseInt(id));
@@ -325,6 +334,7 @@ function executeAITool(name,params){
         let count=0;
         if(params.all==='true'||params.all===true){
           count=S.sells.length;
+          if(count>10)return{success:false,message:`⚠️ Refusing to bulk-delete all ${count} sells via AI. Use Settings > Clear All Data or delete individually.`};
           S.sells=[];
         }else if(params.ids){
           const ids=(Array.isArray(params.ids)?params.ids:params.ids.split(',')).map(id=>parseInt(id));
@@ -510,7 +520,7 @@ function executeAITool(name,params){
 }
 
 async function sendAI(){
-  if(!S.apiKey){alert('Add API key in Settings');return}
+  if(!S.apiKey){showToast('Add API key in Settings','warn');return}
   const inp=document.getElementById('ai-in');
   const msg=inp.value.trim();if(!msg)return;
   S.aiMsgs.push({role:'user',content:msg});inp.value='';render();
@@ -776,9 +786,10 @@ function parseOrderCSV(csvText){
   const WEST_STATES=new Set(['TX','AR','LA','OK','NM','CO','AZ','UT','NV','CA','OR','WA','ID','MT','WY']);
   const EAST_STATES=new Set(['NC','SC','GA','FL','VA','MD','DE','NJ','NY','PA','CT','MA','ME','NH','VT','RI','WV','DC']);
 
-  // Standard pieces per unit by dimension
-  const PCS_PER_UNIT={'2x4':208,'2x6':128,'2x8':96,'2x10':80,'2x12':64};
-  const TIMBER_MBF=20;// Timbers (4x4, 4x6, 6x6, etc.) = flat 20 MBF regardless of tally
+  // Use configurable PPU from state, with fallback defaults
+  const DEFAULT_PPU={'2x4':208,'2x6':128,'2x8':96,'2x10':80,'2x12':64};
+  const getPPU=(dim)=>S.ppu&&S.ppu[dim]?S.ppu[dim]:(DEFAULT_PPU[dim]||0);
+  const TIMBER_MBF=S.mbfPerTL?.timber||20;// Timbers use configurable MBF per TL
 
   function getRegion(st){
     st=(st||'').trim().toUpperCase();
@@ -833,7 +844,7 @@ function parseOrderCSV(csvText){
   function unitsToMBF(units,dim,lengthFt,isTimber){
     if(isTimber)return TIMBER_MBF;
     if(!units||!lengthFt)return 0;
-    const pcsPerUnit=PCS_PER_UNIT[dim];
+    const pcsPerUnit=getPPU(dim);
     if(!pcsPerUnit)return 0;
     const totalPieces=units*pcsPerUnit;
     // Parse thick x wide from dim

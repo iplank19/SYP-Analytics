@@ -179,6 +179,7 @@ async function cloudSync(action='push'){
       console.log('Push successful!');
       return{success:true,action:'pushed'};
     }else if(action==='pull'){
+      _isPulling=true;
       // Download cloud data to local
       const res=await fetch(`${supabase.url}/rest/v1/syp_data?user_id=eq.${userId}&select=data,updated_at`,{
         headers:{
@@ -223,14 +224,21 @@ async function cloudSync(action='push'){
         // Sync pulled customers/mills into SQLite (so loadCRMData finds them)
         await syncCustomersToServer(S.customers);
         await syncMillsToServer(S.mills);
+        _isPulling=false;
         return{success:true,action:'pulled',updated:rows[0].updated_at};
       }
+      _isPulling=false;
       return{success:false,error:'No cloud data found'};
     }
   }catch(err){
+    _isPulling=false;
     return{success:false,error:err.message};
   }
 }
+
+// Debounce timer and pull-in-progress flag for cloud sync
+let _cloudPushTimer=null;
+let _isPulling=false;
 
 // Save all data locally (IndexedDB + localStorage backup)
 // ALWAYS syncs to cloud so all profiles see the same trade data
@@ -276,10 +284,13 @@ async function saveAllLocal(){
   SS('futuresContracts',S.futuresContracts);
   SS('futuresParams',S.futuresParams);
 
-  // ALWAYS sync trade data to cloud (universal dataset)
-  // This ensures Admin sees all trader entries and vice versa
-  if(supabase){
-    cloudSync('push').catch(e=>console.warn('Auto cloud sync failed:',e));
+  // Debounced cloud push (prevents rapid-fire syncs during bulk operations)
+  // Skip push if we're currently pulling (avoids pull->push loop)
+  if(supabase&&!_isPulling){
+    clearTimeout(_cloudPushTimer);
+    _cloudPushTimer=setTimeout(()=>{
+      cloudSync('push').catch(e=>console.warn('Auto cloud sync failed:',e));
+    },2000);
   }
 }
 

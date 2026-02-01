@@ -62,8 +62,9 @@ function showBuyModal(b=null){
         <div class="form-group"><label class="form-label">Region</label><select id="m-region" onchange="toggleBuyOptions()">${REGIONS.map(r=>`<option value="${r}" ${b?.region===r?'selected':''}>${r.charAt(0).toUpperCase()+r.slice(1)}</option>`).join('')}</select></div>
         <div class="form-group"><label class="form-label">Product</label><input type="text" id="m-product" value="${b?.product||''}" list="prod-list" placeholder="e.g. 2x4#2, 2x6 MSR" onchange="toggleBuyOptions();calcBuyVolume()"><datalist id="prod-list">${prodList.map(p=>`<option value="${p}">`).join('')}</datalist></div>
         <div class="form-group"><label class="form-label">Length</label><select id="m-length" onchange="toggleBuyOptions();calcBuyVolume()"><option value="">Select...</option><option value="8" ${b?.length==='8'?'selected':''}>8'</option><option value="10" ${b?.length==='10'?'selected':''}>10'</option><option value="12" ${b?.length==='12'?'selected':''}>12'</option><option value="14" ${b?.length==='14'?'selected':''}>14'</option><option value="16" ${b?.length==='16'?'selected':''}>16'</option><option value="18" ${b?.length==='18'?'selected':''}>18'</option><option value="20" ${b?.length==='20'?'selected':''}>20'</option><option value="RL" ${b?.length==='RL'?'selected':''}>RL (Random)</option></select></div>
-        <div class="form-group"><label class="form-label">Units</label><input type="number" id="m-units" value="${b?.units||''}" placeholder="Tallies" onchange="calcBuyVolume()"></div>
-        <div class="form-group"><label class="form-label">Volume (MBF)</label><input type="number" id="m-volume" value="${b?.volume||''}"></div>
+        <div class="form-group"><label class="form-label">Units (Bunks)</label><input type="number" id="m-units" value="${b?.units||''}" placeholder="# of units" onchange="calcBuyVolume()" step="0.01"></div>
+        <div class="form-group"><label class="form-label">Pcs/Unit (PPU)</label><input type="number" id="m-ppu" value="${b?.ppu||''}" placeholder="auto" onchange="calcBuyVolume()" step="1"><div id="ppu-display-buy" style="font-size:10px;color:var(--muted);margin-top:2px"></div></div>
+        <div class="form-group"><label class="form-label">Volume (MBF)</label><input type="number" id="m-volume" value="${b?.volume||''}" onchange="calcBuyUnits()" step="0.01"><div style="font-size:10px;color:var(--info);margin-top:2px">← Auto-calcs from units</div></div>
       </div>
 
       <!-- SPLIT LOAD SECTION FOR BUY -->
@@ -160,11 +161,13 @@ function showBuyModal(b=null){
         Freight is entered on the sell (OC) side and applies to the matched trade.
       </div>
       
+      <div class="form-group" style="margin-top:12px"><label class="form-label">Ship Week</label><input type="text" id="m-shipWeek" value="${b?.shipWeek||''}" placeholder="e.g. 2/10, Prompt, ASAP"></div>
       <div class="form-group" style="margin-top:12px"><label class="form-label">Notes</label><textarea id="m-notes">${b?.notes||''}</textarea></div>
     </div>
     <div class="modal-footer"><button class="btn btn-default" onclick="closeModal()">Cancel</button><button class="btn btn-success" onclick="saveBuy(${b?.id||'null'})">Save</button></div>
   </div></div>`;
-  
+
+  _lastPPUProduct=b?.product||document.getElementById('m-product')?.value||'';
   toggleBuyOptions();
   if(b?.tally)calcTallyTotal();
   calcBuyFreight();
@@ -1029,8 +1032,10 @@ function calcBuyVolume(){
   const product=document.getElementById('m-product')?.value||'';
   const lengthStr=document.getElementById('m-length')?.value||'';
   const units=parseFloat(document.getElementById('m-units')?.value)||0;
+  autoFillPPU('buy');
   if(!product||!lengthStr||lengthStr==='RL'||!units)return;
-  const mbf=calcMBFFromUnits(product,lengthStr,units);
+  const formPPU=parseInt(document.getElementById('m-ppu')?.value)||0;
+  const mbf=calcMBFFromUnits(product,lengthStr,units,formPPU||undefined);
   if(mbf>0)document.getElementById('m-volume').value=mbf;
 }
 
@@ -1039,8 +1044,10 @@ function calcSellVolume(){
   const product=document.getElementById('m-product')?.value||'';
   const lengthStr=document.getElementById('m-length')?.value||'';
   const units=parseFloat(document.getElementById('m-units')?.value)||0;
+  autoFillPPU('sell');
   if(!product||!lengthStr||lengthStr==='RL'||!units)return;
-  const mbf=calcMBFFromUnits(product,lengthStr,units);
+  const formPPU=parseInt(document.getElementById('m-ppu')?.value)||0;
+  const mbf=calcMBFFromUnits(product,lengthStr,units,formPPU||undefined);
   if(mbf>0){
     document.getElementById('m-volume').value=mbf;
     updateSellCalc();
@@ -1071,26 +1078,133 @@ function calcBuySplitRowVol(el){
 }
 
 // Shared MBF calculation from product, length, units
-function calcMBFFromUnits(product,lengthStr,units){
+// Uses configurable PPU from state (S.ppu), or optional override
+function calcMBFFromUnits(product,lengthStr,units,ppuOverride){
   const lengthFt=parseFloat(lengthStr);
-  if(!lengthFt)return 0;
+  if(!lengthFt||!units)return 0;
   // Parse dimension from product (e.g. "2x4#2" -> thick=2, wide=4)
   const dimMatch=product.match(/(\d+)x(\d+)/i);
   if(!dimMatch)return 0;
   const thick=parseInt(dimMatch[1]);
   const wide=parseInt(dimMatch[2]);
-  // Timbers (4x4, 4x6, 6x6) = flat 20 MBF per unit
-  if(thick>=4)return Math.round(units*20*100)/100;
-  // Pieces per unit by dimension
-  const PCS_PER_UNIT={'2x4':208,'2x6':128,'2x8':96,'2x10':80,'2x12':64};
   const dim=`${thick}x${wide}`;
-  const pcsPerUnit=PCS_PER_UNIT[dim];
-  if(!pcsPerUnit)return 0;
-  // Calculate MBF
-  const totalPieces=units*pcsPerUnit;
+
+  // Use override PPU if provided, otherwise get from configurable state
+  let ppu=ppuOverride||null;
+  if(!ppu){
+    ppu=S.ppu&&S.ppu[dim]?S.ppu[dim]:null;
+  }
+
+  // If no configured PPU, calculate a sensible default
+  if(!ppu){
+    // For timbers (4x4+), use approximate values
+    if(thick>=4&&wide>=4){
+      const bfPerPiece=(thick*wide*8)/12; // assume 8ft average
+      ppu=Math.round(1000/bfPerPiece); // roughly pieces per 1 MBF
+    }else{
+      return 0; // unknown dimension
+    }
+  }
+
+  // Calculate MBF: (units * ppu * thick * wide * length) / 12000
+  const totalPieces=units*ppu;
   const bfPerPiece=(thick*wide*lengthFt)/12;
-  return Math.round(totalPieces*bfPerPiece/1000*100)/100;
+  const mbf=totalPieces*bfPerPiece/1000;
+  return Math.round(mbf*100)/100;
 }
+
+// Reverse calculation: MBF to Units
+function calcUnitsFromMBF(product,lengthStr,mbf,ppuOverride){
+  const lengthFt=parseFloat(lengthStr);
+  if(!lengthFt||!mbf)return 0;
+  const dimMatch=product.match(/(\d+)x(\d+)/i);
+  if(!dimMatch)return 0;
+  const thick=parseInt(dimMatch[1]);
+  const wide=parseInt(dimMatch[2]);
+  const dim=`${thick}x${wide}`;
+
+  const ppu=ppuOverride||(S.ppu&&S.ppu[dim]?S.ppu[dim]:null);
+  if(!ppu)return 0;
+
+  const bfPerPiece=(thick*wide*lengthFt)/12;
+  const totalBF=mbf*1000;
+  const totalPieces=totalBF/bfPerPiece;
+  const units=totalPieces/ppu;
+  return Math.round(units*100)/100;
+}
+
+// Get PPU for a product dimension
+function getPPU(product){
+  const dimMatch=product.match(/(\d+)x(\d+)/i);
+  if(!dimMatch)return null;
+  const dim=`${dimMatch[1]}x${dimMatch[2]}`;
+  return S.ppu&&S.ppu[dim]?S.ppu[dim]:null;
+}
+
+// Reverse calculation: Volume to Units for Buy form
+function calcBuyUnits(){
+  const product=document.getElementById('m-product')?.value||'';
+  const lengthStr=document.getElementById('m-length')?.value||'';
+  const mbf=parseFloat(document.getElementById('m-volume')?.value)||0;
+  if(!product||!lengthStr||lengthStr==='RL'||!mbf)return;
+  const formPPU=parseInt(document.getElementById('m-ppu')?.value)||0;
+  const units=calcUnitsFromMBF(product,lengthStr,mbf,formPPU||undefined);
+  if(units>0)document.getElementById('m-units').value=units;
+  autoFillPPU('buy');
+}
+
+// Reverse calculation: Volume to Units for Sell form
+function calcSellUnits(){
+  const product=document.getElementById('m-product')?.value||'';
+  const lengthStr=document.getElementById('m-length')?.value||'';
+  const mbf=parseFloat(document.getElementById('m-volume')?.value)||0;
+  if(!product||!lengthStr||lengthStr==='RL'||!mbf)return;
+  const formPPU=parseInt(document.getElementById('m-ppu')?.value)||0;
+  const units=calcUnitsFromMBF(product,lengthStr,mbf,formPPU||undefined);
+  if(units>0)document.getElementById('m-units').value=units;
+  autoFillPPU('sell');
+}
+
+// Track last product used for PPU auto-fill, so we reset on product change
+let _lastPPUProduct='';
+
+// Auto-fill PPU input from product dimension defaults, show hint
+function autoFillPPU(formType){
+  const product=document.getElementById('m-product')?.value||'';
+  const ppuInput=document.getElementById('m-ppu');
+  const displayId=formType==='buy'?'ppu-display-buy':'ppu-display-sell';
+  const el=document.getElementById(displayId);
+  const defaultPPU=getPPU(product);
+
+  // If product changed, reset PPU to the new default
+  if(product&&product!==_lastPPUProduct){
+    if(ppuInput&&defaultPPU){
+      ppuInput.value=defaultPPU;
+    }
+    _lastPPUProduct=product;
+  }
+
+  // Auto-fill PPU field if empty and we have a default
+  if(ppuInput&&!ppuInput.value&&defaultPPU){
+    ppuInput.value=defaultPPU;
+  }
+
+  // Show default hint below the field
+  if(el){
+    if(defaultPPU){
+      const currentVal=parseInt(ppuInput?.value)||0;
+      const isCustom=currentVal&&currentVal!==defaultPPU;
+      el.innerHTML=isCustom
+        ?`<span style="color:var(--warn)">Default: ${defaultPPU} (custom override)</span>`
+        :`<span style="color:var(--muted)">Default: ${defaultPPU} pcs/unit</span>`;
+    }else{
+      el.textContent='';
+    }
+  }
+}
+
+// Legacy alias for any remaining calls
+function updatePPUDisplay(formType){autoFillPPU(formType);}
 
 function calcSellTallyTotal(){
   const product=document.getElementById('m-product')?.value||'';
@@ -1230,12 +1344,13 @@ function showSellModal(s=null){
         </div>
         <div class="form-group"><label class="form-label">Date</label><input type="date" id="m-date" value="${s?.date||today()}"></div>
         <div class="form-group"><label class="form-label">Customer</label><input type="text" id="m-cust" value="${s?.customer||''}" list="cust-list" placeholder="Type or select..." onchange="autoFillDest()"><datalist id="cust-list">${custList.map(c=>`<option value="${c}">`).join('')}</datalist></div>
-        <div class="form-group"><label class="form-label">Destination (City, ST)</label><input type="text" id="m-dest" value="${s?.destination||''}" list="dest-list" placeholder="e.g. Cincinnati, OH"><datalist id="dest-list">${dests.map(d=>`<option value="${d}">`).join('')}</datalist></div>
+        <div class="form-group"><label class="form-label">Destination (City, ST)</label><input type="text" id="m-dest" value="${s?.destination||''}" list="dest-list" placeholder="e.g. Cincinnati, OH" onchange="autoFillFreightFromLane()"><datalist id="dest-list">${dests.map(d=>`<option value="${d}">`).join('')}</datalist></div>
         <div class="form-group"><label class="form-label">Region</label><select id="m-region" onchange="toggleSellOptions()">${REGIONS.map(r=>`<option value="${r}" ${s?.region===r?'selected':''}>${r.charAt(0).toUpperCase()+r.slice(1)}</option>`).join('')}</select></div>
         <div class="form-group"><label class="form-label">Product</label><input type="text" id="m-product" value="${s?.product||''}" list="prod-list" placeholder="e.g. 2x4#2, 2x6 MSR" onchange="toggleSellOptions();calcSellVolume()"><datalist id="prod-list">${prodList.map(p=>`<option value="${p}">`).join('')}</datalist></div>
         <div class="form-group"><label class="form-label">Length</label><select id="m-length" onchange="toggleSellOptions();calcSellVolume()"><option value="">Select...</option><option value="8" ${s?.length==='8'?'selected':''}>8'</option><option value="10" ${s?.length==='10'?'selected':''}>10'</option><option value="12" ${s?.length==='12'?'selected':''}>12'</option><option value="14" ${s?.length==='14'?'selected':''}>14'</option><option value="16" ${s?.length==='16'?'selected':''}>16'</option><option value="18" ${s?.length==='18'?'selected':''}>18'</option><option value="20" ${s?.length==='20'?'selected':''}>20'</option><option value="RL" ${s?.length==='RL'?'selected':''}>RL (Random)</option></select></div>
-        <div class="form-group"><label class="form-label">Units</label><input type="number" id="m-units" value="${s?.units||''}" placeholder="Tallies" onchange="calcSellVolume()"></div>
-        <div class="form-group"><label class="form-label">Volume (MBF)</label><input type="number" id="m-volume" value="${s?.volume||''}" onchange="updateSellCalc();calcFlatFreight()"></div>
+        <div class="form-group"><label class="form-label">Units (Bunks)</label><input type="number" id="m-units" value="${s?.units||''}" placeholder="# of units" onchange="calcSellVolume()" step="0.01"></div>
+        <div class="form-group"><label class="form-label">Pcs/Unit (PPU)</label><input type="number" id="m-ppu" value="${s?.ppu||''}" placeholder="auto" onchange="calcSellVolume()" step="1"><div id="ppu-display-sell" style="font-size:10px;color:var(--muted);margin-top:2px"></div></div>
+        <div class="form-group"><label class="form-label">Volume (MBF)</label><input type="number" id="m-volume" value="${s?.volume||''}" onchange="calcSellUnits();updateSellCalc();calcFlatFreight()" step="0.01"><div style="font-size:10px;color:var(--info);margin-top:2px">← Auto-calcs from units</div></div>
       </div>
 
       <!-- SPLIT LOAD SECTION -->
@@ -1337,12 +1452,14 @@ function showSellModal(s=null){
       </div>
       
       <div id="sell-calc" style="margin-top:16px;padding:16px;background:var(--bg);border:1px solid var(--border)"></div>
+      <div class="form-group" style="margin-top:12px"><label class="form-label">Ship Week</label><input type="text" id="m-shipWeek" value="${s?.shipWeek||''}" placeholder="e.g. 2/10, Prompt, ASAP"></div>
       <div class="form-group" style="margin-top:12px"><label class="form-label">Notes</label><textarea id="m-notes">${s?.notes||''}</textarea></div>
       <div style="margin-top:12px"><label><input type="checkbox" id="m-delivered" ${s?.delivered?'checked':''}> Delivered</label></div>
     </div>
     <div class="modal-footer"><button class="btn btn-default" onclick="closeModal()">Cancel</button><button class="btn btn-primary" onclick="saveSell(${s?.id||'null'})">Save</button></div>
   </div></div>`;
   
+  _lastPPUProduct=s?.product||document.getElementById('m-product')?.value||'';
   toggleSellOptions();
   updateSellCalc();
   calcFlatFreight();
@@ -1604,6 +1721,26 @@ function calcFlatFreight(){
     document.getElementById('m-freightMBF').value='';
   }
   updateSellCalc();
+}
+
+// Auto-fill miles and freight when destination changes (looks up lane from linked buy's origin)
+function autoFillFreightFromLane(){
+  const dest=document.getElementById('m-dest')?.value||'';
+  if(!dest)return;
+  // Find origin from linked buy order
+  const orderNum=document.getElementById('m-orderNum')?.value||document.getElementById('m-linkedPO')?.value||'';
+  let origin='';
+  if(orderNum){
+    const buy=S.buys.find(b=>String(b.orderNum||b.po||'').trim()===orderNum.trim());
+    if(buy)origin=buy.origin||'';
+  }
+  if(!origin)return;
+  const miles=typeof getLaneMiles==='function'?getLaneMiles(origin,dest):null;
+  if(miles){
+    const milesEl=document.getElementById('m-miles');
+    if(milesEl&&!milesEl.value)milesEl.value=miles;
+    calcFlatFreight();
+  }
 }
 
 // Buy freight functions (for DLVD buys / covering shorts)

@@ -111,8 +111,10 @@ async function saveBuy(id){
     product:splitProduct||product, // Use combined product name for split loads
     length:document.getElementById('m-length').value,
     units:parseFloat(document.getElementById('m-units')?.value)||0,
+    ppu:parseInt(document.getElementById('m-ppu')?.value)||0,
     price:price,
     volume:volume, // Use calculated volume
+    shipWeek:document.getElementById('m-shipWeek')?.value||'',
     notes:document.getElementById('m-notes').value,
     trader:S.trader==='Admin'?(document.getElementById('m-trader')?.value||'Ian P'):S.trader, // Admin assigns to trader, otherwise current trader
     // Freight lives on the sell (OC) side only
@@ -126,10 +128,15 @@ async function saveBuy(id){
     tally:tally
   };
   
-  if(!b.product||!b.price||!b.volume){alert('Fill required fields (product, price, volume)');return}
+  if(!b.product||!b.price||!b.volume){showToast('Fill required fields (product, price, volume)','warn');return}
+  // Warn on duplicate order number (different buy)
+  if(b.orderNum){
+    const dupe=S.buys.find(x=>x.id!==id&&String(x.orderNum||x.po||'').trim()===b.orderNum.trim());
+    if(dupe&&!confirm(`Order # "${b.orderNum}" already exists on a buy from ${dupe.mill||'unknown mill'}. Save anyway?`))return;
+  }
   if(id){
     const existing=S.buys.find(x=>x.id===id);
-    if(existing&&!canEdit(existing)){alert('You can only edit your own trades');return}
+    if(existing&&!canEdit(existing)){showToast('You can only edit your own trades','warn');return}
     const i=S.buys.findIndex(x=>x.id===id);
     // Admin can reassign trader, otherwise preserve original trader
     const assignedTrader=S.trader==='Admin'?(document.getElementById('m-trader')?.value||existing?.trader||'Ian P'):(existing?.trader||S.trader);
@@ -259,9 +266,11 @@ async function saveSell(id){
     product:splitProduct||product,// Use combined product name for split loads
     length:document.getElementById('m-length').value,
     units:parseFloat(document.getElementById('m-units')?.value)||0,
+    ppu:parseInt(document.getElementById('m-ppu')?.value)||0,
     price:price,
     freight:parseFloat(document.getElementById('m-freight').value)||0,
     volume:volume, // Use calculated volume (from tally or field)
+    shipWeek:document.getElementById('m-shipWeek')?.value||'',
     notes:document.getElementById('m-notes').value,
     delivered:document.getElementById('m-delivered')?.checked||false,
     trader:S.trader==='Admin'?(document.getElementById('m-trader')?.value||'Ian P'):S.trader, // Admin assigns to trader, otherwise current trader
@@ -272,12 +281,17 @@ async function saveSell(id){
     tally:tally
   };
   
-  if(!s.product||!s.price||!s.volume){alert('Fill required fields (product, price, volume)');return}
+  if(!s.product||!s.price||!s.volume){showToast('Fill required fields (product, price, volume)','warn');return}
+  // Warn on duplicate order number (different sell)
+  if(s.orderNum){
+    const dupe=S.sells.find(x=>x.id!==id&&String(x.orderNum||x.linkedPO||x.oc||'').trim()===s.orderNum.trim());
+    if(dupe&&!confirm(`Order # "${s.orderNum}" already exists on a sell to ${dupe.customer||'unknown customer'}. Save anyway?`))return;
+  }
   // Save rate as default
   S.flatRate=s.rate;
   if(id){
     const existing=S.sells.find(x=>x.id===id);
-    if(existing&&!canEdit(existing)){alert('You can only edit your own trades');return}
+    if(existing&&!canEdit(existing)){showToast('You can only edit your own trades','warn');return}
     const i=S.sells.findIndex(x=>x.id===id);
     // Admin can reassign trader, otherwise preserve original trader
     const assignedTrader=S.trader==='Admin'?(document.getElementById('m-trader')?.value||existing?.trader||'Ian P'):(existing?.trader||S.trader);
@@ -291,7 +305,7 @@ async function saveSell(id){
 
 async function saveRL(){
   const date=document.getElementById('rl-date').value;
-  if(!date){alert('Enter date');return}
+  if(!date){showToast('Enter date','warn');return}
   const rl={date,west:{},central:{},east:{}};
   REGIONS.forEach(r=>{['2x4','2x6','2x8','2x10','2x12'].forEach(s=>{const v=parseFloat(document.getElementById(`rl-${r}-${s}`).value);if(v)rl[r][`${s}#2`]=v})});
   const i=S.rl.findIndex(r=>r.date===date);
@@ -303,7 +317,7 @@ async function saveCust(oldName){
   const locations=[...document.querySelectorAll('.cust-loc')].map(el=>el.value.trim()).filter(Boolean);
   const assignedTrader=S.trader==='Admin'?(document.getElementById('m-trader')?.value||'Ian P'):S.trader;
   const c={name:document.getElementById('m-name').value,contact:document.getElementById('m-contact')?.value||'',phone:document.getElementById('m-phone')?.value||'',email:document.getElementById('m-email')?.value||'',locations:locations,destination:locations[0]||'',notes:document.getElementById('m-terms')?.value||'',trader:assignedTrader};
-  if(!c.name){alert('Enter name');return}
+  if(!c.name){showToast('Enter name','warn');return}
   try{
     const existing=S.customers.find(x=>x.name===oldName);
     if(existing?.id){
@@ -315,7 +329,7 @@ async function saveCust(oldName){
       await fetch('/api/crm/customers',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(c)});
     }
     closeModal();loadCRMData();
-  }catch(e){alert('Error saving customer: '+e.message)}
+  }catch(e){showToast('Error saving customer: '+e.message,'negative')}
 }
 
 function showMillModal(m=null){
@@ -357,7 +371,7 @@ async function saveMill(oldName){
   const locations=[...document.querySelectorAll('.mill-loc')].map(el=>el.value.trim()).filter(Boolean);
   const assignedTrader=S.trader==='Admin'?(document.getElementById('m-trader')?.value||'Ian P'):S.trader;
   const m={name:document.getElementById('m-name').value,location:locations[0]||'',products:locations,contact:document.getElementById('m-contact').value,phone:document.getElementById('m-phone').value,notes:document.getElementById('m-notes').value,trader:assignedTrader};
-  if(!m.name){alert('Enter name');return}
+  if(!m.name){showToast('Enter name','warn');return}
   try{
     const existing=S.mills.find(x=>x.name===oldName);
     if(existing?.id){
@@ -369,7 +383,7 @@ async function saveMill(oldName){
       await fetch('/api/crm/mills',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(m)});
     }
     closeModal();loadCRMData();
-  }catch(e){alert('Error saving mill: '+e.message)}
+  }catch(e){showToast('Error saving mill: '+e.message,'negative')}
 }
 
 function editMill(name){showMillModal(name)}
@@ -384,7 +398,7 @@ async function deleteCust(name){
     const c=S.customers.find(x=>x.name===name);
     if(c?.id)await fetch('/api/crm/customers/'+c.id,{method:'DELETE'});
     loadCRMData();
-  }catch(e){alert('Error deleting customer: '+e.message)}
+  }catch(e){showToast('Error deleting customer: '+e.message,'negative')}
 }
 
 async function deleteMill(name){
@@ -393,7 +407,7 @@ async function deleteMill(name){
     const m=S.mills.find(x=>x.name===name);
     if(m?.id)await fetch('/api/crm/mills/'+m.id,{method:'DELETE'});
     loadCRMData();
-  }catch(e){alert('Error deleting mill: '+e.message)}
+  }catch(e){showToast('Error deleting mill: '+e.message,'negative')}
 }
 
 function editBuy(id){showBuyModal(S.buys.find(b=>b.id===id))}
@@ -402,6 +416,20 @@ function dupBuy(id){const b=S.buys.find(x=>x.id===id);if(b)showBuyModal({...b,id
 function dupSell(id){const s=S.sells.find(x=>x.id===id);if(s)showSellModal({...s,id:null,date:today()})}
 async function delBuy(id){if(!confirm('Delete?'))return;S.buys=S.buys.filter(b=>b.id!==id);await saveAllLocal();render()}
 async function delSell(id){if(!confirm('Delete?'))return;S.sells=S.sells.filter(s=>s.id!==id);await saveAllLocal();render()}
+async function cancelBuy(id){
+  const b=S.buys.find(x=>x.id===id);
+  if(!b)return;
+  if(b.status==='cancelled'){b.status='active';showToast('Buy reactivated','positive')}
+  else{b.status='cancelled';showToast('Buy cancelled','warn')}
+  await saveAllLocal();render();
+}
+async function cancelSell(id){
+  const s=S.sells.find(x=>x.id===id);
+  if(!s)return;
+  if(s.status==='cancelled'){s.status='active';showToast('Sell reactivated','positive')}
+  else{s.status='cancelled';showToast('Sell cancelled','warn')}
+  await saveAllLocal();render();
+}
 async function delRL(d){if(!confirm('Delete?'))return;S.rl=S.rl.filter(r=>r.date!==d);await saveAllLocal();render()}
 
 // Blotter sorting and filtering
@@ -426,10 +454,12 @@ function handleBlotterSearch(e){
   }else{
     clearTimeout(window._blotterSearchTimeout);
     window._blotterSearchTimeout=setTimeout(()=>{
-      setBlotterFilter('search',val);
+      const currentEl=document.getElementById('blotter-search');
+      const curPos=currentEl?currentEl.selectionStart:pos;
+      setBlotterFilter('search',currentEl?currentEl.value:val);
       setTimeout(()=>{
         const el=document.getElementById('blotter-search');
-        if(el){el.focus();el.setSelectionRange(pos+1,pos+1);}
+        if(el){el.focus();el.setSelectionRange(curPos,curPos);}
       },10);
     },300);
   }
@@ -528,10 +558,12 @@ function linkShortToPO(sellId){
 
 async function confirmLinkShort(sellId){
   const po=document.getElementById('link-po').value;
-  if(!po){alert('Select a PO');return}
+  if(!po){showToast('Select a PO','warn');return}
   const idx=S.sells.findIndex(s=>s.id===sellId);
   if(idx>=0){
     S.sells[idx].linkedPO=po;
+    S.sells[idx].orderNum=po;
+    S.sells[idx].oc=po;
     await saveAllLocal();
     closeModal();
     render();

@@ -69,7 +69,18 @@ let S={
   dashboardOrder:LS('dashboardOrder',null),
   futuresTab:'chart',
   calendarMonth:null,
-  aiModel:LS('aiModel','claude-opus-4-20250514')
+  aiModel:LS('aiModel','claude-opus-4-20250514'),
+  // Pieces Per Unit (PPU) - configurable per product dimension
+  ppu:LS('ppu',{
+    '2x4':208,'2x6':128,'2x8':96,'2x10':80,'2x12':64,
+    '2x3':294,'2x14':52,
+    '1x4':416,'1x6':256,'1x8':192,'1x10':160,'1x12':128,
+    '4x4':64,'4x6':42,'6x6':24
+  }),
+  // MBF per Truckload by product type
+  mbfPerTL:LS('mbfPerTL',{standard:23,msr:20,timber:20}),
+  // Use units as primary input (vs raw volume)
+  unitsMode:LS('unitsMode',true)
 };
 
 // Migrate bad model IDs
@@ -165,7 +176,13 @@ function migrateTraderNames(){
   if(changed){SS('buys',S.buys);SS('sells',S.sells);SS('mills',S.mills);SS('customers',S.customers);}
 }
 migrateTraderNames();
-const genId=()=>{const id=S.nextId++;SS('nextId',S.nextId);return id};
+const genId=()=>{
+  // Timestamp-based + random suffix for cross-device uniqueness
+  // Returns a large integer that won't collide across devices
+  const ts=Date.now()%1e10;// last 10 digits of epoch ms
+  const rnd=Math.floor(Math.random()*1e4);// 4 random digits
+  return ts*1e4+rnd;
+};
 
 
 // Achievement definitions

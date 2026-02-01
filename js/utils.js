@@ -120,9 +120,10 @@ function filtered(){
   const isAdmin=S.trader==='Admin';
   const isMyTrade=t=>isAdmin||t===S.trader||!t;
 
+  const notCancelled=t=>t.status!=='cancelled';
   return{
-    buys:S.buys.filter(b=>inR(b.date)&&mP(b.product)&&mR(b.region)&&isMyTrade(b.trader)),
-    sells:S.sells.filter(s=>inR(s.date)&&mP(s.product)&&isMyTrade(s.trader))
+    buys:S.buys.filter(b=>notCancelled(b)&&inR(b.date)&&mP(b.product)&&mR(b.region)&&isMyTrade(b.trader)),
+    sells:S.sells.filter(s=>notCancelled(s)&&inR(s.date)&&mP(s.product)&&isMyTrade(s.trader))
   };
 }
 

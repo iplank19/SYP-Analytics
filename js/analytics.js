@@ -1,11 +1,12 @@
 // SYP Analytics - Analytics Functions
 
 // Build order-matched buy lookup from ALL buys (cross-trader matching)
+// When duplicate order numbers exist, keep the most recent (first in array, since buys are unshift'd)
 function buildBuyByOrder(){
   const buyByOrder={};
   S.buys.forEach(b=>{
     const ord=String(b.orderNum||b.po||'').trim();
-    if(ord)buyByOrder[ord]=b;
+    if(ord&&!buyByOrder[ord])buyByOrder[ord]=b;
   });
   return buyByOrder;
 }
