@@ -120,6 +120,7 @@ async function cloudSync(action='push'){
         // Futures data
         futuresContracts:S.futuresContracts,
         futuresParams:S.futuresParams,
+        millQuotes:S.millQuotes,
         updated_at:new Date().toISOString()
       };
       
@@ -219,6 +220,8 @@ async function cloudSync(action='push'){
         // Futures data
         if(d.futuresContracts){S.futuresContracts=d.futuresContracts;SS('futuresContracts',S.futuresContracts)}
         if(d.futuresParams){S.futuresParams=d.futuresParams;SS('futuresParams',S.futuresParams)}
+        // Mill pricing
+        if(d.millQuotes){S.millQuotes=d.millQuotes;SS('millQuotes',S.millQuotes)}
         // Save to local storage too
         await saveAllLocal();
         // Sync pulled customers/mills into SQLite (so loadCRMData finds them)
@@ -263,6 +266,8 @@ async function saveAllLocal(){
   // Futures data
   await dbSet('futuresContracts',S.futuresContracts);
   await dbSet('futuresParams',S.futuresParams);
+  // Mill pricing
+  await dbSet('millQuotes',S.millQuotes);
   // localStorage (backup for small data)
   SS('buys',S.buys);
   SS('sells',S.sells);
@@ -283,6 +288,8 @@ async function saveAllLocal(){
   // Futures data
   SS('futuresContracts',S.futuresContracts);
   SS('futuresParams',S.futuresParams);
+  // Mill pricing
+  SS('millQuotes',S.millQuotes);
 
   // Debounced cloud push (prevents rapid-fire syncs during bulk operations)
   // Skip push if we're currently pulling (avoids pull->push loop)
@@ -318,6 +325,8 @@ async function loadAllLocal(){
   // Futures data
   S.futuresContracts=await dbGet('futuresContracts',LS('futuresContracts',[]));
   S.futuresParams=await dbGet('futuresParams',LS('futuresParams',{carryRate:0.08,storageCost:2,insuranceCost:1}));
+  // Mill pricing
+  S.millQuotes=await dbGet('millQuotes',LS('millQuotes',[]));
 }
 
 // Sync pulled customers/mills into SQLite so loadCRMData finds them

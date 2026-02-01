@@ -119,6 +119,43 @@ function loadFromInventory(){
   render();
 }
 
+function loadFromMillQuotes(){
+  if(typeof getLatestMillQuotes!=='function'){showToast('Mill pricing not available','warn');return;}
+  const latest=getLatestMillQuotes();
+  if(!latest.length){showToast('No mill quotes in database. Go to Mill Pricing to add some.','warn');return;}
+  const mbfPerTL=S.quoteMBFperTL||23;
+  let added=0;
+  latest.forEach(q=>{
+    // Find mill location for origin
+    let origin='';
+    const mill=S.mills.find(m=>m.name===q.mill);
+    if(mill&&mill.location)origin=mill.location;
+    // Skip if already have this product+origin combo
+    const exists=S.quoteItems.find(i=>i.product===q.product&&i.origin===origin);
+    if(exists)return;
+    S.quoteItems.push({
+      id:genId(),
+      product:q.product+(q.length&&q.length!=='RL'?' '+q.length+"'":''),
+      origin:origin||q.mill,
+      tls:q.tls||1,
+      cost:q.price,
+      fob:q.price+30,
+      isShort:false,
+      selected:true,
+      shipWeek:q.shipWindow||''
+    });
+    added++;
+  });
+  if(added){
+    save('quoteItems',S.quoteItems);
+    saveCurrentProfileSelections();
+    render();
+    showToast(`Loaded ${added} items from mill quotes`,'positive');
+  }else{
+    showToast('All mill quote products already in quote items','info');
+  }
+}
+
 function addLane(){
   const origin=document.getElementById('lane-origin')?.value?.trim();
   const dest=document.getElementById('lane-dest')?.value?.trim();
@@ -1450,6 +1487,7 @@ Current Random Lengths prices (${rl.date}):
 Items to price:
 ${itemsList}
 
+${typeof getLatestMillQuotes==='function'&&getLatestMillQuotes().length?`Current Mill Quotes (FOB mill):\n${getLatestMillQuotes().slice(0,20).map(q=>`- ${q.mill}: ${q.product} @ $${q.price} (${q.shipWindow||'unknown timing'})`).join('\n')}\n`:''}
 For each item, suggest a competitive FOB sell price considering:
 1. The RL print price for that region
 2. Typical market dynamics (shorts command 10-20 below print, 8s at print, 10s slight premium, 12+ progressively higher)

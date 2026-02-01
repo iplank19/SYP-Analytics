@@ -1424,6 +1424,7 @@ function render(){
             <button class="btn btn-success btn-sm" onclick="addQuoteItem(false)">+ Add</button>
             <button class="btn btn-info btn-sm" onclick="addQuoteItem(true)" title="Add short/spec position">+ Short</button>
             <button class="btn btn-default btn-sm" onclick="loadFromInventory()">📦 Inventory</button>
+            <button class="btn btn-default btn-sm" onclick="loadFromMillQuotes()" title="Load current mill offers into quote items">🏭 Mill Quotes</button>
             <button class="btn btn-warn btn-sm" onclick="aiPriceSelected()" title="AI suggest prices based on RL">🤖 AI Price</button>
             <button class="btn btn-default btn-sm" onclick="refreshFromRL()" title="Update FOB prices from latest RL print">🔄 Refresh RL</button>
             <button class="btn btn-default btn-sm" onclick="clearQuoteItems()">Clear</button>
@@ -1445,6 +1446,7 @@ function render(){
                   <th style="width:55px">Ship Wk</th>
                   <th style="width:45px">TLs</th>
                   <th style="width:70px">RL Mkt</th>
+                  <th style="width:70px" title="Best mill quote from Mill Pricing database">Mill $</th>
                   <th style="width:70px">Sell</th>
                   <th class="col-act"></th>
                 </tr></thead>
@@ -1461,10 +1463,11 @@ function render(){
                       <td><input type="text" value="${item.shipWeek||''}" onchange="updateQuoteItem(${idx},'shipWeek',this.value)" placeholder="W1" style="width:45px;text-align:center"></td>
                       <td><input type="number" value="${item.tls||1}" onchange="updateQuoteItem(${idx},'tls',+this.value)" min="1" style="width:40px;text-align:center"></td>
                       <td style="text-align:right;font-size:10px"><span style="color:var(--muted)">${regionLabel}:</span> <span style="color:var(--accent)">${rlPrice?'$'+rlPrice:'—'}</span></td>
+                      <td style="text-align:right;font-size:10px">${(()=>{const mc=typeof getMillCostForProduct==='function'?getMillCostForProduct(item.product,item.origin):null;return mc?'<span style="color:var(--positive)">$'+mc+'</span>':'<span style="color:var(--muted)">—</span>';})()}</td>
                       <td><input type="number" value="${item.fob||''}" onchange="updateQuoteItem(${idx},'fob',+this.value)" placeholder="$" style="width:60px"></td>
                       <td><button class="quote-del-btn" onclick="removeQuoteItem(${idx})">×</button></td>
                     </tr>`;
-                  }).join(''):'<tr><td colspan="8" class="empty-state">No items yet. Click "+ Add Item" to start.</td></tr>'}
+                  }).join(''):'<tr><td colspan="9" class="empty-state">No items yet. Click "+ Add Item" to start.</td></tr>'}
                 </tbody>
               </table>
               <datalist id="origin-list">
@@ -2485,6 +2488,9 @@ function render(){
         </div>
         ${!S.rlTab||S.rlTab==='charts'?chartsHTML:(S.rlTab==='analytics'?spreadsHTML:(S.rlTab==='compare'?compareHTML:detailHTML))}
       `}`;
+  }
+  else if(S.view==='mill-pricing'){
+    renderMillPricing();
   }
   else if(S.view==='pnl-calendar'){
     c.innerHTML=renderPnLCalendar();

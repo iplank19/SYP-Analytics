@@ -1056,6 +1056,96 @@ def futures_quotes():
     futures_cache['timestamp'] = now
     return jsonify(results)
 
+# Excel file parser for mill pricing intake
+@app.route('/api/parse-excel', methods=['GET', 'POST'])
+def parse_excel():
+    try:
+        import openpyxl
+    except ImportError:
+        return jsonify({'error': 'openpyxl not installed. Run: pip install openpyxl'}), 500
+
+    if request.method == 'GET':
+        return jsonify({'error': 'POST a .xlsx file as multipart form data'}), 400
+
+    if 'file' not in request.files:
+        return jsonify({'error': 'No file uploaded'}), 400
+
+    file = request.files['file']
+    if not file.filename:
+        return jsonify({'error': 'Empty filename'}), 400
+
+    try:
+        wb = openpyxl.load_workbook(file, data_only=True)
+        ws = wb.active
+        rows = []
+        for row in ws.iter_rows(values_only=True):
+            rows.append([str(cell) if cell is not None else '' for cell in row])
+        wb.close()
+        return jsonify({'rows': rows, 'count': len(rows)})
+    except Exception as e:
+        return jsonify({'error': f'Failed to parse Excel: {str(e)}'}), 400
+
+# PDF file parser for mill pricing intake
+@app.route('/api/parse-pdf', methods=['GET', 'POST'])
+def parse_pdf():
+    try:
+        import pdfplumber
+    except ImportError:
+        return jsonify({'error': 'pdfplumber not installed. Run: pip install pdfplumber'}), 500
+
+    if request.method == 'GET':
+        return jsonify({'error': 'POST a .pdf file as multipart form data'}), 400
+
+    if 'file' not in request.files:
+        return jsonify({'error': 'No file uploaded'}), 400
+
+    file = request.files['file']
+    if not file.filename:
+        return jsonify({'error': 'Empty filename'}), 400
+
+    try:
+        import tempfile
+        # Save to temp file since pdfplumber needs a file path
+        with tempfile.NamedTemporaryFile(suffix='.pdf', delete=False) as tmp:
+            file.save(tmp.name)
+            tmp_path = tmp.name
+
+        pages_text = []
+        tables = []
+        with pdfplumber.open(tmp_path) as pdf:
+            for i, page in enumerate(pdf.pages):
+                # Extract text
+                text = page.extract_text() or ''
+                if text.strip():
+                    pages_text.append(text)
+
+                # Extract tables (pdfplumber is excellent at this)
+                page_tables = page.extract_tables()
+                for table in page_tables:
+                    # Convert to list of lists of strings
+                    cleaned = []
+                    for row in table:
+                        cleaned.append([str(cell).strip() if cell else '' for cell in row])
+                    if cleaned:
+                        tables.append({'page': i + 1, 'rows': cleaned})
+
+        # Clean up temp file
+        os.unlink(tmp_path)
+
+        return jsonify({
+            'text': '\n\n'.join(pages_text),
+            'tables': tables,
+            'pages': len(pages_text),
+            'table_count': len(tables)
+        })
+    except Exception as e:
+        # Clean up temp file on error
+        try:
+            os.unlink(tmp_path)
+        except:
+            pass
+        return jsonify({'error': f'Failed to parse PDF: {str(e)}'}), 400
+
 # Health check for Railway
 @app.route('/health')
 def health():

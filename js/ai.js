@@ -55,6 +55,10 @@ const AI_TOOLS=[
   {name:'get_top_products',desc:'Ranked product list by volume, margin, or P&L',params:['sortBy','limit']},
   {name:'suggest_coverage',desc:'Identify short positions needing mill coverage',params:[]},
   {name:'generate_briefing',desc:'Generate daily trading briefing',params:[]},
+  // Mill Pricing
+  {name:'add_mill_quote',desc:'Add a mill pricing quote',params:['mill','product','price','length','volume','tls','shipWindow','notes']},
+  {name:'get_mill_prices',desc:'Get current mill prices for a product or all products',params:['product','mill']},
+  {name:'get_best_mill_price',desc:'Get the cheapest mill offer for a product',params:['product']},
   // Utility
   {name:'clear_chat',desc:'Clear AI chat history',params:[]},
   {name:'refresh',desc:'Refresh the current view',params:[]}
@@ -511,6 +515,24 @@ function executeAITool(name,params){
         S.view='insights';render();
         return{success:true,message:'Generating daily briefing... Navigated to Daily Briefing view.'};
       }
+      case 'add_mill_quote':{
+        if(!params.mill||!params.product||!params.price)return{success:false,message:'mill, product, and price required'};
+        const mq={mill:params.mill,product:params.product,price:parseFloat(params.price),length:params.length||'RL',volume:parseFloat(params.volume)||0,tls:parseInt(params.tls)||0,shipWindow:params.shipWindow||'',notes:params.notes||'',source:'ai'};
+        addMillQuote(mq);
+        return{success:true,message:`Added mill quote: ${mq.mill} ${mq.product} @ $${mq.price}`};
+      }
+      case 'get_mill_prices':{
+        const latest=typeof getLatestMillQuotes==='function'?getLatestMillQuotes({product:params.product||undefined,mill:params.mill||undefined}):[];
+        if(!latest.length)return{success:true,message:'No mill quotes in database',data:[]};
+        const data=latest.map(q=>({mill:q.mill,product:q.product,price:q.price,length:q.length,volume:q.volume,shipWindow:q.shipWindow,date:q.date}));
+        return{success:true,message:`${data.length} current mill quotes`,data};
+      }
+      case 'get_best_mill_price':{
+        if(!params.product)return{success:false,message:'product parameter required'};
+        const best=typeof getBestPrice==='function'?getBestPrice(params.product):null;
+        if(!best)return{success:true,message:`No mill quotes for ${params.product}`,data:null};
+        return{success:true,message:`Best price for ${params.product}: $${best.price} from ${best.mill}`,data:{mill:best.mill,price:best.price,date:best.date,shipWindow:best.shipWindow}};
+      }
       default:
         return{success:false,message:`Unknown tool: ${name}`};
     }
@@ -661,6 +683,8 @@ ${laneSummary}
 Settings: Base $${S.freightBase}/load, Floor $${S.shortHaulFloor}/MBF
 
 QUOTE ENGINE: ${quoteItems}
+
+MILL PRICING DATABASE: ${typeof getLatestMillQuotes==='function'&&S.millQuotes.length?getLatestMillQuotes().slice(0,15).map(q=>`${q.mill}: ${q.product} @ $${q.price} (${q.shipWindow||'?'}, ${q.date})`).join('\n'):'No mill quotes in database'}
 
 ALWAYS use tools to execute actions. Never just describe what you would do - actually do it.
 When deleting, first search to find the correct IDs, then delete.
