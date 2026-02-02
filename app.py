@@ -1801,6 +1801,44 @@ def pricing_auth():
         return jsonify({'ok': True})
     return jsonify({'ok': False, 'error': 'Invalid password'}), 401
 
+@app.route('/api/pricing/customers', methods=['GET'])
+def pricing_customers():
+    """Merged customer list for portal quote builder (CRM + MI, deduplicated)."""
+    seen = {}
+    # CRM customers (have destination field)
+    try:
+        conn = get_crm_db()
+        rows = conn.execute("SELECT name, destination, locations FROM customers ORDER BY name").fetchall()
+        conn.close()
+        for r in rows:
+            name = r['name']
+            dest = r['destination'] or ''
+            if not dest and r['locations']:
+                try:
+                    locs = json.loads(r['locations']) if isinstance(r['locations'], str) else r['locations']
+                    if locs and isinstance(locs, list) and len(locs) > 0:
+                        loc = locs[0]
+                        if isinstance(loc, dict):
+                            dest = (loc.get('city', '') + ', ' + loc.get('state', '')).strip(', ')
+                        elif isinstance(loc, str):
+                            dest = loc
+                except: pass
+            key = name.lower().strip()
+            if key not in seen:
+                seen[key] = {'name': name, 'destination': dest}
+    except: pass
+    # MI customers
+    try:
+        conn = get_mi_db()
+        rows = conn.execute("SELECT name, destination FROM customers ORDER BY name").fetchall()
+        conn.close()
+        for r in rows:
+            key = r['name'].lower().strip()
+            if key not in seen:
+                seen[key] = {'name': r['name'], 'destination': r['destination'] or ''}
+    except: pass
+    return jsonify(sorted(seen.values(), key=lambda x: x['name'].lower()))
+
 # Server-side matrix cutoff (shared between in-app and portal)
 _matrix_cutoff = {'since': ''}
 

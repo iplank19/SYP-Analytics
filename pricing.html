@@ -24,6 +24,10 @@
     .header h1{font-size:16px;font-weight:700;color:var(--accent);letter-spacing:1px}
     .header .logout{font-size:11px;color:var(--muted);cursor:pointer;text-decoration:underline}
     .header .logout:hover{color:var(--text)}
+    .tab-bar{display:flex;gap:0;background:var(--panel);border-bottom:1px solid var(--border);padding:0 24px}
+    .tab-btn{padding:10px 20px;font-size:12px;font-weight:600;color:var(--muted);background:none;border:none;border-bottom:2px solid transparent;cursor:pointer;font-family:inherit;text-transform:uppercase;letter-spacing:0.5px}
+    .tab-btn:hover{color:var(--text)}
+    .tab-btn.active{color:var(--accent);border-bottom-color:var(--accent)}
     .content{padding:16px}
     .card{background:var(--panel);border:1px solid var(--border);border-radius:var(--radius)}
     .card-header{padding:12px 16px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;border-bottom:1px solid var(--border)}
@@ -33,14 +37,12 @@
     .btn:hover{border-color:var(--muted)}
     .btn-primary{background:var(--accent);color:#fff;border-color:var(--accent)}
     .btn-default{background:var(--surface);color:var(--text)}
+    .btn-success{background:var(--positive);color:#fff;border-color:var(--positive)}
     .btn-sm{padding:3px 8px;font-size:10px}
     .spinner{width:24px;height:24px;border:3px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin 0.8s linear infinite;margin:20px auto}
     @keyframes spin{to{transform:rotate(360deg)}}
     .empty-state{text-align:center;color:var(--muted);padding:40px}
     .mono{font-family:var(--mono);font-size:11px}
-    .matrix-ctrl{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px;font-size:11px}
-    .matrix-ctrl label{display:flex;gap:4px;align-items:center;font-size:10px;color:var(--muted);cursor:pointer}
-    .matrix-ctrl select{padding:4px 8px;font-size:11px;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:var(--radius)}
     table{width:100%;font-size:11px;border-collapse:collapse}
     th,td{padding:4px 6px;border:1px solid var(--border)}
     th{background:var(--panel-alt);font-weight:600;text-align:left;position:sticky;top:0;z-index:1}
@@ -50,6 +52,15 @@
     .matrix-compact td,.matrix-compact th{padding:2px 4px;font-size:10px}
     .matrix-comfortable td,.matrix-comfortable th{padding:6px 8px;font-size:12px}
     .updated{font-size:10px;color:var(--muted);text-align:right;margin-top:8px}
+    .grid-2{display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start}
+    @media(max-width:1100px){.grid-2{grid-template-columns:1fr}}
+    .form-label{font-size:10px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;display:block}
+    .form-input{width:100%;padding:6px 8px;font-size:11px;background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:var(--radius);outline:none;font-family:inherit}
+    .form-input:focus{border-color:var(--accent)}
+    .toast{position:fixed;bottom:20px;right:20px;padding:10px 16px;border-radius:var(--radius);font-size:11px;font-weight:500;z-index:9999;animation:slideIn 0.3s ease}
+    .toast-positive{background:var(--positive);color:#fff}
+    .toast-warn{background:var(--warn);color:#000}
+    @keyframes slideIn{from{transform:translateY(20px);opacity:0}to{transform:translateY(0);opacity:1}}
   </style>
 </head>
 <body>
@@ -67,17 +78,22 @@
       </div>
     </div>
 
-    <!-- Matrix Screen (hidden until auth) -->
-    <div id="matrix-screen" style="display:none">
+    <!-- Main Screen (hidden until auth) -->
+    <div id="main-screen" style="display:none">
       <div class="header">
         <h1>SYP PRICING MATRIX</h1>
         <div style="display:flex;align-items:center;gap:16px">
           <span id="last-updated" class="updated"></span>
-          <button class="btn btn-sm" onclick="loadMatrix()">Refresh</button>
           <span class="logout" onclick="doLogout()">Logout</span>
         </div>
       </div>
-      <div class="content">
+      <div class="tab-bar">
+        <button class="tab-btn active" id="tab-matrix" onclick="switchTab('matrix')">Matrix</button>
+        <button class="tab-btn" id="tab-quotes" onclick="switchTab('quotes')">Quote Builder</button>
+      </div>
+
+      <!-- Matrix Tab -->
+      <div class="content" id="view-matrix">
         <div class="card">
           <div class="card-header">
             <span class="card-title">All Mill Prices</span>
@@ -88,232 +104,573 @@
           </div>
         </div>
       </div>
+
+      <!-- Quote Builder Tab -->
+      <div class="content" id="view-quotes" style="display:none">
+        <div class="grid-2">
+          <!-- Left: Builder -->
+          <div>
+            <div class="card">
+              <div class="card-header">
+                <span class="card-title">Smart Quote Builder</span>
+              </div>
+              <div class="card-body">
+                <!-- Destination only -->
+                <div style="margin-bottom:16px">
+                  <label class="form-label">Destination</label>
+                  <input type="text" id="q-dest" class="form-input" placeholder="City, ST">
+                </div>
+
+                <!-- Matrix (no templates) -->
+                <div style="margin-bottom:12px">
+                  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+                    <label class="form-label" style="margin:0">Product x Length Matrix</label>
+                    <span id="q-combo-count" style="font-size:10px;color:var(--muted)"></span>
+                  </div>
+
+                  <!-- Checkbox Matrix -->
+                  <div style="overflow-x:auto">
+                    <table style="border-collapse:collapse;width:100%" id="q-matrix-table">
+                      <!-- Built by JS -->
+                    </table>
+                  </div>
+                </div>
+
+                <!-- Build Button -->
+                <button class="btn btn-primary" id="q-build-btn" onclick="buildSmartQuote()" style="width:100%;padding:8px">
+                  Build Smart Quote
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Right: Results -->
+          <div>
+            <div class="card">
+              <div class="card-header">
+                <span class="card-title" style="color:var(--positive)">Quote Results</span>
+                <button class="btn btn-sm btn-success" id="q-copy-btn" style="display:none" onclick="copyQuoteResults()">Copy to Clipboard</button>
+              </div>
+              <div class="card-body" id="q-results">
+                <div class="empty-state">Enter a destination and check product/length combos, then click Build Smart Quote</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 
   <script>
-    // State
-    let _detail = 'length';
-    let _product = '';
-    let _hideEmpty = true;
-    let _hideMills = true;
-    let _density = 'compact';
+    // ========== CONSTANTS ==========
+    const MI_PRODUCTS=[
+      '2x4#1','2x6#1','2x8#1','2x10#1','2x12#1',
+      '2x4#2','2x6#2','2x8#2','2x10#2','2x12#2',
+      '2x4#3','2x6#3','2x8#3','2x10#3','2x12#3',
+      '2x4#4','2x6#4','2x8#4','2x10#4','2x12#4',
+      '2x4 MSR','2x6 MSR','2x8 MSR','2x10 MSR','2x12 MSR'
+    ];
+    const QUOTE_LENGTHS=['8','10','12','14','16','18','20'];
+    const GRADE_GROUPS=[
+      {label:'#1',products:MI_PRODUCTS.filter(p=>p.includes('#1'))},
+      {label:'#2',products:MI_PRODUCTS.filter(p=>p.includes('#2'))},
+      {label:'#3',products:MI_PRODUCTS.filter(p=>p.includes('#3'))},
+      {label:'#4',products:MI_PRODUCTS.filter(p=>p.includes('#4'))},
+      {label:'MSR',products:MI_PRODUCTS.filter(p=>p.includes('MSR'))}
+    ];
 
-    // Auth
+    // Freight config defaults
+    const STATE_RATES={AR:2.25,LA:2.25,TX:2.50,MS:2.25,AL:2.50,FL:2.75,GA:2.50,SC:2.50,NC:2.50};
+    const FREIGHT_BASE=450;
+    const SHORT_HAUL_FLOOR=0;
+    const MBF_PER_TL=23;
+
+    // ========== STATE ==========
+    let _detail='length',_product='',_hideEmpty=true,_hideMills=true,_density='compact';
+    let _activeTab='matrix';
+    let _quoteResults=[];
+    let _quoteLoading=false;
+    let _laneCache={};  // origin|dest -> miles
+
+    // ========== AUTH ==========
     async function doLogin(){
-      const pw = document.getElementById('login-password').value;
-      const errEl = document.getElementById('login-error');
-      errEl.style.display = 'none';
-      try {
-        const res = await fetch('/api/pricing/auth', {
-          method: 'POST',
-          headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({password: pw})
-        });
-        const data = await res.json();
-        if (data.ok) {
-          sessionStorage.setItem('pricing_auth', '1');
-          showMatrix();
-        } else {
-          errEl.style.display = 'block';
-        }
-      } catch(e) {
-        errEl.textContent = 'Connection error. Please try again.';
-        errEl.style.display = 'block';
-      }
+      const pw=document.getElementById('login-password').value;
+      const errEl=document.getElementById('login-error');
+      errEl.style.display='none';
+      try{
+        const res=await fetch('/api/pricing/auth',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:pw})});
+        const data=await res.json();
+        if(data.ok){sessionStorage.setItem('pricing_auth','1');showMain();}
+        else{errEl.style.display='block';}
+      }catch(e){errEl.textContent='Connection error. Please try again.';errEl.style.display='block';}
     }
 
     function doLogout(){
       sessionStorage.removeItem('pricing_auth');
-      document.getElementById('login-screen').style.display = '';
-      document.getElementById('matrix-screen').style.display = 'none';
+      document.getElementById('login-screen').style.display='';
+      document.getElementById('main-screen').style.display='none';
     }
 
-    function showMatrix(){
-      document.getElementById('login-screen').style.display = 'none';
-      document.getElementById('matrix-screen').style.display = '';
+    function showMain(){
+      document.getElementById('login-screen').style.display='none';
+      document.getElementById('main-screen').style.display='';
       loadMatrix();
+      buildCheckboxMatrix();
     }
 
-    // Check session on load
-    if (sessionStorage.getItem('pricing_auth') === '1') showMatrix();
+    if(sessionStorage.getItem('pricing_auth')==='1') showMain();
 
-    // Matrix rendering
+    // ========== TABS ==========
+    function switchTab(tab){
+      _activeTab=tab;
+      document.getElementById('tab-matrix').classList.toggle('active',tab==='matrix');
+      document.getElementById('tab-quotes').classList.toggle('active',tab==='quotes');
+      document.getElementById('view-matrix').style.display=tab==='matrix'?'':'none';
+      document.getElementById('view-quotes').style.display=tab==='quotes'?'':'none';
+      if(tab==='matrix') loadMatrix();
+    }
+
+    // ========== MATRIX TAB (existing) ==========
     async function loadMatrix(){
-      const el = document.getElementById('matrix-body');
-      el.innerHTML = '<div class="spinner"></div>';
-
-      try {
-        if (_detail === 'length') {
-          await renderGranularMatrix(el);
-        } else {
-          await renderSummaryMatrix(el);
-        }
-        document.getElementById('last-updated').textContent = 'Updated ' + new Date().toLocaleTimeString();
-      } catch(e) {
-        el.innerHTML = '<div class="empty-state">Error loading matrix: ' + e.message + '</div>';
-      }
+      const el=document.getElementById('matrix-body');
+      el.innerHTML='<div class="spinner"></div>';
+      try{
+        if(_detail==='length') await renderGranularMatrix(el);
+        else await renderSummaryMatrix(el);
+        document.getElementById('last-updated').textContent='Updated '+new Date().toLocaleTimeString();
+      }catch(e){el.innerHTML='<div class="empty-state">Error loading matrix: '+e.message+'</div>';}
     }
 
-    function renderControls(products, colCount, totalCols, millCount, totalMills){
-      const ctrl = document.getElementById('matrix-controls');
-      const stats = colCount != null
-        ? `<span style="color:var(--muted);font-size:10px">${millCount}${totalMills && millCount!==totalMills?' of '+totalMills:''} mills &middot; ${colCount}${totalCols && colCount!==totalCols?' of '+totalCols:''} cols</span>`
-        : '';
-
-      ctrl.innerHTML = `
+    function renderControls(products,colCount,totalCols,millCount,totalMills){
+      const ctrl=document.getElementById('matrix-controls');
+      const stats=colCount!=null?`<span style="color:var(--muted);font-size:10px">${millCount}${totalMills&&millCount!==totalMills?' of '+totalMills:''} mills &middot; ${colCount}${totalCols&&colCount!==totalCols?' of '+totalCols:''} cols</span>`:'';
+      ctrl.innerHTML=`
         <button class="btn btn-sm ${_detail==='length'?'btn-primary':'btn-default'}" onclick="_detail='length';loadMatrix()">By Length</button>
         <button class="btn btn-sm ${_detail==='product'?'btn-primary':'btn-default'}" onclick="_detail='product';_product='';loadMatrix()">By Product</button>
-        ${_detail === 'length' ? `
+        ${_detail==='length'?`
           <select onchange="_product=this.value;loadMatrix()" style="padding:4px 8px;font-size:11px;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:var(--radius)">
             <option value="">All Products</option>
-            ${(products||[]).map(p => '<option value="'+p+'"'+(_product===p?' selected':'')+'>'+p+'</option>').join('')}
+            ${(products||[]).map(p=>'<option value="'+p+'"'+(_product===p?' selected':'')+'>'+p+'</option>').join('')}
           </select>
           <label style="font-size:10px;color:var(--muted);display:flex;gap:4px;align-items:center;cursor:pointer"><input type="checkbox" ${_hideEmpty?'checked':''} onchange="_hideEmpty=this.checked;loadMatrix()"> Hide empty cols</label>
           <label style="font-size:10px;color:var(--muted);display:flex;gap:4px;align-items:center;cursor:pointer"><input type="checkbox" ${_hideMills?'checked':''} onchange="_hideMills=this.checked;loadMatrix()"> Hide empty mills</label>
-        ` : ''}
+        `:''}
         <button class="btn btn-sm ${_density==='compact'?'btn-primary':'btn-default'}" onclick="_density='compact';loadMatrix()">&#9724;</button>
         <button class="btn btn-sm ${_density==='comfortable'?'btn-primary':'btn-default'}" onclick="_density='comfortable';loadMatrix()">&#9723;</button>
-        <span style="margin-left:auto;display:flex;gap:12px;align-items:center">
-          ${stats}
-          <span style="color:var(--muted);font-size:10px">Green&rarr;Red = cheap&rarr;expensive</span>
-        </span>`;
+        <button class="btn btn-sm" onclick="loadMatrix()">Refresh</button>
+        <span style="margin-left:auto;display:flex;gap:12px;align-items:center">${stats}<span style="color:var(--muted);font-size:10px">Green&rarr;Red = cheap&rarr;expensive</span></span>`;
     }
 
     async function renderGranularMatrix(el){
-      const params = new URLSearchParams({detail: 'length'});
-      if (_product) params.set('product', _product);
-      // Fetch server-side cutoff so portal matches in-app matrix
+      const params=new URLSearchParams({detail:'length'});
+      if(_product)params.set('product',_product);
       try{const cr=await fetch('/api/pricing/cutoff');if(cr.ok){const cd=await cr.json();if(cd.since)params.set('since',cd.since)}}catch(e){}
-      const res = await fetch('/api/mi/quotes/matrix?' + params);
-      if (!res.ok) throw new Error('API error: ' + res.status);
-      const data = await res.json();
-      const { matrix, mills: allMills, columns: allColumns, products, best_by_col } = data;
-
-      if (!allMills.length) {
-        el.innerHTML = '<div class="empty-state">No mill quotes available.</div>';
-        renderControls(products);
-        return;
-      }
-
-      let columns = allColumns;
-      if (_hideEmpty) columns = allColumns.filter(col => allMills.some(m => matrix[m] && matrix[m][col]));
-
-      let mills = allMills;
-      if (_hideMills) mills = allMills.filter(m => columns.some(col => matrix[m] && matrix[m][col]));
-
-      const max_by_col = {};
-      columns.forEach(col => {
-        let maxP = 0;
-        mills.forEach(m => { const d = matrix[m] && matrix[m][col]; if (d && d.price > maxP) maxP = d.price; });
-        max_by_col[col] = maxP;
-      });
-
-      const colProduct = c => c.replace(/\s+\d+[\-\/\d]*['"]?$/, '').replace(/\s+RL$/, '');
-
-      const colGroups = [];
-      let currentProd = null, currentGroup = [];
-      columns.forEach(c => {
-        const prod = colProduct(c);
-        if (prod !== currentProd) {
-          if (currentGroup.length) colGroups.push({product: currentProd, cols: currentGroup});
-          currentProd = prod;
-          currentGroup = [c];
-        } else {
-          currentGroup.push(c);
-        }
-      });
-      if (currentGroup.length) colGroups.push({product: currentProd, cols: currentGroup});
-
-      const productHeaderCells = colGroups.map((g, gi) =>
-        '<th colspan="'+g.cols.length+'" class="'+(gi>0?'group-start':'')+'" style="text-align:center;background:var(--panel-alt);border-bottom:2px solid var(--accent);font-size:11px;padding:6px 4px">'+g.product+'</th>'
-      ).join('');
-
-      const lengthHeaderCells = columns.map((c, idx) => {
-        const length = c.split(/\s/).pop();
-        const prod = colProduct(c);
-        const prevProd = idx > 0 ? colProduct(columns[idx - 1]) : null;
-        const gs = prod !== prevProd ? ' group-start' : '';
-        return '<th class="'+gs+'" style="text-align:center;font-weight:400;color:var(--muted);min-width:48px">'+length+'</th>';
-      }).join('');
-
-      const bodyRows = mills.map(m => {
-        const cells = columns.map((col, idx) => {
-          const d = matrix[m] && matrix[m][col];
-          const prod = colProduct(col);
-          const prevProd = idx > 0 ? colProduct(columns[idx - 1]) : null;
-          const gs = prod !== prevProd ? ' group-start' : '';
-
-          if (!d) return '<td class="empty-cell'+gs+'"></td>';
-
-          const isBest = d.price === best_by_col[col];
-          const age = Math.floor((new Date() - new Date(d.date)) / (1000*60*60*24));
-          const vol = d.volume ? d.volume + ' MBF' : '';
-          const tls = d.tls ? d.tls + ' TL' : '';
-          const tip = [vol, tls, d.ship_window, age + 'd ago'].filter(Boolean).join(' &middot; ');
-
-          let heatBg = '';
-          const minP = best_by_col[col] || d.price;
-          const maxP = max_by_col[col] || d.price;
-          if (maxP > minP) {
-            const pct = (d.price - minP) / (maxP - minP);
-            const hue = 120 - (pct * 120);
-            heatBg = 'background:hsla('+hue+',45%,45%,0.12);';
-          } else {
-            heatBg = 'background:hsla(120,45%,45%,0.12);';
-          }
-
-          const fade = age > 3 ? 'opacity:0.5;' : '';
-          const bestStyle = isBest ? 'color:var(--positive);font-weight:700;' : '';
-
-          return '<td class="mono'+gs+'" style="text-align:center;'+heatBg+bestStyle+fade+'" title="'+tip+'">$'+d.price+'</td>';
+      const res=await fetch('/api/mi/quotes/matrix?'+params);
+      if(!res.ok)throw new Error('API error: '+res.status);
+      const data=await res.json();
+      const{matrix,mills:allMills,columns:allColumns,products,best_by_col}=data;
+      if(!allMills.length){el.innerHTML='<div class="empty-state">No mill quotes available.</div>';renderControls(products);return;}
+      let columns=allColumns;
+      if(_hideEmpty)columns=allColumns.filter(col=>allMills.some(m=>matrix[m]&&matrix[m][col]));
+      let mills=allMills;
+      if(_hideMills)mills=allMills.filter(m=>columns.some(col=>matrix[m]&&matrix[m][col]));
+      const max_by_col={};
+      columns.forEach(col=>{let maxP=0;mills.forEach(m=>{const d=matrix[m]&&matrix[m][col];if(d&&d.price>maxP)maxP=d.price;});max_by_col[col]=maxP;});
+      const colProduct=c=>c.replace(/\s+\d+[\-\/\d]*['"]?$/,'').replace(/\s+RL$/,'');
+      const colGroups=[];let currentProd=null,currentGroup=[];
+      columns.forEach(c=>{const prod=colProduct(c);if(prod!==currentProd){if(currentGroup.length)colGroups.push({product:currentProd,cols:currentGroup});currentProd=prod;currentGroup=[c];}else{currentGroup.push(c);}});
+      if(currentGroup.length)colGroups.push({product:currentProd,cols:currentGroup});
+      const productHeaderCells=colGroups.map((g,gi)=>'<th colspan="'+g.cols.length+'" class="'+(gi>0?'group-start':'')+'" style="text-align:center;background:var(--panel-alt);border-bottom:2px solid var(--accent);font-size:11px;padding:6px 4px">'+g.product+'</th>').join('');
+      const lengthHeaderCells=columns.map((c,idx)=>{const length=c.split(/\s/).pop();const prod=colProduct(c);const prevProd=idx>0?colProduct(columns[idx-1]):null;const gs=prod!==prevProd?' group-start':'';return'<th class="'+gs+'" style="text-align:center;font-weight:400;color:var(--muted);min-width:48px">'+length+'</th>';}).join('');
+      const bodyRows=mills.map(m=>{
+        const cells=columns.map((col,idx)=>{const d=matrix[m]&&matrix[m][col];const prod=colProduct(col);const prevProd=idx>0?colProduct(columns[idx-1]):null;const gs=prod!==prevProd?' group-start':'';
+          if(!d)return'<td class="empty-cell'+gs+'"></td>';
+          const isBest=d.price===best_by_col[col];const age=Math.floor((new Date()-new Date(d.date))/(1000*60*60*24));
+          const vol=d.volume?d.volume+' MBF':'';const tls=d.tls?d.tls+' TL':'';const tip=[vol,tls,d.ship_window,age+'d ago'].filter(Boolean).join(' &middot; ');
+          let heatBg='';const minP=best_by_col[col]||d.price;const maxP=max_by_col[col]||d.price;
+          if(maxP>minP){const pct=(d.price-minP)/(maxP-minP);const hue=120-(pct*120);heatBg='background:hsla('+hue+',45%,45%,0.12);';}else{heatBg='background:hsla(120,45%,45%,0.12);';}
+          const fade=age>3?'opacity:0.5;':'';const bestStyle=isBest?'color:var(--positive);font-weight:700;':'';
+          return'<td class="mono'+gs+'" style="text-align:center;'+heatBg+bestStyle+fade+'" title="'+tip+'">$'+d.price+'</td>';
         }).join('');
-        return '<tr><td class="mill-cell">'+m+'</td>'+cells+'</tr>';
+        return'<tr><td class="mill-cell">'+m+'</td>'+cells+'</tr>';
       }).join('');
-
-      el.innerHTML = '<div style="overflow-x:auto;max-height:80vh;overflow-y:auto"><table class="matrix-'+_density+'" style="border-collapse:collapse"><thead style="position:sticky;top:0;z-index:2"><tr><th rowspan="2" style="position:sticky;left:0;background:var(--panel);z-index:3;padding:4px 8px">Mill</th>'+productHeaderCells+'</tr><tr>'+lengthHeaderCells+'</tr></thead><tbody>'+bodyRows+'</tbody></table></div>';
-
-      renderControls(products, columns.length, allColumns.length, mills.length, allMills.length);
+      el.innerHTML='<div style="overflow-x:auto;max-height:80vh;overflow-y:auto"><table class="matrix-'+_density+'" style="border-collapse:collapse"><thead style="position:sticky;top:0;z-index:2"><tr><th rowspan="2" style="position:sticky;left:0;background:var(--panel);z-index:3;padding:4px 8px">Mill</th>'+productHeaderCells+'</tr><tr>'+lengthHeaderCells+'</tr></thead><tbody>'+bodyRows+'</tbody></table></div>';
+      renderControls(products,columns.length,allColumns.length,mills.length,allMills.length);
     }
 
     async function renderSummaryMatrix(el){
-      const params = new URLSearchParams();
+      const params=new URLSearchParams();
       try{const cr=await fetch('/api/pricing/cutoff');if(cr.ok){const cd=await cr.json();if(cd.since)params.set('since',cd.since)}}catch(e){}
-      const qs = params.toString();
-      const res = await fetch('/api/mi/quotes/matrix' + (qs ? '?' + qs : ''));
-      if (!res.ok) throw new Error('API error: ' + res.status);
-      const data = await res.json();
-      const { matrix, mills, products, best_by_product } = data;
-
-      if (!mills.length) {
-        el.innerHTML = '<div class="empty-state">No mill quotes available.</div>';
-        renderControls(products);
-        return;
-      }
-
-      const headerCells = products.map(p =>
-        '<th style="writing-mode:vertical-lr;text-align:center;padding:8px 4px;font-size:10px;white-space:nowrap">'+p+'</th>'
-      ).join('');
-
-      const bodyRows = mills.map(m => {
-        const cells = products.map(p => {
-          const d = matrix[m] && matrix[m][p];
-          if (!d) return '<td style="text-align:center;color:var(--muted)">-</td>';
-          const isBest = d.price === best_by_product[p];
-          const age = Math.floor((new Date() - new Date(d.date)) / (1000*60*60*24));
-          return '<td class="mono" style="text-align:center;'+(isBest?'color:var(--positive);font-weight:700':'')+(age>3?';opacity:0.5':'')+'" title="'+(d.ship_window||'')+' | '+(age)+'d ago">$'+d.price+'</td>';
+      const qs=params.toString();
+      const res=await fetch('/api/mi/quotes/matrix'+(qs?'?'+qs:''));
+      if(!res.ok)throw new Error('API error: '+res.status);
+      const data=await res.json();
+      const{matrix,mills,products,best_by_product}=data;
+      if(!mills.length){el.innerHTML='<div class="empty-state">No mill quotes available.</div>';renderControls(products);return;}
+      const headerCells=products.map(p=>'<th style="writing-mode:vertical-lr;text-align:center;padding:8px 4px;font-size:10px;white-space:nowrap">'+p+'</th>').join('');
+      const bodyRows=mills.map(m=>{
+        const cells=products.map(p=>{const d=matrix[m]&&matrix[m][p];if(!d)return'<td style="text-align:center;color:var(--muted)">-</td>';
+          const isBest=d.price===best_by_product[p];const age=Math.floor((new Date()-new Date(d.date))/(1000*60*60*24));
+          return'<td class="mono" style="text-align:center;'+(isBest?'color:var(--positive);font-weight:700':'')+(age>3?';opacity:0.5':'')+'" title="'+(d.ship_window||'')+' | '+age+'d ago">$'+d.price+'</td>';
         }).join('');
-        return '<tr><td style="white-space:nowrap;font-weight:500">'+m+'</td>'+cells+'</tr>';
+        return'<tr><td style="white-space:nowrap;font-weight:500">'+m+'</td>'+cells+'</tr>';
       }).join('');
-
-      el.innerHTML = '<div style="overflow-x:auto"><table><thead><tr><th>Mill</th>'+headerCells+'</tr></thead><tbody>'+bodyRows+'</tbody></table></div>';
+      el.innerHTML='<div style="overflow-x:auto"><table><thead><tr><th>Mill</th>'+headerCells+'</tr></thead><tbody>'+bodyRows+'</tbody></table></div>';
       renderControls(products);
     }
 
-    // Auto-refresh every 5 minutes
-    setInterval(() => {
-      if (sessionStorage.getItem('pricing_auth') === '1') loadMatrix();
-    }, 300000);
+    // ========== QUOTE BUILDER ==========
+    function _pid(p){return p.replace(/[^a-zA-Z0-9]/g,'_');}
+    const fmt=v=>v!=null?'$'+Math.round(v):'--';
+
+    // Build the checkbox matrix table
+    function buildCheckboxMatrix(){
+      const tbl=document.getElementById('q-matrix-table');
+      const colHeaders=QUOTE_LENGTHS.map(l=>
+        `<th style="text-align:center;padding:3px;font-size:10px;font-weight:600;min-width:28px">
+          <div>${l+"'"}</div>
+          <input type="checkbox" id="q-col-${l}" onchange="toggleCol('${l}')" style="margin-top:2px">
+        </th>`
+      ).join('');
+
+      const rows=GRADE_GROUPS.map(grp=>{
+        const header=`<tr><td colspan="${QUOTE_LENGTHS.length+1}" style="padding:6px 6px 2px;font-size:10px;font-weight:700;color:var(--muted);border-top:1px solid var(--border)">${grp.label}</td></tr>`;
+        const productRows=grp.products.map(p=>{
+          const pid=_pid(p);
+          const cells=QUOTE_LENGTHS.map(l=>
+            `<td style="text-align:center;padding:3px"><input type="checkbox" id="q-cb-${pid}-${l}" onchange="cellChanged()"></td>`
+          ).join('');
+          return`<tr>
+            <td style="white-space:nowrap;padding:3px 6px;font-size:11px;font-weight:600">
+              <label style="cursor:pointer;display:flex;align-items:center;gap:4px">
+                <input type="checkbox" id="q-row-${pid}" onchange="toggleRow('${p}')">
+                ${p}
+              </label>
+            </td>${cells}</tr>`;
+        }).join('');
+        return header+productRows;
+      }).join('');
+
+      tbl.innerHTML=`<thead><tr><th style="text-align:left;padding:3px 6px;font-size:10px">PRODUCT</th>${colHeaders}</tr></thead><tbody>${rows}</tbody>`;
+      updateHeaders();
+    }
+
+    function toggleRow(product){
+      const pid=_pid(product);
+      const rowCb=document.getElementById(`q-row-${pid}`);
+      const on=rowCb?rowCb.checked:true;
+      QUOTE_LENGTHS.forEach(l=>{
+        const cb=document.getElementById(`q-cb-${pid}-${l}`);
+        if(cb)cb.checked=on;
+      });
+      updateHeaders();
+    }
+
+    function toggleCol(length){
+      const colCb=document.getElementById(`q-col-${length}`);
+      const on=colCb?colCb.checked:true;
+      MI_PRODUCTS.forEach(p=>{
+        const cb=document.getElementById(`q-cb-${_pid(p)}-${length}`);
+        if(cb)cb.checked=on;
+      });
+      updateHeaders();
+    }
+
+    function cellChanged(){
+      updateHeaders();
+    }
+
+    function updateHeaders(){
+      MI_PRODUCTS.forEach(p=>{
+        const pid=_pid(p);
+        const rowCb=document.getElementById(`q-row-${pid}`);
+        if(!rowCb)return;
+        const checks=QUOTE_LENGTHS.map(l=>{const cb=document.getElementById(`q-cb-${pid}-${l}`);return cb?cb.checked:false;});
+        const allOn=checks.every(c=>c),noneOn=checks.every(c=>!c);
+        rowCb.checked=allOn;rowCb.indeterminate=!allOn&&!noneOn;
+      });
+      QUOTE_LENGTHS.forEach(l=>{
+        const colCb=document.getElementById(`q-col-${l}`);
+        if(!colCb)return;
+        const checks=MI_PRODUCTS.map(p=>{const cb=document.getElementById(`q-cb-${_pid(p)}-${l}`);return cb?cb.checked:false;});
+        const allOn=checks.every(c=>c),noneOn=checks.every(c=>!c);
+        colCb.checked=allOn;colCb.indeterminate=!allOn&&!noneOn;
+      });
+      const count=getCheckedCombos().length;
+      const el=document.getElementById('q-combo-count');
+      if(el)el.textContent=`${count} combo${count!==1?'s':''} selected`;
+    }
+
+    function getCheckedCombos(){
+      const combos=[];
+      MI_PRODUCTS.forEach(p=>{
+        QUOTE_LENGTHS.forEach(l=>{
+          const cb=document.getElementById(`q-cb-${_pid(p)}-${l}`);
+          if(cb&&cb.checked)combos.push({product:p,length:l});
+        });
+      });
+      return combos;
+    }
+
+    // ========== FREIGHT HELPERS ==========
+    function extractState(location){
+      if(!location)return null;
+      const str=location.toUpperCase();
+      const states=['AL','MS','FL','GA','SC','AR','NC','TX','TN','LA','OK','MO','KY','VA','OH','IN','IL'];
+      const commaMatch=str.match(/,\s*([A-Z]{2})\b/);
+      if(commaMatch&&states.includes(commaMatch[1]))return commaMatch[1];
+      for(const st of states){if(str.endsWith(' '+st)||str.endsWith(','+st))return st;}
+      return null;
+    }
+
+    function calcFreightPerMBF(miles,origin,isMSR=false){
+      if(!miles)return 0;
+      const mbfPerTL=isMSR?20:MBF_PER_TL;
+      const originState=extractState(origin);
+      const stateRate=originState?STATE_RATES[originState]||0:0;
+      const freightTotal=FREIGHT_BASE+(miles*stateRate);
+      const freightPerMBF=Math.round(freightTotal/mbfPerTL);
+      return Math.max(SHORT_HAUL_FLOOR,freightPerMBF);
+    }
+
+    // ========== SMART QUOTE ENGINE ==========
+    async function buildSmartQuote(){
+      const destination=document.getElementById('q-dest').value.trim();
+      if(!destination){showToast('Enter a destination (City, ST)','warn');return;}
+      const combos=getCheckedCombos();
+      if(!combos.length){showToast('Check at least one product/length cell','warn');return;}
+
+      _quoteLoading=true;
+      document.getElementById('q-build-btn').disabled=true;
+      document.getElementById('q-build-btn').innerHTML='<span class="spinner" style="width:14px;height:14px;margin:0;display:inline-block;vertical-align:middle;border-width:2px"></span> Building...';
+
+      try{
+        // Fetch matrix data + mills in parallel
+        const [matrixRes,millsRes]=await Promise.all([
+          fetch('/api/mi/quotes/matrix?detail=length'),
+          fetch('/api/mi/mills')
+        ]);
+        const matrixData=await matrixRes.json();
+        const mills=await millsRes.json();
+
+        const allMills=matrixData.mills||[];
+        const matrix=matrixData.matrix||{};
+
+        // Build mill location map
+        const millLocations={};
+        mills.forEach(m=>{
+          if(m.location)millLocations[m.name]=m.location;
+          else if(m.city)millLocations[m.name]=m.state?m.city+', '+m.state:m.city;
+        });
+
+        // Collect unique lanes needed
+        const originMap={};
+        const neededLanes=[];
+        const seenKeys=new Set();
+
+        for(const combo of combos){
+          const colKey=combo.length==='RL'?`${combo.product} RL`:`${combo.product} ${combo.length}'`;
+          for(const mill of allMills){
+            const millData=matrix[mill];
+            if(!millData||!millData[colKey])continue;
+            const q=millData[colKey];
+            const qOrigin=q.city&&q.state?q.city+', '+q.state:q.city||'';
+            const origin=millLocations[mill]||qOrigin;
+            if(!origin)continue;
+            originMap[mill]=origin;
+            const key=`${origin}|${destination}`;
+            if(seenKeys.has(key))continue;
+            seenKeys.add(key);
+            if(!_laneCache[key]){
+              neededLanes.push({origin,dest:destination});
+            }
+          }
+        }
+
+        // Bulk lookup missing lanes
+        if(neededLanes.length>0){
+          try{
+            const mileRes=await fetch('/api/mileage/bulk',{
+              method:'POST',headers:{'Content-Type':'application/json'},
+              body:JSON.stringify({lanes:neededLanes})
+            });
+            const mileData=await mileRes.json();
+            (mileData.results||mileData||[]).forEach(r=>{
+              if(r.miles){
+                _laneCache[`${r.origin}|${r.dest}`]=r.miles;
+              }
+            });
+          }catch(e){console.error('Mileage lookup failed',e);}
+        }
+
+        // Build quote results
+        _quoteResults=[];
+        for(const combo of combos){
+          const colKey=combo.length==='RL'?`${combo.product} RL`:`${combo.product} ${combo.length}'`;
+          const options=[];
+
+          for(const mill of allMills){
+            const millData=matrix[mill];
+            if(!millData||!millData[colKey])continue;
+            const q=millData[colKey];
+            const origin=originMap[mill]||(q.city&&q.state?q.city+', '+q.state:q.city||'');
+            if(!origin)continue;
+
+            const laneKey=`${origin}|${destination}`;
+            const miles=_laneCache[laneKey]||null;
+            const isMSR=(combo.product||'').toUpperCase().includes('MSR');
+            const freightPerMBF=miles?calcFreightPerMBF(miles,origin,isMSR):null;
+            const landedCost=freightPerMBF!=null?q.price+freightPerMBF:null;
+
+            options.push({
+              mill,origin,fobPrice:q.price,
+              miles,freightPerMBF,landedCost,
+              volume:q.volume||0,tls:q.tls||0,
+              shipWindow:q.ship_window,date:q.date,
+              trader:q.trader,region:q.region,length:combo.length
+            });
+          }
+
+          options.sort((a,b)=>{
+            if(a.landedCost==null&&b.landedCost==null)return a.fobPrice-b.fobPrice;
+            if(a.landedCost==null)return 1;
+            if(b.landedCost==null)return -1;
+            return a.landedCost-b.landedCost;
+          });
+
+          const best=options[0]||null;
+          _quoteResults.push({
+            product:combo.product,length:combo.length,
+            label:combo.length==='RL'?`${combo.product} RL`:`${combo.product} ${combo.length}'`,
+            destination,best,options
+          });
+        }
+
+        renderQuoteResults();
+      }catch(e){
+        console.error('Quote build error',e);
+        showToast('Error building quote: '+e.message,'warn');
+      }finally{
+        _quoteLoading=false;
+        document.getElementById('q-build-btn').disabled=false;
+        document.getElementById('q-build-btn').innerHTML='Build Smart Quote';
+      }
+    }
+
+    function renderQuoteResults(){
+      const el=document.getElementById('q-results');
+      const copyBtn=document.getElementById('q-copy-btn');
+      if(!_quoteResults.length){
+        el.innerHTML='<div class="empty-state">No results</div>';
+        copyBtn.style.display='none';
+        return;
+      }
+
+      const hasResults=_quoteResults.some(r=>r.best);
+      const noResults=_quoteResults.filter(r=>!r.best);
+      copyBtn.style.display=hasResults?'':'none';
+
+      let html='';
+
+      // Destination header
+      const dest=_quoteResults[0]?.destination||'';
+      if(dest)html+=`<div style="font-size:11px;font-weight:600;color:var(--accent);margin-bottom:12px">DELIVERED: ${dest}</div>`;
+
+      // Summary table
+      if(hasResults){
+        html+=`<table style="font-size:11px;width:100%;margin-bottom:16px;border-collapse:collapse">
+          <thead><tr style="border-bottom:2px solid var(--border)">
+            <th style="text-align:left;padding:4px 6px">Item</th>
+            <th style="text-align:left;padding:4px 6px">Best Mill</th>
+            <th style="text-align:right;padding:4px 6px">FOB</th>
+            <th style="text-align:right;padding:4px 6px">Freight</th>
+            <th style="text-align:right;padding:4px 6px">Landed</th>
+            <th style="text-align:right;padding:4px 6px">Miles</th>
+          </tr></thead><tbody>
+          ${_quoteResults.filter(r=>r.best).map(r=>`<tr>
+            <td style="padding:4px 6px;font-weight:600;color:var(--accent)">${r.label}</td>
+            <td style="padding:4px 6px">${r.best.mill}</td>
+            <td style="padding:4px 6px;text-align:right" class="mono">${fmt(r.best.fobPrice)}</td>
+            <td style="padding:4px 6px;text-align:right" class="mono">${r.best.freightPerMBF!=null?fmt(r.best.freightPerMBF):'--'}</td>
+            <td style="padding:4px 6px;text-align:right;font-weight:600;color:var(--positive)" class="mono">${r.best.landedCost!=null?fmt(r.best.landedCost):'--'}</td>
+            <td style="padding:4px 6px;text-align:right;color:var(--muted)" class="mono">${r.best.miles||'--'}</td>
+          </tr>`).join('')}
+          </tbody></table>`;
+      }
+
+      // No-offer items
+      if(noResults.length){
+        html+=`<div style="padding:8px 10px;background:rgba(255,180,0,0.06);border-radius:var(--radius);font-size:11px;color:var(--warn);margin-bottom:12px">
+          No offers: ${noResults.map(r=>r.label).join(', ')}</div>`;
+      }
+
+      // Detail expandables
+      _quoteResults.filter(r=>r.best&&r.options.length>1).forEach(r=>{
+        html+=`<details style="margin-bottom:8px">
+          <summary style="cursor:pointer;font-size:11px;font-weight:600;color:var(--muted);padding:4px 0">${r.label} — ${r.options.length} sources</summary>
+          <table style="font-size:10px;margin-top:4px">
+            <thead><tr><th>Mill</th><th style="text-align:right">FOB</th><th style="text-align:right">Freight</th><th style="text-align:right">Landed</th><th style="text-align:right">Miles</th><th>Ship</th></tr></thead>
+            <tbody>${r.options.map((o,i)=>`<tr${i===0?' style="color:var(--positive);font-weight:600"':''}>
+              <td style="padding:3px 6px">${o.mill}</td>
+              <td style="padding:3px 6px;text-align:right" class="mono">${fmt(o.fobPrice)}</td>
+              <td style="padding:3px 6px;text-align:right" class="mono">${o.freightPerMBF!=null?fmt(o.freightPerMBF):'--'}</td>
+              <td style="padding:3px 6px;text-align:right" class="mono">${o.landedCost!=null?fmt(o.landedCost):'--'}</td>
+              <td style="padding:3px 6px;text-align:right" class="mono">${o.miles||'--'}</td>
+              <td style="padding:3px 6px">${o.shipWindow||'--'}</td>
+            </tr>`).join('')}</tbody>
+          </table>
+        </details>`;
+      });
+
+      el.innerHTML=html;
+    }
+
+    // ========== COPY ==========
+    function copyQuoteResults(){
+      if(!_quoteResults.length)return;
+      const dest=_quoteResults[0]?.destination||'';
+      const results=_quoteResults.filter(r=>r.best);
+      if(!results.length){showToast('No results to copy','warn');return;}
+
+      let txt=`SYP QUOTE — DLVD ${dest}\n`;
+      txt+='─'.repeat(65)+'\n';
+      txt+=padR('Item',20)+padR('Best Mill',22)+padL('FOB',8)+padL('Frt',8)+padL('Landed',8)+'\n';
+      txt+='─'.repeat(65)+'\n';
+      results.forEach(r=>{
+        txt+=padR(r.label,20)+padR(r.best.mill,22)+
+          padL(fmt(r.best.fobPrice),8)+
+          padL(r.best.freightPerMBF!=null?fmt(r.best.freightPerMBF):'--',8)+
+          padL(r.best.landedCost!=null?fmt(r.best.landedCost):'--',8)+'\n';
+      });
+      txt+='─'.repeat(65)+'\n';
+
+      navigator.clipboard.writeText(txt).then(()=>{
+        showToast('Copied to clipboard!','positive');
+      }).catch(()=>{
+        // Fallback
+        const ta=document.createElement('textarea');
+        ta.value=txt;document.body.appendChild(ta);ta.select();
+        document.execCommand('copy');document.body.removeChild(ta);
+        showToast('Copied to clipboard!','positive');
+      });
+    }
+
+    function padR(s,n){s=String(s||'');return s.length>=n?s.substring(0,n):s+' '.repeat(n-s.length);}
+    function padL(s,n){s=String(s||'');return s.length>=n?s:' '.repeat(n-s.length)+s;}
+
+    // ========== TOAST ==========
+    function showToast(msg,type='info'){
+      const t=document.createElement('div');
+      t.className='toast toast-'+(type==='warn'?'warn':'positive');
+      t.textContent=msg;
+      document.body.appendChild(t);
+      setTimeout(()=>t.remove(),3000);
+    }
+
+    // Auto-refresh matrix every 5 minutes
+    setInterval(()=>{
+      if(sessionStorage.getItem('pricing_auth')==='1'&&_activeTab==='matrix')loadMatrix();
+    },300000);
   </script>
 </body>
 </html>

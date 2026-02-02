@@ -210,48 +210,56 @@ async function renderMiSmartQuotesInline(container) {
 }
 
 async function _miRenderSmartQuotesInto(c) {
-  // Merge MI customers + CRM customers (deduplicated)
-  let miCustomers = [];
-  try { miCustomers = await miLoadCustomers(); } catch (e) {}
-  const crmCustomers = (S.customers || []).filter(c => c.type !== 'mill' && c.destination);
-  const seen = new Set();
-  const customers = [];
-  crmCustomers.forEach(c => {
-    const key = c.name.toLowerCase();
-    if (!seen.has(key)) {
-      seen.add(key);
-      const dest = (c.locations && c.locations[0]) || c.destination || '';
-      customers.push({ name: c.name, destination: dest, source: 'crm' });
-    }
-  });
-  miCustomers.forEach(c => {
-    const key = c.name.toLowerCase();
-    if (!seen.has(key)) {
-      seen.add(key);
-      customers.push({ name: c.name, destination: c.destination || '', source: 'mi' });
-    }
-  });
+  const isMatrixMode = !!document.getElementById('matrix-quotes-content');
 
-  // Build template buttons
-  const builtInNames = Object.keys(QUOTE_TEMPLATES);
-  const customNames = S.quoteTemplates.map(t => t.name);
-  const hasHistory = S.miQuoteCustomer && getCustomerProductLengths(S.miQuoteCustomer).length > 0;
+  // Lengths: exclude RL in matrix mode
+  const lengths = isMatrixMode ? QUOTE_LENGTHS.filter(l => l !== 'RL') : QUOTE_LENGTHS;
 
-  const templateBtns = [
-    ...builtInNames.map(name => {
-      const active = name === _miActiveTemplate;
-      return `<button class="btn ${active ? 'btn-primary' : 'btn-default'}" style="padding:2px 8px;font-size:10px;min-width:0" data-template="${name}" onclick="miApplyTemplate('${name}')">${name}</button>`;
-    }),
-    ...(hasHistory ? [`<button class="btn ${_miActiveTemplate === 'History' ? 'btn-primary' : 'btn-default'}" style="padding:2px 8px;font-size:10px;min-width:0" data-template="History" onclick="miApplyTemplate('History')">History</button>`] : []),
-    ...customNames.map(name => {
-      const active = name === _miActiveTemplate;
-      return `<span style="display:inline-flex;gap:1px"><button class="btn ${active ? 'btn-primary' : 'btn-default'}" style="padding:2px 8px;font-size:10px;min-width:0" data-template="${name}" onclick="miApplyTemplate('${name}')">${name}</button><button class="btn btn-default" style="padding:2px 4px;font-size:8px;min-width:0;color:var(--muted)" onclick="miDeleteTemplate('${name}')" title="Delete template">&times;</button></span>`;
-    }),
-    `<button class="btn btn-default" style="padding:2px 8px;font-size:10px;min-width:0;color:var(--positive)" onclick="miSaveTemplate()" title="Save current selection as template">+ Save</button>`
-  ].join('');
+  // Merge MI customers + CRM customers (deduplicated) — only needed in non-matrix mode
+  let customers = [];
+  if (!isMatrixMode) {
+    let miCustomers = [];
+    try { miCustomers = await miLoadCustomers(); } catch (e) {}
+    const crmCustomers = (S.customers || []).filter(c => c.type !== 'mill' && c.destination);
+    const seen = new Set();
+    crmCustomers.forEach(c => {
+      const key = c.name.toLowerCase();
+      if (!seen.has(key)) {
+        seen.add(key);
+        const dest = (c.locations && c.locations[0]) || c.destination || '';
+        customers.push({ name: c.name, destination: dest, source: 'crm' });
+      }
+    });
+    miCustomers.forEach(c => {
+      const key = c.name.toLowerCase();
+      if (!seen.has(key)) {
+        seen.add(key);
+        customers.push({ name: c.name, destination: c.destination || '', source: 'mi' });
+      }
+    });
+  }
+
+  // Build template buttons — only in non-matrix mode
+  let templateBtns = '';
+  if (!isMatrixMode) {
+    const builtInNames = Object.keys(QUOTE_TEMPLATES);
+    const customNames = S.quoteTemplates.map(t => t.name);
+    const hasHistory = S.miQuoteCustomer && getCustomerProductLengths(S.miQuoteCustomer).length > 0;
+    templateBtns = [
+      ...builtInNames.map(name => {
+        const active = name === _miActiveTemplate;
+        return `<button class="btn ${active ? 'btn-primary' : 'btn-default'}" style="padding:2px 8px;font-size:10px;min-width:0" data-template="${name}" onclick="miApplyTemplate('${name}')">${name}</button>`;
+      }),
+      ...(hasHistory ? [`<button class="btn ${_miActiveTemplate === 'History' ? 'btn-primary' : 'btn-default'}" style="padding:2px 8px;font-size:10px;min-width:0" data-template="History" onclick="miApplyTemplate('History')">History</button>`] : []),
+      ...customNames.map(name => {
+        const active = name === _miActiveTemplate;
+        return `<span style="display:inline-flex;gap:1px"><button class="btn ${active ? 'btn-primary' : 'btn-default'}" style="padding:2px 8px;font-size:10px;min-width:0" data-template="${name}" onclick="miApplyTemplate('${name}')">${name}</button><button class="btn btn-default" style="padding:2px 4px;font-size:8px;min-width:0;color:var(--muted)" onclick="miDeleteTemplate('${name}')" title="Delete template">&times;</button></span>`;
+      }),
+      `<button class="btn btn-default" style="padding:2px 8px;font-size:10px;min-width:0;color:var(--positive)" onclick="miSaveTemplate()" title="Save current selection as template">+ Save</button>`
+    ].join('');
+  }
 
   // Build the matrix grid
-  // Group products with visual separators
   const gradeGroups = [
     {label: '#1', products: MI_PRODUCTS.filter(p => p.includes('#1'))},
     {label: '#2', products: MI_PRODUCTS.filter(p => p.includes('#2'))},
@@ -261,10 +269,10 @@ async function _miRenderSmartQuotesInto(c) {
   ];
 
   const matrixRows = gradeGroups.map(grp => {
-    const groupHeader = `<tr><td colspan="${QUOTE_LENGTHS.length + 1}" style="padding:6px 6px 2px;font-size:10px;font-weight:700;color:var(--muted);border-top:1px solid var(--border)">${grp.label}</td></tr>`;
+    const groupHeader = `<tr><td colspan="${lengths.length + 1}" style="padding:6px 6px 2px;font-size:10px;font-weight:700;color:var(--muted);border-top:1px solid var(--border)">${grp.label}</td></tr>`;
     const rows = grp.products.map(p => {
       const pid = _miPid(p);
-      const cells = QUOTE_LENGTHS.map(l =>
+      const cells = lengths.map(l =>
         `<td style="text-align:center;padding:3px"><input type="checkbox" id="mi-mx-${pid}-${l}" onchange="miCellChanged()"></td>`
       ).join('');
       return `<tr>
@@ -280,12 +288,36 @@ async function _miRenderSmartQuotesInto(c) {
     return groupHeader + rows;
   }).join('');
 
-  const colHeaders = QUOTE_LENGTHS.map(l =>
+  const colHeaders = lengths.map(l =>
     `<th style="text-align:center;padding:3px;font-size:10px;font-weight:600;min-width:28px">
       <div>${l === 'RL' ? 'RL' : l + "'"}</div>
       <input type="checkbox" id="mi-mx-col-${l}" onchange="miToggleCol('${l}')" style="margin-top:2px">
     </th>`
   ).join('');
+
+  // Customer/destination section differs by mode
+  const customerSection = isMatrixMode ? `
+    <div style="margin-bottom:16px">
+      <div class="form-group">
+        <label class="form-label">Destination</label>
+        <input type="text" id="mi-quote-dest" placeholder="City, ST" style="padding:6px 8px;font-size:11px;width:100%" value="">
+      </div>
+    </div>
+  ` : `
+    <div class="form-grid" style="margin-bottom:16px">
+      <div class="form-group">
+        <label class="form-label">Customer</label>
+        <select id="mi-quote-customer" onchange="miOnCustomerChange(this.value)" style="padding:6px 8px;font-size:11px;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:var(--radius)">
+          <option value="">Select customer...</option>
+          ${customers.map(c => `<option value="${c.name}" data-dest="${c.destination||''}"${S.miQuoteCustomer===c.name?' selected':''}>${c.name} — ${c.destination||'?'}</option>`).join('')}
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Or enter destination</label>
+        <input type="text" id="mi-quote-dest" placeholder="City, ST" style="padding:6px 8px;font-size:11px" value="">
+      </div>
+    </div>
+  `;
 
   c.innerHTML = `
     <div class="grid-2" style="gap:16px;align-items:start">
@@ -295,28 +327,14 @@ async function _miRenderSmartQuotesInto(c) {
             <span class="card-title">SMART QUOTE BUILDER</span>
           </div>
           <div class="card-body">
-            <div class="form-grid" style="margin-bottom:16px">
-              <div class="form-group">
-                <label class="form-label">Customer</label>
-                <select id="mi-quote-customer" onchange="miOnCustomerChange(this.value)" style="padding:6px 8px;font-size:11px;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:var(--radius)">
-                  <option value="">Select customer...</option>
-                  ${customers.map(c => `<option value="${c.name}" data-dest="${c.destination||''}"${S.miQuoteCustomer===c.name?' selected':''}>${c.name} — ${c.destination||'?'}</option>`).join('')}
-                </select>
-              </div>
-              <div class="form-group">
-                <label class="form-label">Or enter destination</label>
-                <input type="text" id="mi-quote-dest" placeholder="City, ST" style="padding:6px 8px;font-size:11px" value="">
-              </div>
-            </div>
+            ${customerSection}
 
             <div style="margin-bottom:12px">
               <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;flex-wrap:wrap;gap:4px">
                 <label class="form-label" style="margin:0">Product x Length Matrix</label>
                 <span id="mi-mx-count" style="font-size:10px;color:var(--muted)"></span>
               </div>
-              <div style="display:flex;gap:3px;flex-wrap:wrap;margin-bottom:8px" id="mi-template-btns">
-                ${templateBtns}
-              </div>
+              ${!isMatrixMode ? `<div style="display:flex;gap:3px;flex-wrap:wrap;margin-bottom:8px" id="mi-template-btns">${templateBtns}</div>` : ''}
               <div style="overflow-x:auto">
                 <table style="font-size:11px;border-collapse:collapse;width:100%" id="mi-quote-matrix">
                   <thead>
@@ -337,7 +355,7 @@ async function _miRenderSmartQuotesInto(c) {
               ${_miQuoteLoading ? '<span class="spinner" style="width:14px;height:14px;display:inline-block;vertical-align:middle;margin-right:6px"></span>Building...' : 'Build Smart Quote'}
             </button>
 
-            <div style="margin-top:16px" id="mi-quote-add-customer">
+            ${!isMatrixMode ? `<div style="margin-top:16px" id="mi-quote-add-customer">
               <div style="border-top:1px solid var(--border);padding-top:12px;margin-top:8px">
                 <div style="font-size:11px;font-weight:600;color:var(--muted);margin-bottom:8px">ADD CUSTOMER</div>
                 <div class="form-grid">
@@ -346,7 +364,7 @@ async function _miRenderSmartQuotesInto(c) {
                 </div>
                 <button class="btn btn-sm btn-default" style="margin-top:8px" onclick="miAddNewCustomer()">Add Customer</button>
               </div>
-            </div>
+            </div>` : ''}
           </div>
         </div>
       </div>
@@ -355,15 +373,15 @@ async function _miRenderSmartQuotesInto(c) {
         <div class="card">
           <div class="card-header"><span class="card-title positive">QUOTE RESULTS</span></div>
           <div class="card-body" id="mi-quote-results">
-            <div class="empty-state">Select a customer and product/length combos, then click Build Smart Quote</div>
+            <div class="empty-state">${isMatrixMode ? 'Enter a destination and check product/length combos, then click Build Smart Quote' : 'Select a customer and product/length combos, then click Build Smart Quote'}</div>
           </div>
         </div>
       </div>
     </div>
   `;
 
-  // Apply active template to set initial checkbox state
-  if (_miActiveTemplate && (_miActiveTemplate === 'History' || QUOTE_TEMPLATES[_miActiveTemplate] || S.quoteTemplates.find(t => t.name === _miActiveTemplate))) {
+  // Apply active template to set initial checkbox state (non-matrix mode only)
+  if (!isMatrixMode && _miActiveTemplate && (_miActiveTemplate === 'History' || QUOTE_TEMPLATES[_miActiveTemplate] || S.quoteTemplates.find(t => t.name === _miActiveTemplate))) {
     miApplyTemplate(_miActiveTemplate);
   }
   miUpdateMatrixHeaders();
@@ -389,10 +407,11 @@ async function miAddNewCustomer() {
 async function miBuildSmartQuote() {
   const customerName = S.miQuoteCustomer || '';
   const customDest = document.getElementById('mi-quote-dest')?.value?.trim() || '';
-  const destination = customDest || document.querySelector('#mi-quote-customer option:checked')?.dataset?.dest || '';
+  const customerDest = document.querySelector('#mi-quote-customer option:checked')?.dataset?.dest || '';
+  const destination = customDest || customerDest;
 
   if (!destination) {
-    showToast('Select a customer or enter a destination', 'warn');
+    showToast(document.getElementById('mi-quote-customer') ? 'Select a customer or enter a destination' : 'Enter a destination (City, ST)', 'warn');
     return;
   }
 
@@ -597,16 +616,43 @@ function miSendToQuoteEngine() {
 
 // --- Render quote results ---
 
+function miCopyQuoteResults() {
+  const results = _miQuoteResults.filter(r => r.best);
+  if (!results.length) return;
+  const dest = document.getElementById('mi-quote-dest')?.value?.trim() ||
+    document.getElementById('mi-quote-customer')?.selectedOptions?.[0]?.text || '';
+  const lines = ['SMART QUOTE — DLVD ' + dest, ''];
+  const hdr = ['Item', 'Best Mill', 'FOB', 'Freight', 'Landed'];
+  const rows = results.map(r => [
+    r.label,
+    r.best.mill,
+    r.best.fobPrice != null ? '$' + Math.round(r.best.fobPrice) : '—',
+    r.best.freightPerMBF != null ? '$' + Math.round(r.best.freightPerMBF) : '—',
+    r.best.landedCost != null ? '$' + Math.round(r.best.landedCost) : '—'
+  ]);
+  const widths = hdr.map((h, i) => Math.max(h.length, ...rows.map(r => r[i].length)));
+  lines.push(hdr.map((h, i) => h.padEnd(widths[i])).join('  '));
+  lines.push(widths.map(w => '—'.repeat(w)).join('  '));
+  rows.forEach(r => lines.push(r.map((c, i) => c.padEnd(widths[i])).join('  ')));
+  const noOffer = _miQuoteResults.filter(r => !r.best);
+  if (noOffer.length) { lines.push(''); lines.push('No offers: ' + noOffer.map(r => r.label).join(', ')); }
+  navigator.clipboard.writeText(lines.join('\n')).then(() => {
+    if (typeof showToast === 'function') showToast('Quote copied to clipboard', 'positive');
+  });
+}
+
 function miRenderQuoteResults() {
   const el = document.getElementById('mi-quote-results');
   if (!el || !_miQuoteResults.length) return;
 
   const hasResults = _miQuoteResults.some(r => r.best);
   const noResults = _miQuoteResults.filter(r => !r.best);
+  const isMatrixMode = !!document.getElementById('matrix-quotes-content');
 
   el.innerHTML = (hasResults ? `
     <div style="margin-bottom:16px;display:flex;gap:8px">
-      <button class="btn btn-success" onclick="miSendToQuoteEngine()" style="flex:1">SEND TO QUOTE ENGINE</button>
+      ${isMatrixMode ? '' : '<button class="btn btn-success" onclick="miSendToQuoteEngine()" style="flex:1">SEND TO QUOTE ENGINE</button>'}
+      <button class="btn btn-default" onclick="miCopyQuoteResults()" style="${isMatrixMode ? 'flex:1' : ''}"><span style="margin-right:4px">📋</span> COPY TO CLIPBOARD</button>
     </div>
   ` : '') +
 

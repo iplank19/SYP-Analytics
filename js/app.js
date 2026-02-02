@@ -399,20 +399,27 @@ async function doMatrixLogin(){
   }
 }
 
+let _matrixModeTab='matrix';
+
 function launchMatrixMode(){
+  _matrixModeTab='matrix';
   // Hide sidebar, AI panel, mobile nav — show only the matrix
   document.getElementById('app').innerHTML=`
     <div style="background:var(--panel);border-bottom:1px solid var(--border);padding:12px 24px;display:flex;justify-content:space-between;align-items:center">
       <div style="font-size:16px;font-weight:700;color:var(--accent);letter-spacing:1px">SYP PRICING MATRIX</div>
       <div style="display:flex;align-items:center;gap:16px">
         <span id="matrix-updated" style="font-size:10px;color:var(--muted)"></span>
-        <button class="btn btn-sm" onclick="loadMatrixView()">Refresh</button>
         <span style="font-size:11px;color:var(--muted);cursor:pointer;text-decoration:underline" onclick="exitMatrixMode()">Logout</span>
       </div>
     </div>
+    <div style="display:flex;gap:0;background:var(--panel);border-bottom:1px solid var(--border);padding:0 24px">
+      <button class="tab-btn active" id="mtab-matrix" onclick="switchMatrixTab('matrix')" style="padding:10px 20px;font-size:12px;font-weight:600;color:var(--accent);background:none;border:none;border-bottom:2px solid var(--accent);cursor:pointer;font-family:inherit;text-transform:uppercase;letter-spacing:0.5px">Matrix</button>
+      <button class="tab-btn" id="mtab-quotes" onclick="switchMatrixTab('quotes')" style="padding:10px 20px;font-size:12px;font-weight:600;color:var(--muted);background:none;border:none;border-bottom:2px solid transparent;cursor:pointer;font-family:inherit;text-transform:uppercase;letter-spacing:0.5px">Quote Builder</button>
+    </div>
     <div id="matrix-content" style="padding:16px">
       <div class="spinner" style="margin:40px auto"></div>
-    </div>`;
+    </div>
+    <div id="matrix-quotes-content" style="padding:16px;display:none"></div>`;
   // Override body/app styles that clip scrolling
   document.body.style.overflow='auto';
   document.body.style.height='auto';
@@ -430,6 +437,38 @@ function launchMatrixMode(){
   if(aiToggle)aiToggle.style.display='none';
   if(aiPanel)aiPanel.style.display='none';
   loadMatrixView();
+}
+
+function switchMatrixTab(tab){
+  _matrixModeTab=tab;
+  const mTab=document.getElementById('mtab-matrix');
+  const qTab=document.getElementById('mtab-quotes');
+  const mContent=document.getElementById('matrix-content');
+  const qContent=document.getElementById('matrix-quotes-content');
+  if(!mTab||!qTab||!mContent||!qContent)return;
+  mTab.style.color=tab==='matrix'?'var(--accent)':'var(--muted)';
+  mTab.style.borderBottomColor=tab==='matrix'?'var(--accent)':'transparent';
+  qTab.style.color=tab==='quotes'?'var(--accent)':'var(--muted)';
+  qTab.style.borderBottomColor=tab==='quotes'?'var(--accent)':'transparent';
+  mContent.style.display=tab==='matrix'?'':'none';
+  qContent.style.display=tab==='quotes'?'':'none';
+  if(tab==='matrix')loadMatrixView();
+  if(tab==='quotes')loadMatrixQuoteBuilder();
+}
+
+async function loadMatrixQuoteBuilder(){
+  const el=document.getElementById('matrix-quotes-content');
+  if(!el)return;
+  el.innerHTML='<div class="spinner" style="margin:40px auto"></div>';
+  try{
+    if(typeof renderMiSmartQuotesInline==='function'){
+      await renderMiSmartQuotesInline(el);
+    }else{
+      el.innerHTML='<div style="text-align:center;color:var(--muted);padding:40px">Quote Builder not available</div>';
+    }
+  }catch(e){
+    el.innerHTML=`<div style="text-align:center;color:var(--negative);padding:40px">Error: ${e.message}</div>`;
+  }
 }
 
 function exitMatrixMode(){
