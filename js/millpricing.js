@@ -2,14 +2,14 @@
 // Manages mill quote database: intake, display, trends, and quote engine integration
 
 // ===== CRUD =====
-function addMillQuote(q){
+async function addMillQuote(q){
   q.id=q.id||genId();
   q.date=q.date||today();
   q.enteredBy=q.enteredBy||S.trader;
   q.createdAt=q.createdAt||new Date().toISOString();
   q.source=q.source||'manual';
   S.millQuotes.push(q);
-  saveAllLocal();
+  await saveAllLocal();
 }
 
 async function addMillQuotes(quotes){
@@ -23,15 +23,15 @@ async function addMillQuotes(quotes){
   await saveAllLocal();
 }
 
-function deleteMillQuote(id){
+async function deleteMillQuote(id){
   S.millQuotes=S.millQuotes.filter(q=>q.id!==id);
-  saveAllLocal();
+  await saveAllLocal();
   render();
 }
 
-function editMillQuote(id,updates){
+async function editMillQuote(id,updates){
   const q=S.millQuotes.find(x=>x.id===id);
-  if(q){Object.assign(q,updates);saveAllLocal();}
+  if(q){Object.assign(q,updates);await saveAllLocal();}
 }
 
 // ===== QUERY HELPERS =====

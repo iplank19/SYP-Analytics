@@ -242,6 +242,7 @@ async function cloudSync(action='push'){
 // Debounce timer and pull-in-progress flag for cloud sync
 let _cloudPushTimer=null;
 let _isPulling=false;
+let _isPushing=false;
 
 // Save all data locally (IndexedDB + localStorage backup)
 // ALWAYS syncs to cloud so all profiles see the same trade data
@@ -292,11 +293,13 @@ async function saveAllLocal(){
   SS('millQuotes',S.millQuotes);
 
   // Debounced cloud push (prevents rapid-fire syncs during bulk operations)
-  // Skip push if we're currently pulling (avoids pull->push loop)
-  if(supabase&&!_isPulling){
+  if(supabase){
     clearTimeout(_cloudPushTimer);
     _cloudPushTimer=setTimeout(()=>{
-      cloudSync('push').catch(e=>console.warn('Auto cloud sync failed:',e));
+      // Check flags inside callback — _isPulling may have changed since scheduling
+      if(_isPulling||_isPushing)return;
+      _isPushing=true;
+      cloudSync('push').catch(e=>console.warn('Auto cloud sync failed:',e)).finally(()=>{_isPushing=false});
     },2000);
   }
 

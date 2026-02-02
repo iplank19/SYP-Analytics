@@ -720,7 +720,8 @@ function calcTallyTotal(){
     const vol=parseFloat(document.getElementById(`tally-vol-${len}`)?.value)||0;
     const price=parseFloat(document.getElementById(`tally-price-${len}`)?.value)||0;
     const val=vol*price;
-    document.getElementById(`tally-val-${len}`).textContent=val>0?fmt(Math.round(val)):'—';
+    const valEl=document.getElementById(`tally-val-${len}`);
+    if(valEl)valEl.textContent=val>0?fmt(Math.round(val)):'—';
     totalVol+=vol;
     totalVal+=val;
 
@@ -1272,10 +1273,11 @@ function calcSellTallyTotal(){
     const vol=parseFloat(document.getElementById(`tally-vol-${len}`)?.value)||0;
     const price=parseFloat(document.getElementById(`tally-price-${len}`)?.value)||0;
     const val=vol*price;
-    document.getElementById(`tally-val-${len}`).textContent=val>0?fmt(Math.round(val)):'—';
+    const valEl=document.getElementById(`tally-val-${len}`);
+    if(valEl)valEl.textContent=val>0?fmt(Math.round(val)):'—';
     totalVol+=vol;
     totalVal+=val;
-    
+
     // For MSR, show base #1 price for each length
     if(isMSR&&latestRL){
       let basePrice=null;

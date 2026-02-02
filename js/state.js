@@ -80,7 +80,7 @@ const MILLS=[
   'Canfor - DeQuincy','Canfor - Urbana','Canfor - Fulton','Canfor - Axis','Canfor - El Dorado',
   'Canfor - Thomasville','Canfor - Moultrie','Canfor - DeRidder','Canfor - Camden SC','Canfor - Conway',
   'West Fraser - Huttig','West Fraser - Leola','West Fraser - Opelika','West Fraser - Russellville',
-  'West Fraser - Blackshear','West Fraser - Dudley','West Fraser - Fitzgerald',
+  'West Fraser - Blackshear','West Fraser - Dudley GA','West Fraser - Fitzgerald',
   'West Fraser - New Boston','West Fraser - Henderson','West Fraser - Lufkin','West Fraser - Joyce',
   'Interfor - Monticello','Interfor - Georgetown','Interfor - Fayette','Interfor - DeQuincy',
   'Interfor - Preston','Interfor - Perry','Interfor - Baxley','Interfor - Swainsboro',
@@ -113,7 +113,7 @@ const MILL_DIRECTORY={
   // West Fraser (SPIB IDs: 24,285,33,700,711,720,857,861,95)
   'West Fraser - Huttig':{city:'Huttig',state:'AR'},'West Fraser - Leola':{city:'Leola',state:'AR'},
   'West Fraser - Opelika':{city:'Opelika',state:'AL'},'West Fraser - Russellville':{city:'Russellville',state:'AR'},
-  'West Fraser - Blackshear':{city:'Blackshear',state:'GA'},'West Fraser - Dudley':{city:'Dudley',state:'GA'},
+  'West Fraser - Blackshear':{city:'Blackshear',state:'GA'},'West Fraser - Dudley GA':{city:'Dudley',state:'GA'},
   'West Fraser - Fitzgerald':{city:'Fitzgerald',state:'GA'},'West Fraser - New Boston':{city:'New Boston',state:'TX'},
   'West Fraser - Henderson':{city:'Henderson',state:'TX'},'West Fraser - Lufkin':{city:'Lufkin',state:'TX'},
   'West Fraser - Joyce':{city:'Joyce',state:'LA'},
@@ -557,13 +557,16 @@ migrateTraderNames();
   if(changed){SS('buys',S.buys);SS('mills',S.mills);}
 })();
 
-const genId=()=>{
-  // Timestamp-based + random suffix for cross-device uniqueness
-  // Returns a large integer that won't collide across devices
-  const ts=Date.now()%1e10;// last 10 digits of epoch ms
-  const rnd=Math.floor(Math.random()*1e4);// 4 random digits
-  return ts*1e4+rnd;
-};
+const genId=(()=>{
+  // Timestamp + counter + random suffix for collision-free batch IDs
+  let _lastTs=0,_counter=0;
+  return()=>{
+    const ts=Date.now();
+    if(ts===_lastTs){_counter++}else{_counter=0;_lastTs=ts}
+    const rnd=Math.floor(Math.random()*1e3);
+    return (ts%1e10)*1e6+_counter*1e3+rnd;
+  };
+})();
 
 
 // Achievement definitions

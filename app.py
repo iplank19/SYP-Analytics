@@ -123,67 +123,70 @@ def find_or_create_crm_mill(name, city='', state='', region='', lat=None, lon=No
     """Find mill by company name, or create. Adds location to locations array if new."""
     company = extract_company_name(name)
     conn = get_crm_db()
+    try:
+        # Look up by company name (case-insensitive)
+        mill = conn.execute("SELECT * FROM mills WHERE UPPER(name)=?", (company.upper(),)).fetchone()
 
-    # Look up by company name (case-insensitive)
-    mill = conn.execute("SELECT * FROM mills WHERE UPPER(name)=?", (company.upper(),)).fetchone()
+        city_clean = city.split(',')[0].strip() if city else ''
+        if not state and city:
+            state = mi_extract_state(city)
+        if not region and state:
+            region = MI_STATE_REGIONS.get(state.upper(), 'central')
 
-    city_clean = city.split(',')[0].strip() if city else ''
-    if not state and city:
-        state = mi_extract_state(city)
-    if not region and state:
-        region = MI_STATE_REGIONS.get(state.upper(), 'central')
+        if mill:
+            # Add location to locations array if not already present
+            try:
+                locations = json.loads(mill['locations'] or '[]')
+            except (json.JSONDecodeError, TypeError):
+                locations = []
+            loc_exists = any(
+                l.get('city', '').lower() == city_clean.lower() and l.get('state', '').upper() == (state or '').upper()
+                for l in locations
+            ) if city_clean else True  # Skip if no city
 
-    if mill:
-        # Add location to locations array if not already present
-        locations = json.loads(mill['locations'] or '[]')
-        loc_exists = any(
-            l.get('city', '').lower() == city_clean.lower() and l.get('state', '').upper() == (state or '').upper()
-            for l in locations
-        ) if city_clean else True  # Skip if no city
+            updates = []
+            vals = []
+            if city_clean and not loc_exists:
+                locations.append({
+                    'city': city_clean, 'state': state or '',
+                    'lat': lat, 'lon': lon, 'name': name
+                })
+                updates.append("locations=?"); vals.append(json.dumps(locations))
+            # Update primary geo if missing
+            if not mill['city'] and city_clean:
+                updates.append("city=?"); vals.append(city_clean)
+            if not mill['state'] and state:
+                updates.append("state=?"); vals.append(state)
+            if not mill['region'] and region:
+                updates.append("region=?"); vals.append(region)
+            if mill['lat'] is None and lat is not None:
+                updates.append("lat=?"); vals.append(lat)
+            if mill['lon'] is None and lon is not None:
+                updates.append("lon=?"); vals.append(lon)
+            if updates:
+                vals.append(mill['id'])
+                conn.execute(f"UPDATE mills SET {', '.join(updates)}, updated_at=CURRENT_TIMESTAMP WHERE id=?", vals)
+                conn.commit()
+                mill = conn.execute("SELECT * FROM mills WHERE id=?", (mill['id'],)).fetchone()
+            return dict(mill)
 
-        updates = []
-        vals = []
-        if city_clean and not loc_exists:
-            locations.append({
-                'city': city_clean, 'state': state or '',
-                'lat': lat, 'lon': lon, 'name': name
-            })
-            updates.append("locations=?"); vals.append(json.dumps(locations))
-        # Update primary geo if missing
-        if not mill['city'] and city_clean:
-            updates.append("city=?"); vals.append(city_clean)
-        if not mill['state'] and state:
-            updates.append("state=?"); vals.append(state)
-        if not mill['region'] and region:
-            updates.append("region=?"); vals.append(region)
-        if mill['lat'] is None and lat is not None:
-            updates.append("lat=?"); vals.append(lat)
-        if mill['lon'] is None and lon is not None:
-            updates.append("lon=?"); vals.append(lon)
-        if updates:
-            vals.append(mill['id'])
-            conn.execute(f"UPDATE mills SET {', '.join(updates)}, updated_at=CURRENT_TIMESTAMP WHERE id=?", vals)
-            conn.commit()
-            mill = conn.execute("SELECT * FROM mills WHERE id=?", (mill['id'],)).fetchone()
-        conn.close()
+        # Create new company-level mill
+        location_str = f"{city_clean}, {state}".strip(', ') if city_clean or state else ''
+        locations = []
+        if city_clean:
+            locations.append({'city': city_clean, 'state': state or '', 'lat': lat, 'lon': lon, 'name': name})
+
+        conn.execute(
+            """INSERT INTO mills (name, location, city, state, region, lat, lon, locations, products, notes, trader)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+            (company, location_str, city_clean, state, region, lat, lon,
+             json.dumps(locations), '[]', '', trader)
+        )
+        conn.commit()
+        mill = conn.execute("SELECT * FROM mills WHERE id=?", (conn.execute("SELECT last_insert_rowid()").fetchone()[0],)).fetchone()
         return dict(mill)
-
-    # Create new company-level mill
-    location_str = f"{city_clean}, {state}".strip(', ') if city_clean or state else ''
-    locations = []
-    if city_clean:
-        locations.append({'city': city_clean, 'state': state or '', 'lat': lat, 'lon': lon, 'name': name})
-
-    conn.execute(
-        """INSERT INTO mills (name, location, city, state, region, lat, lon, locations, products, notes, trader)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
-        (company, location_str, city_clean, state, region, lat, lon,
-         json.dumps(locations), '[]', '', trader)
-    )
-    conn.commit()
-    mill = conn.execute("SELECT * FROM mills WHERE id=?", (conn.execute("SELECT last_insert_rowid()").fetchone()[0],)).fetchone()
-    conn.close()
-    return dict(mill)
+    finally:
+        conn.close()
 
 def sync_mill_to_mi(crm_mill, mi_conn=None):
     """Ensure a CRM mill exists in the MI mills table (for JOINs). Uses same ID."""
@@ -231,7 +234,7 @@ MILL_DIRECTORY = {
     'Canfor - Marion': ('Marion', 'SC'), 'Canfor - Graham': ('Graham', 'NC'),
     'West Fraser - Huttig': ('Huttig', 'AR'), 'West Fraser - Leola': ('Leola', 'AR'),
     'West Fraser - Opelika': ('Opelika', 'AL'), 'West Fraser - Russellville': ('Russellville', 'AR'),
-    'West Fraser - Blackshear': ('Blackshear', 'GA'), 'West Fraser - Dudley': ('Dudley', 'GA'),
+    'West Fraser - Blackshear': ('Blackshear', 'GA'), 'West Fraser - Dudley GA': ('Dudley', 'GA'),
     'West Fraser - Fitzgerald': ('Fitzgerald', 'GA'), 'West Fraser - New Boston': ('New Boston', 'TX'),
     'West Fraser - Henderson': ('Henderson', 'TX'), 'West Fraser - Lufkin': ('Lufkin', 'TX'),
     'West Fraser - Joyce': ('Joyce', 'LA'),
@@ -1169,6 +1172,10 @@ def seed_mock_data():
 def convert_prospect(id):
     try:
         conn = get_crm_db()
+        prospect = conn.execute('SELECT * FROM prospects WHERE id = ?', (id,)).fetchone()
+        if not prospect:
+            conn.close()
+            return jsonify({'error': 'Prospect not found'}), 404
         conn.execute('''
             UPDATE prospects SET status = 'converted', updated_at = CURRENT_TIMESTAMP WHERE id = ?
         ''', (id,))
@@ -1299,6 +1306,8 @@ def update_customer(id):
         conn.commit()
         customer = conn.execute('SELECT * FROM customers WHERE id = ?', (id,)).fetchone()
         conn.close()
+        if not customer:
+            return jsonify({'error': 'Customer not found'}), 404
         return jsonify(dict(customer))
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -1412,6 +1421,8 @@ def update_mill(id):
         conn.commit()
         mill = conn.execute('SELECT * FROM mills WHERE id = ?', (id,)).fetchone()
         conn.close()
+        if not mill:
+            return jsonify({'error': 'Mill not found'}), 404
         return jsonify(dict(mill))
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -1600,12 +1611,13 @@ def parse_pdf():
     if not file.filename:
         return jsonify({'error': 'Empty filename'}), 400
 
+    tmp_path = None
     try:
         import tempfile
         # Save to temp file since pdfplumber needs a file path
         with tempfile.NamedTemporaryFile(suffix='.pdf', delete=False) as tmp:
-            file.save(tmp.name)
             tmp_path = tmp.name
+            file.save(tmp_path)
 
         pages_text = []
         tables = []
@@ -1637,10 +1649,11 @@ def parse_pdf():
         })
     except Exception as e:
         # Clean up temp file on error
-        try:
-            os.unlink(tmp_path)
-        except:
-            pass
+        if tmp_path:
+            try:
+                os.unlink(tmp_path)
+            except:
+                pass
         return jsonify({'error': f'Failed to parse PDF: {str(e)}'}), 400
 
 # Health check for Railway
@@ -1852,7 +1865,10 @@ def mi_list_quotes():
     if until:
         conditions.append("date<=?")
         params.append(until)
-    limit = int(request.args.get('limit', 500))
+    try:
+        limit = int(request.args.get('limit', 500))
+    except (ValueError, TypeError):
+        limit = 500
     sql = f"SELECT * FROM mill_quotes WHERE {' AND '.join(conditions)} ORDER BY date DESC, created_at DESC LIMIT ?"
     params.append(limit)
     rows = conn.execute(sql, params).fetchall()
@@ -2088,7 +2104,10 @@ def mi_quote_matrix():
 def mi_quote_history():
     mill = request.args.get('mill')
     product = request.args.get('product')
-    days = int(request.args.get('days', 90))
+    try:
+        days = int(request.args.get('days', 90))
+    except (ValueError, TypeError):
+        days = 90
     cutoff = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d')
     conn = get_mi_db()
     conditions = ["date >= ?"]
@@ -2387,7 +2406,10 @@ def mi_intel_recommendations():
 @app.route('/api/mi/intel/trends', methods=['GET'])
 def mi_intel_trends():
     product_filter = request.args.get('product')
-    days = int(request.args.get('days', 90))
+    try:
+        days = int(request.args.get('days', 90))
+    except (ValueError, TypeError):
+        days = 90
     conn = get_mi_db()
     since = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d')
 
@@ -2498,13 +2520,21 @@ def mi_list_lanes():
 
 @app.route('/api/mi/lanes', methods=['POST'])
 def mi_add_lane():
-    data = request.json
-    conn = get_mi_db()
-    conn.execute("INSERT OR REPLACE INTO lanes (origin, dest, miles) VALUES (?,?,?)",
-                 (data['origin'], data['dest'], data['miles']))
-    conn.commit()
-    conn.close()
-    return jsonify({'ok': True}), 201
+    data = request.json or {}
+    origin = data.get('origin', '')
+    dest = data.get('dest', '')
+    miles = data.get('miles', 0)
+    if not origin or not dest:
+        return jsonify({'error': 'origin and dest are required'}), 400
+    try:
+        conn = get_mi_db()
+        conn.execute("INSERT OR REPLACE INTO lanes (origin, dest, miles) VALUES (?,?,?)",
+                     (origin, dest, miles))
+        conn.commit()
+        conn.close()
+        return jsonify({'ok': True}), 201
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 # ----- MI: MILEAGE -----
 
