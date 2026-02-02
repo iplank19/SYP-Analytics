@@ -229,7 +229,9 @@ async function miProcessFile(file) {
     try {
       const data = await miApiUpload('/api/parse-excel', file);
       if (data.rows?.length) {
-        const text = data.rows.map(r => r.join('\t')).join('\n');
+        const rawText = data.rows.map(r => r.join('\t')).join('\n');
+        // Prepend filename so AI knows the mill company (e.g. "Binderholz Offer Sheet_PINE.xlsx")
+        const text = `[Source file: ${file.name}]\n${rawText}`;
         const ta = document.getElementById('mi-paste-text');
         if (ta) ta.value = text;
         const sheetInfo = data.sheet_count ? `${data.sheet_count} sheets, ` : '';
