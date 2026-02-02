@@ -621,24 +621,64 @@ function miCopyQuoteResults() {
   if (!results.length) return;
   const dest = document.getElementById('mi-quote-dest')?.value?.trim() ||
     document.getElementById('mi-quote-customer')?.selectedOptions?.[0]?.text || '';
-  const lines = [];
-  lines.push('SYP Quote — Delivered: ' + dest);
-  lines.push('');
+
+  // Build HTML table (matches Build tab style for Outlook paste)
+  const html = `<html><body style="font-family:Calibri,Arial,sans-serif;">
+<table style="border-collapse:collapse;font-family:Calibri,Arial,sans-serif;font-size:11pt;">
+  <thead>
+    <tr style="background:#1a5f7a;color:white;">
+      <th style="padding:8px 12px;text-align:left;border:1px solid #ccc;">Item</th>
+      <th style="padding:8px 12px;text-align:left;border:1px solid #ccc;">Best Mill</th>
+      <th style="padding:8px 12px;text-align:right;border:1px solid #ccc;">FOB</th>
+      <th style="padding:8px 12px;text-align:right;border:1px solid #ccc;">Freight</th>
+      <th style="padding:8px 12px;text-align:right;border:1px solid #ccc;">Landed</th>
+    </tr>
+  </thead>
+  <tbody>
+    ${results.map((r, i) => `<tr style="background:${i % 2 ? '#f5f5f5' : 'white'};">
+      <td style="padding:6px 12px;border:1px solid #ddd;">${r.label}</td>
+      <td style="padding:6px 12px;border:1px solid #ddd;">${r.best.mill}</td>
+      <td style="padding:6px 12px;text-align:right;border:1px solid #ddd;">$${Math.round(r.best.fobPrice)}</td>
+      <td style="padding:6px 12px;text-align:right;border:1px solid #ddd;">${r.best.freightPerMBF != null ? '$' + Math.round(r.best.freightPerMBF) : '\u2014'}</td>
+      <td style="padding:6px 12px;text-align:right;border:1px solid #ddd;font-weight:bold;color:#2e7d32;">${r.best.landedCost != null ? '$' + Math.round(r.best.landedCost) : '\u2014'}</td>
+    </tr>`).join('')}
+  </tbody>
+</table>
+<p style="font-family:Calibri,Arial,sans-serif;font-size:10pt;color:#666;margin-top:8px;">
+  <strong>DLVD ${dest}</strong>
+</p>
+</body></html>`;
+
+  // Plain text fallback
+  const lines = ['SYP Quote \u2014 Delivered: ' + dest, ''];
   lines.push(['Item', 'Best Mill', 'FOB', 'Freight', 'Landed'].join('\t'));
   results.forEach(r => {
-    lines.push([
-      r.label,
-      r.best.mill,
-      r.best.fobPrice != null ? '$' + Math.round(r.best.fobPrice) : '',
+    lines.push([r.label, r.best.mill,
+      '$' + Math.round(r.best.fobPrice),
       r.best.freightPerMBF != null ? '$' + Math.round(r.best.freightPerMBF) : '',
       r.best.landedCost != null ? '$' + Math.round(r.best.landedCost) : ''
     ].join('\t'));
   });
   const noOffer = _miQuoteResults.filter(r => !r.best);
   if (noOffer.length) { lines.push(''); lines.push('No offers: ' + noOffer.map(r => r.label).join(', ')); }
-  navigator.clipboard.writeText(lines.join('\n')).then(() => {
-    if (typeof showToast === 'function') showToast('Quote copied to clipboard', 'positive');
-  });
+  const text = lines.join('\n');
+
+  // Copy HTML + plain text (like Build tab)
+  try {
+    const htmlBlob = new Blob([html], {type: 'text/html'});
+    const textBlob = new Blob([text], {type: 'text/plain'});
+    navigator.clipboard.write([new ClipboardItem({'text/html': htmlBlob, 'text/plain': textBlob})]).then(() => {
+      if (typeof showToast === 'function') showToast('Copied! Paste into Outlook for formatted table', 'positive');
+    }).catch(() => {
+      navigator.clipboard.writeText(text).then(() => {
+        if (typeof showToast === 'function') showToast('Copied to clipboard', 'positive');
+      });
+    });
+  } catch (e) {
+    navigator.clipboard.writeText(text).then(() => {
+      if (typeof showToast === 'function') showToast('Copied to clipboard', 'positive');
+    });
+  }
 }
 
 function miRenderQuoteResults() {
