@@ -1,15 +1,15 @@
 /* SYP Mill Intelligence - Trading Terminal UI */
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
-  --bg:#0a0a10;--panel:#0e0e16;--panel-alt:#13131c;
-  --border:#1c1c2a;--border-light:#282838;
-  --accent:#4d8df7;--warn:#ffab40;--negative:#ff5252;
-  --positive:#00e676;--info:#64b5f6;
-  --text:#d0d4da;--muted:#5a6270;
-  --card:#0a0a10;
+  --bg:#1e1e2e;--panel:#2a2a3c;--panel-alt:#252538;
+  --border:#3e3e56;--border-light:#50506a;
+  --accent:#89b4fa;--warn:#f9e2af;--negative:#f38ba8;
+  --positive:#a6e3a1;--info:#89dceb;
+  --text:#f5f5f7;--muted:#a0a0b8;
+  --card:#1e1e2e;
   --radius:2px;
   --sidebar-width:200px;
-  --accent-glow:rgba(77,141,247,0.25);
+  --accent-glow:rgba(137,180,250,0.25);
   --glow-sm:0 0 6px var(--accent-glow);
   --glow-md:0 0 12px var(--accent-glow);
   --mono:'SF Mono','Consolas','Fira Code',monospace;
