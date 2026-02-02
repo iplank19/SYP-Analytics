@@ -443,20 +443,25 @@ function renderMPUpload(el){
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
       <div>
         <label class="form-label">Upload File</label>
-        <div style="border:2px dashed var(--border);border-radius:var(--radius);padding:24px;text-align:center;cursor:pointer;transition:border-color 0.2s"
+        <div class="drop-zone" id="mp-drop-zone"
              onclick="document.getElementById('mp-file-input').click()"
-             ondragover="event.preventDefault();this.style.borderColor='var(--accent)'"
-             ondragleave="this.style.borderColor='var(--border)'"
-             ondrop="event.preventDefault();this.style.borderColor='var(--border)';mpHandleFileDrop(event)">
-          <div style="font-size:24px;margin-bottom:8px">📄</div>
-          <div style="font-size:12px;color:var(--text)">Drop file here or click to browse</div>
-          <div style="font-size:10px;color:var(--muted);margin-top:4px">PDF, Excel, CSV, or any text file</div>
+             ondragenter="event.preventDefault();event.stopPropagation();this.classList.add('drag-over')"
+             ondragover="event.preventDefault();event.stopPropagation()"
+             ondragleave="if(event.currentTarget===this&&!this.contains(event.relatedTarget))this.classList.remove('drag-over')"
+             ondrop="event.preventDefault();event.stopPropagation();this.classList.remove('drag-over');mpHandleFileDrop(event)">
+          <div style="font-size:24px;margin-bottom:8px;pointer-events:none">📄</div>
+          <div style="font-size:12px;color:var(--text);pointer-events:none">Drop file here or click to browse</div>
+          <div style="font-size:10px;color:var(--muted);margin-top:4px;pointer-events:none">PDF, Excel, CSV, or any text file</div>
         </div>
         <input type="file" id="mp-file-input" accept=".pdf,.csv,.xlsx,.xls,.tsv,.txt" onchange="mpHandleFileUpload(this)" style="display:none">
       </div>
       <div>
         <label class="form-label">Or Paste Text</label>
-        <textarea id="mp-paste-text" rows="6" style="width:100%;height:calc(100% - 24px);background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:var(--radius);padding:8px;font-family:monospace;font-size:11px;resize:none" placeholder="Paste mill price list, email, spreadsheet data, or any format...
+        <textarea id="mp-paste-text" rows="6"
+          ondragenter="event.preventDefault();event.stopPropagation()"
+          ondragover="event.preventDefault();event.stopPropagation()"
+          ondrop="event.preventDefault();event.stopPropagation();if(event.dataTransfer.files.length){mpProcessFile(event.dataTransfer.files[0])}"
+          style="width:100%;height:calc(100% - 24px);background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:var(--radius);padding:8px;font-family:monospace;font-size:11px;resize:none" placeholder="Paste mill price list, email, spreadsheet data, or any format...
 
 Canfor DQ pricing effective 1/31:
 2x4 #2 RL - $445 / 5 units
