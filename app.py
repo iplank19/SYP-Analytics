@@ -1698,7 +1698,7 @@ def health():
 # PRICING MATRIX — standalone read-only view
 # ==========================================
 
-PRICING_PASSWORD = os.environ.get('PRICING_PASSWORD', 'buckeyepricing')
+PRICING_PASSWORD = os.environ.get('PRICING_PASSWORD', '2026')
 
 @app.route('/pricing')
 def pricing_page():
