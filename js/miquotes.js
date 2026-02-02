@@ -439,8 +439,8 @@ async function miBuildSmartQuote() {
         if (!millData || !millData[colKey]) continue;
 
         const q = millData[colKey];
-        // Build origin as "City, ST" — use location field, mill lookup, or construct from city+state
-        const qOrigin = q.location || (q.city && q.state ? q.city + ', ' + q.state : q.city || '');
+        // Build origin as "City, ST" from matrix data or mill lookup
+        const qOrigin = q.city && q.state ? q.city + ', ' + q.state : q.city || '';
         const origin = millLocations[mill] || qOrigin;
         if (!origin) continue;
 

@@ -1969,7 +1969,7 @@ def mi_latest_quotes():
     region = request.args.get('region')
     since = request.args.get('since')
     sql = """
-        SELECT mq.*, m.lat, m.lon, m.region, m.city, m.state, m.location
+        SELECT mq.*, m.lat, m.lon, m.region, m.city, m.state
         FROM mill_quotes mq
         JOIN mills m ON mq.mill_id = m.id
         WHERE mq.id IN (
@@ -2004,7 +2004,7 @@ def mi_quote_matrix():
     if detail == 'length':
         sql = """
             SELECT mq.mill_name, mq.product, mq.length, mq.price, mq.date, mq.volume,
-                   mq.ship_window, mq.tls, mq.trader, m.lat, m.lon, m.region, m.city, m.state, m.location
+                   mq.ship_window, mq.tls, mq.trader, m.lat, m.lon, m.region, m.city, m.state
             FROM mill_quotes mq
             JOIN mills m ON mq.mill_id = m.id
             WHERE mq.id IN (
@@ -2050,7 +2050,7 @@ def mi_quote_matrix():
                 'ship_window': r['ship_window'], 'tls': r['tls'], 'trader': r['trader'],
                 'product': prod, 'length': length,
                 'lat': r['lat'], 'lon': r['lon'], 'region': r['region'],
-                'city': r['city'], 'state': r['state'], 'location': r['location']
+                'city': r['city'], 'state': r['state']
             }
             if col_key not in best_by_col or r['price'] < best_by_col[col_key]:
                 best_by_col[col_key] = r['price']
@@ -2075,7 +2075,7 @@ def mi_quote_matrix():
     else:
         sql = """
             SELECT mq.mill_name, mq.product, mq.price, mq.date, mq.volume, mq.ship_window,
-                   mq.tls, mq.trader, m.lat, m.lon, m.region, m.city, m.state, m.location
+                   mq.tls, mq.trader, m.lat, m.lon, m.region, m.city, m.state
             FROM mill_quotes mq
             JOIN mills m ON mq.mill_id = m.id
             WHERE mq.id IN (
@@ -2107,7 +2107,7 @@ def mi_quote_matrix():
                 'price': r['price'], 'date': r['date'], 'volume': r['volume'],
                 'ship_window': r['ship_window'], 'tls': r['tls'], 'trader': r['trader'],
                 'lat': r['lat'], 'lon': r['lon'], 'region': r['region'],
-                'city': r['city'], 'state': r['state'], 'location': r['location']
+                'city': r['city'], 'state': r['state']
             }
             if prod not in best_by_product or r['price'] < best_by_product[prod]:
                 best_by_product[prod] = r['price']
