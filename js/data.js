@@ -307,7 +307,6 @@ async function saveAllLocal(){
 
 // ---------- MILL INTEL CROSS-PLATFORM SYNC ----------
 
-const MILL_INTEL_URL=LS('millIntelUrl','')||'http://localhost:5001';
 let _milSyncTimer=null;
 
 // Push RL data from SYP Analytics → Mill Intel rl_prices table
@@ -359,7 +358,7 @@ async function syncRLToMillIntel(){
           }
         });
         if(!entries.length){resolve();return}
-        const res=await fetch(MILL_INTEL_URL+'/api/rl',{
+        const res=await fetch('/api/mi/rl',{
           method:'POST',
           headers:{'Content-Type':'application/json'},
           body:JSON.stringify(entries)
@@ -378,11 +377,11 @@ async function syncRLToMillIntel(){
   });
 }
 
-// Push mill quotes from Analytics → Mill Intel (for Smart Quotes sourcing)
+// Push mill quotes from S.millQuotes → Mill Intel backend (/api/mi/quotes)
 async function syncMillQuotesToMillIntel(){
   if(!S.millQuotes||!S.millQuotes.length)return;
   try{
-    const res=await fetch(MILL_INTEL_URL+'/api/quotes',{
+    const res=await fetch('/api/mi/quotes',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify(S.millQuotes.map(q=>({

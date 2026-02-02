@@ -97,7 +97,27 @@ async function miSubmitQuotes(quotes) {
       if (!q.shipWindow && !q.ship_window) q.shipWindow = 'Prompt';
     });
   }
-  return miApiPost('/api/mi/quotes', quotes);
+  const result = await miApiPost('/api/mi/quotes', quotes);
+  // Also push into S.millQuotes so they sync to Supabase cloud
+  quotes.forEach(q => {
+    S.millQuotes.push({
+      id: q.id || genId(),
+      mill: q.mill,
+      product: q.product,
+      price: q.price,
+      length: q.length || 'RL',
+      volume: q.volume || 0,
+      tls: q.tls || 0,
+      shipWindow: q.shipWindow || q.ship_window || 'Prompt',
+      city: q.city || '',
+      date: q.date || today(),
+      enteredBy: q.enteredBy || S.trader,
+      createdAt: new Date().toISOString(),
+      source: q.source || 'mi-intake'
+    });
+  });
+  saveAllLocal();
+  return result;
 }
 
 async function miLoadSignals(product) {
