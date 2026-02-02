@@ -732,13 +732,13 @@ function miRenderQuoteResults() {
     </div>
   ` : '') +
 
-  // Detailed cards per result — hide intelligence in matrix mode
-  (isMatrixMode ? '' : _miQuoteResults.filter(r => r.best).map(r => {
+  // Detailed cards per result — show sources, hide intel badges in matrix mode
+  _miQuoteResults.filter(r => r.best).map(r => {
     const rec = r.recommendation;
     const actionClass = rec?.action?.includes('BUY') ? 'positive' : rec?.action?.includes('SHORT') ? 'negative' : 'warn';
 
     let riskBadge = '';
-    if (rec) {
+    if (!isMatrixMode && rec) {
       if (Math.abs(rec.score) >= 4) riskBadge = rec.score > 0 ? '<span class="badge badge-danger">HIGH</span>' : '<span class="badge badge-success">LOW</span>';
       else if (Math.abs(rec.score) >= 2) riskBadge = '<span class="badge badge-warn">MED</span>';
     }
@@ -750,7 +750,7 @@ function miRenderQuoteResults() {
             <strong style="color:var(--accent)">${r.label}</strong>
             — ${r.options.length} sources
             ${riskBadge}
-            ${rec ? `<span style="font-weight:600;color:var(--${actionClass});font-size:10px">${rec.action}</span>` : ''}
+            ${!isMatrixMode && rec ? `<span style="font-weight:600;color:var(--${actionClass});font-size:10px">${rec.action}</span>` : ''}
           </summary>
           <table style="font-size:10px;margin-top:4px;width:100%">
             <thead><tr><th>Mill</th><th>FOB</th><th>Freight</th><th>Landed</th><th>Mi</th><th>Ship</th></tr></thead>
@@ -768,5 +768,5 @@ function miRenderQuoteResults() {
         </details>
       ` : ''}
     `;
-  }).join(''));
+  }).join('');
 }
