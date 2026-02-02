@@ -129,11 +129,16 @@ async function loadFromMillQuotes(){
         let mills=[];
         try{mills=await miLoadMills();}catch(e){}
         const millLocations={};
-        mills.forEach(m=>{if(m.city)millLocations[m.name]=m.city;});
+        mills.forEach(m=>{
+          if(m.location)millLocations[m.name]=m.location;
+          else if(m.city)millLocations[m.name]=m.state?m.city+', '+m.state:m.city;
+        });
 
         let added=0;
         latest.forEach(q=>{
-          const origin=millLocations[q.mill_name]||q.city||q.mill_name;
+          // Build origin as "City, ST" for accurate mileage geocoding
+          const qOrigin=q.city&&q.city.includes(',')?q.city:q.city&&q.state?q.city+', '+q.state:q.city||'';
+          const origin=millLocations[q.mill_name]||qOrigin||q.mill_name;
           const exists=S.quoteItems.find(i=>i.product===q.product&&i.origin===origin);
           if(exists)return;
           S.quoteItems.push({

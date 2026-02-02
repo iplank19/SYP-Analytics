@@ -1539,6 +1539,18 @@ function render(){
                 <span style="font-size:10px;color:var(--warn)">20 MBF/TL</span>
               </div>
             </div>
+
+            ${S.lanes.length?`<div style="margin-top:10px;border-top:1px solid var(--border);padding-top:8px">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+                <label style="font-size:9px;color:var(--muted)">Cached Lanes (${S.lanes.length})</label>
+                <button class="btn btn-default" style="font-size:9px;padding:2px 8px" onclick="S.lanes=[];save('lanes',S.lanes);render();showToast('Lanes cleared — will re-lookup on next quote','info')">Clear All</button>
+              </div>
+              <div style="max-height:120px;overflow-y:auto;font-size:9px">
+                <table style="width:100%;border-collapse:collapse"><thead><tr style="color:var(--muted)"><th style="text-align:left;padding:2px 4px">Origin</th><th style="text-align:left;padding:2px 4px">Dest</th><th style="text-align:right;padding:2px 4px">Miles</th><th></th></tr></thead><tbody>
+                ${S.lanes.map((l,i)=>`<tr style="border-top:1px solid var(--border)"><td style="padding:2px 4px">${l.origin}</td><td style="padding:2px 4px">${l.dest}</td><td style="text-align:right;padding:2px 4px">${l.miles}</td><td style="padding:2px"><button onclick="S.lanes.splice(${i},1);save('lanes',S.lanes);render()" style="background:none;border:none;color:var(--negative);cursor:pointer;font-size:9px">×</button></td></tr>`).join('')}
+                </tbody></table>
+              </div>
+            </div>`:''}
           </div>
           
           <!-- RL Reference -->
