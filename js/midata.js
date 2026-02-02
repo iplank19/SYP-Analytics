@@ -265,6 +265,162 @@ Return ONLY the JSON array, no explanation.`;
   return allQuotes.map(q => ({...q, source: 'ai', date: today(), trader: S.trader}));
 }
 
+// Vision-based parsing for scanned PDFs — sends page images to Claude vision API
+async function miAiParseImages(images) {
+  if (!S.apiKey) {
+    showToast('Set your Claude API key in Settings first', 'warn');
+    return [];
+  }
+
+  const knownMills = [...MILLS];
+  try {
+    const dbMills = await miLoadMills();
+    dbMills.forEach(m => { if (!knownMills.includes(m.name)) knownMills.push(m.name); });
+  } catch (e) {}
+
+  const ppuInfo = Object.entries(MI_PPU).map(([k,v]) => `${k}: ${v} pcs/unit`).join(', ');
+  const mbfPerUnit = Object.entries(MI_PPU).map(([dim,ppu]) => {
+    const parts = dim.match(/(\d+)x(\d+)/);
+    if (!parts) return null;
+    const thick = parseInt(parts[1]), wide = parseInt(parts[2]);
+    const bfPerPc = (thick * wide * 14) / 12;
+    const mbf = (ppu * bfPerPc / 1000).toFixed(2);
+    return `${dim}: ${mbf} MBF/unit`;
+  }).filter(Boolean).join(', ');
+  const cityRef = Object.entries(MI_MILL_CITIES).map(([c,s]) => `${c.replace(/\b\w/g,l=>l.toUpperCase())}=${s}`).join(', ');
+
+  const systemPrompt = `You are a lumber industry data parser. Extract mill pricing quotes from the scanned price list image(s).
+
+KNOWN MILLS: ${knownMills.join(', ')}
+KNOWN PRODUCTS: ${MI_PRODUCTS.join(', ')}
+PIECES PER UNIT/PACK: ${ppuInfo}
+MBF PER UNIT (at RL 14' avg): ${mbfPerUnit}
+
+Return a JSON array of quote objects. Each object MUST have:
+{
+  "mill": "Mill Name - Location",
+  "product": "e.g. 2x4#2, 2x6#3",
+  "price": 450,
+  "length": "RL or specific like 16",
+  "volume": 0,
+  "tls": 0,
+  "shipWindow": "",
+  "notes": "",
+  "city": "City, ST"
+}
+
+CRITICAL PARSING RULES:
+
+1. MILL NAME: Read the company name from the header/logo of the price sheet. Use "Company - City" format for mill name.
+   Known SYP mill cities: ${cityRef}
+
+2. READ EVERY ROW: Extract every product/grade/length combination that has a price.
+
+3. PRODUCTS: Map grades to standard format: #1 PRIME=#1, #2 PRIME=#2, #2=#2, #3=#3, #3 GM=#3, MSR 2400=MSR
+
+4. LENGTHS: Column headers like 8', 10', 12' etc. are specific lengths. "RL" or "Random" = RL.
+
+5. PCS/PACK column: This is pieces per pack/unit info, NOT volume. If no availability/quantity column exists, set volume=0, tls=0 (price-only list).
+
+6. PRICES: FOB mill in $/MBF. Typical SYP prices range $300-$700/MBF.
+
+7. Create a SEPARATE quote entry for each product × grade × length that has a price.
+
+Return ONLY the JSON array, no explanation.`;
+
+  // Build vision content: image blocks + text prompt
+  const content = [];
+  for (const img of images) {
+    content.push({
+      type: 'image',
+      source: { type: 'base64', media_type: img.media_type, data: img.data }
+    });
+  }
+  content.push({
+    type: 'text',
+    text: 'Parse this scanned mill price list into structured quotes. Extract every product/grade/length with a price.'
+  });
+
+  const statusEl = document.getElementById('mi-parse-status');
+
+  let res = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': S.apiKey,
+      'anthropic-version': '2023-06-01',
+      'anthropic-dangerous-direct-browser-access': 'true'
+    },
+    body: JSON.stringify({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 8192,
+      system: systemPrompt,
+      messages: [{ role: 'user', content }]
+    })
+  });
+
+  // Retry on rate limit
+  for (let attempt = 1; attempt <= 3 && res.status === 429; attempt++) {
+    const retryAfter = parseInt(res.headers.get('retry-after') || '0');
+    const waitMs = Math.max((retryAfter || attempt * 15) * 1000, attempt * 15000);
+    if (statusEl) statusEl.textContent = `Rate limited — waiting ${Math.round(waitMs/1000)}s before retry ${attempt}/3...`;
+    await new Promise(r => setTimeout(r, waitMs));
+    res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': S.apiKey,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true'
+      },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 8192,
+        system: systemPrompt,
+        messages: [{ role: 'user', content }]
+      })
+    });
+  }
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error?.message || `API error: ${res.status}`);
+  }
+
+  const data = await res.json();
+  const reply = data.content?.[0]?.text || '';
+
+  // Parse JSON from response (same logic as text parser)
+  let jsonStr = reply;
+  const jsonMatch = reply.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/);
+  if (jsonMatch) {
+    jsonStr = jsonMatch[1];
+  } else {
+    const openMatch = reply.match(/```(?:json)?\s*\n?([\s\S]*)/);
+    if (openMatch) jsonStr = openMatch[1];
+  }
+  jsonStr = jsonStr.trim().replace(/,\s*$/, '');
+
+  let quotes;
+  try {
+    quotes = JSON.parse(jsonStr);
+  } catch (e) {
+    const lastComplete = jsonStr.lastIndexOf('}');
+    if (lastComplete > 0) {
+      for (let pos = lastComplete; pos > 0; pos = jsonStr.lastIndexOf('}', pos - 1)) {
+        try {
+          quotes = JSON.parse(jsonStr.slice(0, pos + 1) + ']');
+          break;
+        } catch (e2) {}
+      }
+    }
+    if (!quotes) return [];
+  }
+
+  if (!Array.isArray(quotes)) return [];
+  return quotes.map(q => ({...q, source: 'ai-vision', date: today(), trader: S.trader}));
+}
+
 function miSplitIntoSheets(text) {
   const sheetMarker = /^=== SHEET:\s*(.+?)\s*===$/gm;
   const markers = [];

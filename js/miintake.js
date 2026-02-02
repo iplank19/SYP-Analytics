@@ -197,6 +197,16 @@ async function miProcessFile(file) {
       let text = '';
       if (data.tables?.length) text = data.tables.map(t => t.rows.map(r => r.join('\t')).join('\n')).join('\n\n');
       if (data.text) text = text ? (text + '\n\n--- Raw Text ---\n' + data.text) : data.text;
+
+      // Scanned PDF — no text but has page images → use Claude vision
+      if (!text.trim() && data.images?.length) {
+        setStatus(`Scanned PDF detected (${data.images.length} page(s)). Parsing with AI vision...`);
+        const ta = document.getElementById('mi-paste-text');
+        if (ta) ta.value = '[Scanned PDF — sent to AI vision for parsing]';
+        await miRunAIParseImages(data.images);
+        return;
+      }
+
       if (!text.trim()) { showToast('No text found in PDF', 'warn'); setStatus(''); return; }
       const ta = document.getElementById('mi-paste-text');
       if (ta) ta.value = text;
@@ -283,6 +293,47 @@ async function miRunAIParse(text) {
     showToast(`AI parsed ${quotes.length} quotes — review below (auto-saved)`, 'positive');
   } catch (e) {
     showToast('AI parse error: ' + e.message, 'warn');
+    if (status) status.textContent = 'Error: ' + e.message;
+  } finally {
+    _miIntakeProcessing = false;
+    if (btn) { btn.disabled = false; btn.textContent = 'Parse with AI'; }
+  }
+}
+
+// Vision-based parsing for scanned PDFs (page images → Claude vision API)
+async function miRunAIParseImages(images) {
+  if (!S.apiKey) { showToast('Set your Claude API key in Settings first', 'warn'); return; }
+  const btn = document.getElementById('mi-parse-btn');
+  const status = document.getElementById('mi-parse-status');
+  _miIntakeProcessing = true;
+  if (btn) btn.disabled = true;
+  if (btn) btn.innerHTML = '<span class="spinner" style="width:14px;height:14px;display:inline-block;vertical-align:middle;margin-right:6px"></span>Parsing scanned PDF...';
+
+  try {
+    const quotes = await miAiParseImages(images);
+    if (!quotes.length) {
+      showToast('AI found no quotes in scanned PDF', 'warn');
+      if (status) status.textContent = 'No quotes found';
+      return;
+    }
+    for (const q of quotes) {
+      q.mill = miNormalizeMillName(q.mill);
+      if (!q.city && q.mill) q.city = miInferMillCity(q.mill);
+      if (!q.length) q.length = 'RL';
+    }
+    _miPreviewQuotes = quotes;
+    _miPreviewSelected = new Set();
+    const parsedMills=[...new Set(quotes.map(q=>q.mill).filter(Boolean))];
+    const knownSet=new Set([...MILLS,...Object.keys(MILL_DIRECTORY),...S.mills.map(m=>m.name)]);
+    _miNewMills=parsedMills.filter(m=>!knownSet.has(m));
+    _miSavePreviewDraft();
+    renderMiIntake();
+    if(_miNewMills.length){
+      showToast(`⚠️ ${_miNewMills.length} new mill(s) detected: ${_miNewMills.join(', ')}`, 'warn');
+    }
+    showToast(`AI parsed ${quotes.length} quotes from scanned PDF — review below`, 'positive');
+  } catch (e) {
+    showToast('AI vision parse error: ' + e.message, 'warn');
     if (status) status.textContent = 'Error: ' + e.message;
   } finally {
     _miIntakeProcessing = false;

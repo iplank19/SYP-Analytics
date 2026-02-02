@@ -1655,6 +1655,21 @@ def parse_pdf():
                     if cleaned:
                         tables.append({'page': i + 1, 'rows': cleaned})
 
+        # If no text/tables found, it's likely a scanned PDF — convert pages to images
+        page_images = []
+        if not pages_text and not tables:
+            import io, base64
+            with pdfplumber.open(tmp_path) as pdf:
+                for i, page in enumerate(pdf.pages):
+                    try:
+                        img = page.to_image(resolution=200)
+                        buf = io.BytesIO()
+                        img.original.save(buf, format='PNG')
+                        b64 = base64.b64encode(buf.getvalue()).decode()
+                        page_images.append({'page': i + 1, 'data': b64, 'media_type': 'image/png'})
+                    except Exception:
+                        pass
+
         # Clean up temp file
         os.unlink(tmp_path)
 
@@ -1662,7 +1677,8 @@ def parse_pdf():
             'text': '\n\n'.join(pages_text),
             'tables': tables,
             'pages': len(pages_text),
-            'table_count': len(tables)
+            'table_count': len(tables),
+            'images': page_images
         })
     except Exception as e:
         # Clean up temp file on error
