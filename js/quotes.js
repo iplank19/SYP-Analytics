@@ -758,23 +758,23 @@ async function lookupMileageWithAPI(lanes){
 // Direct mileage lookup via free APIs (no backend needed)
 async function getDirectMileage(origin,dest){
   try{
-    // Step 1: Geocode origin
+    // Step 1: Geocode origin (skip sleep if cached)
+    const originCached=geoCache[origin.toLowerCase().trim()];
     const originCoords=await geocodeLocation(origin);
     if(!originCoords)return null;
-    
-    await sleep(500);
-    
-    // Step 2: Geocode destination
+    if(!originCached)await sleep(500);
+
+    // Step 2: Geocode destination (skip sleep if cached)
+    const destCached=geoCache[dest.toLowerCase().trim()];
     const destCoords=await geocodeLocation(dest);
     if(!destCoords)return null;
-    
-    await sleep(300);
-    
+    if(!destCached)await sleep(300);
+
     // Step 3: Get driving distance via OSRM
     const coordsStr=`${originCoords.lon},${originCoords.lat};${destCoords.lon},${destCoords.lat}`;
     const routeRes=await fetch(`https://router.project-osrm.org/route/v1/driving/${coordsStr}?overview=false`);
     const routeData=await routeRes.json();
-    
+
     if(routeData.code==='Ok'&&routeData.routes?.length){
       const meters=routeData.routes[0].distance;
       return Math.round(meters/1609.34);

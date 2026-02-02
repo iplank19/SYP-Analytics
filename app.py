@@ -519,53 +519,53 @@ def mi_extract_state(location):
 def mi_get_region(state_code):
     return MI_STATE_REGIONS.get(state_code, 'central')
 
-mi_geo_cache = {}
-
 def mi_geocode_location(location):
+    """Geocode using shared geo_cache, with DB fallback then Nominatim."""
     if not location:
         return None
     cache_key = location.lower().strip()
-    if cache_key in mi_geo_cache:
-        return mi_geo_cache[cache_key]
-    conn = get_mi_db()
-    row = conn.execute("SELECT lat, lon FROM mills WHERE LOWER(city)=? AND lat IS NOT NULL", (cache_key,)).fetchone()
-    conn.close()
-    if row:
-        coords = {'lat': row['lat'], 'lon': row['lon']}
-        mi_geo_cache[cache_key] = coords
-        return coords
+    if cache_key in geo_cache:
+        return geo_cache[cache_key]
+    # Check DB for stored coords
     try:
-        import requests as req
-        url = "https://nominatim.openstreetmap.org/search"
-        params = {'q': location, 'format': 'json', 'limit': 1, 'countrycodes': 'us'}
-        headers = {'User-Agent': 'SYP-Mill-Intel/1.0'}
-        resp = req.get(url, params=params, headers=headers, timeout=10)
-        results = resp.json()
-        if results:
-            coords = {'lat': float(results[0]['lat']), 'lon': float(results[0]['lon'])}
-            mi_geo_cache[cache_key] = coords
+        conn = get_mi_db()
+        row = conn.execute("SELECT lat, lon FROM mills WHERE LOWER(city)=? AND lat IS NOT NULL", (cache_key,)).fetchone()
+        conn.close()
+        if row:
+            coords = {'lat': row['lat'], 'lon': row['lon']}
+            geo_cache[cache_key] = coords
             return coords
-        return None
-    except Exception as e:
-        print(f"MI geocode error for {location}: {e}")
-        return None
+    except:
+        pass
+    return geocode_location(location)
 
 def mi_get_distance(origin_coords, dest_coords):
-    try:
-        import requests as req
-        coords_str = f"{origin_coords['lon']},{origin_coords['lat']};{dest_coords['lon']},{dest_coords['lat']}"
-        url = f"https://router.project-osrm.org/route/v1/driving/{coords_str}"
-        resp = req.get(url, params={'overview': 'false'}, timeout=10)
-        data = resp.json()
-        if data.get('code') == 'Ok' and data.get('routes'):
-            return round(data['routes'][0]['distance'] / 1609.34)
-        return None
-    except Exception as e:
-        print(f"MI distance error: {e}")
-        return None
+    """Delegate to shared get_distance (with caching)."""
+    return get_distance(origin_coords, dest_coords)
 
-# Cache for geocoded locations
+# Shared geocode + distance caches (populated from CRM mills on startup)
 geo_cache = {}
+distance_cache = {}
+
+def warm_geo_cache():
+    """Pre-load geo_cache from CRM mills that have lat/lon stored."""
+    try:
+        conn = get_crm_db()
+        rows = conn.execute("SELECT city, state, location, lat, lon FROM mills WHERE lat IS NOT NULL AND lon IS NOT NULL").fetchall()
+        conn.close()
+        for r in rows:
+            coords = {'lat': r['lat'], 'lon': r['lon']}
+            # Cache by "city, state" and by "location" field
+            if r['city'] and r['state']:
+                geo_cache[f"{r['city']}, {r['state']}".lower().strip()] = coords
+                geo_cache[r['city'].lower().strip()] = coords
+            if r['location']:
+                geo_cache[r['location'].lower().strip()] = coords
+        print(f"Geo cache warmed: {len(geo_cache)} entries from CRM mills")
+    except Exception as e:
+        print(f"Geo cache warm failed: {e}")
+
+warm_geo_cache()
 
 # Serve main app
 @app.route('/')
@@ -608,19 +608,24 @@ def geocode_location(location):
         return None
 
 def get_distance(origin_coords, dest_coords):
-    """Get driving distance in miles between two coordinate pairs"""
+    """Get driving distance in miles between two coordinate pairs (cached)."""
+    # Round coords to 3 decimals for cache key (~100m precision, plenty for cities)
+    cache_key = (round(origin_coords['lat'],3), round(origin_coords['lon'],3),
+                 round(dest_coords['lat'],3), round(dest_coords['lon'],3))
+    if cache_key in distance_cache:
+        return distance_cache[cache_key]
     try:
-        # OSRM format: lon,lat;lon,lat
         coords_str = f"{origin_coords['lon']},{origin_coords['lat']};{dest_coords['lon']},{dest_coords['lat']}"
         url = f"https://router.project-osrm.org/route/v1/driving/{coords_str}"
         params = {'overview': 'false'}
-        
+
         resp = requests.get(url, params=params, timeout=10)
         data = resp.json()
-        
+
         if data.get('code') == 'Ok' and data.get('routes'):
             meters = data['routes'][0]['distance']
             miles = round(meters / 1609.34)
+            distance_cache[cache_key] = miles
             return miles
         return None
     except Exception as e:
@@ -660,42 +665,54 @@ def mileage_lookup():
 def mileage_bulk():
     data = request.json
     lanes = data.get('lanes', [])
-    
+
     if not lanes:
         return jsonify({'error': 'No lanes provided'}), 400
-    
+
     results = []
+    # Pre-geocode shared destination (all lanes in a quote typically share the same dest)
+    dest_cache = {}
+    need_nominatim = False
+
     for lane in lanes:
         origin = lane.get('origin', '')
         dest = lane.get('dest', '')
-        
+
         if not origin or not dest:
             results.append({'origin': origin, 'dest': dest, 'miles': None, 'error': 'Missing data'})
             continue
-        
-        # Geocode origin
+
+        # Geocode origin (only hit Nominatim rate limit if not cached)
+        origin_cached = origin.lower().strip() in geo_cache
+        if need_nominatim and not origin_cached:
+            time.sleep(0.3)
         origin_coords = geocode_location(origin)
         if not origin_coords:
             results.append({'origin': origin, 'dest': dest, 'miles': None, 'error': f'Could not geocode: {origin}'})
             continue
-        
-        time.sleep(0.3)  # Rate limit
-        
-        # Geocode dest
-        dest_coords = geocode_location(dest)
+        if not origin_cached:
+            need_nominatim = True
+
+        # Geocode dest (cache across lanes — usually the same destination)
+        if dest not in dest_cache:
+            dest_cached = dest.lower().strip() in geo_cache
+            if need_nominatim and not dest_cached:
+                time.sleep(0.3)
+            dest_cache[dest] = geocode_location(dest)
+            if not dest_cached:
+                need_nominatim = True
+        dest_coords = dest_cache[dest]
         if not dest_coords:
             results.append({'origin': origin, 'dest': dest, 'miles': None, 'error': f'Could not geocode: {dest}'})
             continue
-        
-        time.sleep(0.3)  # Rate limit
-        
-        # Get distance
+
+        # Get distance (also cached)
         miles = get_distance(origin_coords, dest_coords)
         if miles:
             results.append({'origin': origin, 'dest': dest, 'miles': miles})
         else:
             results.append({'origin': origin, 'dest': dest, 'miles': None, 'error': 'Route not found'})
-    
+
     return jsonify({'results': results})
 
 # Geocode endpoint (for debugging)
