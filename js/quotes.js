@@ -464,15 +464,12 @@ function generateSpecificCityQuote(){
     return;
   }
   
-  // Check for missing lanes
+  // Check for missing lanes (use getLaneMiles which does fuzzy matching)
   const neededLanes=[];
   items.forEach(item=>{
     if(!item.origin)return;
-    const existing=S.lanes.find(l=>
-      l.origin.toLowerCase().trim()===item.origin.toLowerCase().trim()&&
-      l.dest.toLowerCase().trim()===city.toLowerCase().trim()
-    );
-    if(!existing){
+    const existingMiles=getLaneMiles(item.origin,city);
+    if(!existingMiles){
       const key=`${item.origin}|${city}`;
       if(!neededLanes.find(n=>n.key===key)){
         neededLanes.push({key,origin:item.origin,dest:city});
@@ -668,14 +665,7 @@ function generateAllQuotes(){
       
       locs.forEach(dest=>{
         if(!dest)return;
-        
-        // Check if lane exists
-        const existing=S.lanes.find(l=>
-          l.origin.toLowerCase().trim()===item.origin.toLowerCase().trim()&&
-          l.dest.toLowerCase().trim()===dest.toLowerCase().trim()
-        );
-        
-        if(!existing){
+        if(!getLaneMiles(item.origin,dest)){
           const key=`${item.origin}|${dest}`;
           if(!neededLanes.find(n=>n.key===key)){
             neededLanes.push({key,origin:item.origin,dest});
@@ -722,8 +712,19 @@ async function lookupMileageWithAPI(lanes){
       if(data.results){
         data.results.forEach(r=>{
           if(r.miles){
-            S.lanes.push({origin:r.origin,dest:r.dest,miles:r.miles,added:new Date().toISOString()});
-            console.log(`✓ ${r.origin} → ${r.dest}: ${r.miles} mi`);
+            // Check for fuzzy duplicate before pushing
+            const existingIdx=S.lanes.findIndex(l=>{
+              const lo=l.origin.toLowerCase().trim(),ld=l.dest.toLowerCase().trim();
+              const ro=r.origin.toLowerCase().trim(),rd=r.dest.toLowerCase().trim();
+              return (lo===ro||lo.startsWith(ro.split(',')[0])||ro.startsWith(lo.split(',')[0]))&&(ld===rd||ld.startsWith(rd.split(',')[0])||rd.startsWith(ld.split(',')[0]));
+            });
+            if(existingIdx>=0){
+              // Update existing lane — keep user's cached miles if they manually set it
+              console.log(`↻ Lane exists: ${S.lanes[existingIdx].origin} → ${S.lanes[existingIdx].dest} (${S.lanes[existingIdx].miles} mi), skipping API value ${r.miles}`);
+            }else{
+              S.lanes.push({origin:r.origin,dest:r.dest,miles:r.miles,added:new Date().toISOString()});
+              console.log(`✓ ${r.origin} → ${r.dest}: ${r.miles} mi`);
+            }
           }else{
             failedLanes.push({origin:r.origin,dest:r.dest});
           }
@@ -742,8 +743,18 @@ async function lookupMileageWithAPI(lanes){
     if(statusEl)statusEl.textContent=`Looking up ${lane.origin} → ${lane.dest}...`;
     const miles=await getDirectMileage(lane.origin,lane.dest);
     if(miles){
-      S.lanes.push({origin:lane.origin,dest:lane.dest,miles,added:new Date().toISOString()});
-      console.log(`✓ ${lane.origin} → ${lane.dest}: ${miles} mi`);
+      // Check for fuzzy duplicate before pushing
+      const existingIdx=S.lanes.findIndex(l=>{
+        const lo=l.origin.toLowerCase().trim(),ld=l.dest.toLowerCase().trim();
+        const fo=lane.origin.toLowerCase().trim(),fd=lane.dest.toLowerCase().trim();
+        return (lo===fo||lo.startsWith(fo.split(',')[0])||fo.startsWith(lo.split(',')[0]))&&(ld===fd||ld.startsWith(fd.split(',')[0])||fd.startsWith(ld.split(',')[0]));
+      });
+      if(existingIdx>=0){
+        console.log(`↻ Lane exists: ${S.lanes[existingIdx].origin} → ${S.lanes[existingIdx].dest} (${S.lanes[existingIdx].miles} mi), skipping API value ${miles}`);
+      }else{
+        S.lanes.push({origin:lane.origin,dest:lane.dest,miles,added:new Date().toISOString()});
+        console.log(`✓ ${lane.origin} → ${lane.dest}: ${miles} mi`);
+      }
     }else{
       failedLanes.push(lane);
     }
@@ -996,15 +1007,11 @@ function createSingleDraft(){
   const email=customer?.email||'';
   const customerName=customer?.name||'Customer';
   
-  // Check for missing lanes first
+  // Check for missing lanes first (use getLaneMiles for fuzzy matching)
   const neededLanes=[];
   items.forEach(item=>{
     if(!item.origin)return;
-    const existing=S.lanes.find(l=>
-      l.origin.toLowerCase().trim()===item.origin.toLowerCase().trim()&&
-      l.dest.toLowerCase().trim()===dest.toLowerCase().trim()
-    );
-    if(!existing){
+    if(!getLaneMiles(item.origin,dest)){
       const key=`${item.origin}|${dest}`;
       if(!neededLanes.find(n=>n.key===key)){
         neededLanes.push({key,origin:item.origin,dest});

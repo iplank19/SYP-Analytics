@@ -531,11 +531,8 @@ function miSendToQuoteEngine() {
 
     // Push lane data so freight works immediately in Quote Engine
     if (r.best.miles && destination) {
-      const laneExists = S.lanes.find(l =>
-        l.origin.toLowerCase().trim() === r.best.origin.toLowerCase().trim() &&
-        l.dest.toLowerCase().trim() === destination.toLowerCase().trim()
-      );
-      if (!laneExists) {
+      const existingMiles = typeof getLaneMiles === 'function' ? getLaneMiles(r.best.origin, destination) : null;
+      if (!existingMiles) {
         S.lanes.push({ origin: r.best.origin, dest: destination, miles: r.best.miles, added: new Date().toISOString() });
       }
     }
