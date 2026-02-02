@@ -411,6 +411,11 @@ function launchMatrixMode(){
     <div id="matrix-content" style="padding:16px">
       <div class="spinner" style="margin:40px auto"></div>
     </div>`;
+  // Override body/app styles that clip scrolling
+  document.body.style.overflow='auto';
+  document.body.style.height='auto';
+  document.getElementById('app').style.display='block';
+  document.getElementById('app').style.height='auto';
   // Hide everything else
   const sidebar=document.querySelector('.sidebar');
   const mobileHeader=document.querySelector('.mobile-header');
