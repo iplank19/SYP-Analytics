@@ -244,11 +244,14 @@ RULES:
   * Per truck pricing: price_per_truck / MBF_per_truck (typically 23 MBF for standard, 20 for MSR/timber)
   * Per piece pricing: price_per_piece × 1000 / board_footage_per_piece
   * Per lineal foot: price_per_LF × 1000 / (thick × wide / 12)
-- Match fuzzy mill names to known mills (e.g. "Canfor DQ" → "Canfor - DeQuincy", "WF Huttig" → "West Fraser - Huttig", "GP" → "GP - Clarendon" or "GP - Camden")
+- IMPORTANT: Mill names MUST use format "Company - City" (e.g. "Canfor - DeQuincy", "GP - Gurdon", "PotlatchDeltic - Ola"). The city is the MILL LOCATION, not the company name. Never put a location as the company name.
+- Match fuzzy mill names to known mills (e.g. "Canfor DQ" → "Canfor - DeQuincy", "WF Huttig" → "West Fraser - Huttig", "PotlatchDeltic Ola" → "PotlatchDeltic - Ola")
+- "GP" = Georgia-Pacific, use "GP - City" format. "WF" = West Fraser. "PLD" or "PD" = PotlatchDeltic.
+- If the text names a company and a location separately, combine them: company name goes before the dash, city/location after
 - Products should be in format like "2x4#2", "2x6#3", "2x4 MSR"
 - Default grade is #2 unless specified otherwise
 - If a mill lists multiple products, create one entry per product
-- If no ship window mentioned, leave empty
+- If no ship window mentioned, use "Prompt"
 - Volume: if stated in units, convert to MBF. If in trucks, multiply by 23. If not stated, use 0
 - TLs: if stated, include. Otherwise 0
 - Return ONLY the JSON array, no explanation`;

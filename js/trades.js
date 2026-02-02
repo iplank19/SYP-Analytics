@@ -60,10 +60,12 @@ async function saveBuy(id){
       ['8','10','12','14','16','18','20'].forEach(len=>{
         const rawVol=parseFloat(document.getElementById(`tally-vol-${len}`)?.value);
         const rawPrice=parseFloat(document.getElementById(`tally-price-${len}`)?.value);
+        const rawUnits=parseFloat(document.getElementById(`tally-units-${len}`)?.value);
         const vol=isNaN(rawVol)?0:rawVol;
         const tallyPrice=isNaN(rawPrice)?0:rawPrice;
-        if(vol>0){
-          tempTally[len]={vol,price:tallyPrice};
+        const units=isNaN(rawUnits)?0:rawUnits;
+        if(vol>0||units>0){
+          tempTally[len]={vol,price:tallyPrice,units};
           tallyTotalVol+=vol;
           tallyTotalVal+=vol*tallyPrice;
         }
@@ -88,17 +90,35 @@ async function saveBuy(id){
     volume=parseFloat(document.getElementById('m-volume').value)||0;
   }
   
-  const mill=document.getElementById('m-mill').value;
+  const rawMill=document.getElementById('m-mill').value;
+  const mill=extractMillCompany(rawMill);// Store company name, not "Company - City"
   const origin=document.getElementById('m-origin').value;
   const orderNum=document.getElementById('m-orderNum').value;
-  
-  // Save mill to CRM if new
+
+  // Save mill to CRM if new (company-level)
+  const parseOriginToLoc=(o)=>{
+    if(!o)return null;
+    const parts=o.split(',').map(s=>s.trim());
+    return{city:parts[0]||o,state:parts[1]||'',label:o};
+  };
   if(mill&&!S.mills.find(m=>m.name===mill)){
-    S.mills.push({name:mill,origin:origin,addedDate:today()});
+    const loc=parseOriginToLoc(origin);
+    const locs=loc?[loc]:[];
+    S.mills.push({name:mill,origin:origin,locations:locs,addedDate:today()});
   }else if(mill&&origin){
-    // Update origin if mill exists
+    // Add origin to mill's locations if new
     const existingMill=S.mills.find(m=>m.name===mill);
-    if(existingMill&&!existingMill.origin){existingMill.origin=origin}
+    if(existingMill){
+      if(!existingMill.origin)existingMill.origin=origin;
+      if(!existingMill.locations)existingMill.locations=[];
+      if(Array.isArray(existingMill.locations)){
+        const originLower=origin.toLowerCase();
+        const exists=existingMill.locations.some(l=>
+          (typeof l==='string'?l:l.label||'').toLowerCase()===originLower
+        );
+        if(!exists)existingMill.locations.push(parseOriginToLoc(origin));
+      }
+    }
   }
   
   const b={

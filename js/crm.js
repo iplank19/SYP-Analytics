@@ -36,7 +36,10 @@ async function loadCRMData(){
     if(millsResult.status==='rejected')console.warn('CRM mills fetch failed:',millsResult.reason);
     // Parse locations if stored as JSON string
     serverCustomers.forEach(c=>{if(typeof c.locations==='string')try{c.locations=JSON.parse(c.locations)}catch(e){}});
-    serverMills.forEach(m=>{if(typeof m.products==='string')try{m.products=JSON.parse(m.products)}catch(e){}});
+    serverMills.forEach(m=>{
+      if(typeof m.products==='string')try{m.products=JSON.parse(m.products)}catch(e){}
+      if(typeof m.locations==='string')try{m.locations=JSON.parse(m.locations)}catch(e){}
+    });
     // Deduplicate server results by name (Admin gets all traders, may have dupes)
     const dedupeByName=arr=>{const seen=new Set();return arr.filter(x=>{if(!x.name||seen.has(x.name))return false;seen.add(x.name);return true})};
     const uniqueServerCusts=dedupeByName(serverCustomers);

@@ -602,6 +602,60 @@ tr:hover .row-actions{opacity:1}
 .pdf-export-mode th{background:#f0f2f5 !important;color:#6c7a8a !important;border-color:#d1d9e6 !important}
 .pdf-export-mode td{border-color:#d1d9e6 !important;color:#1a1a2e !important}
 
+/* ===== MILL INTEL STYLES ===== */
+
+/* Drop zone */
+.drop-zone{border:2px dashed var(--border);border-radius:var(--radius);padding:32px;text-align:center;cursor:pointer;transition:border-color 0.15s, background 0.15s}
+.drop-zone:hover,.drop-zone.drag-over{border-color:var(--accent);background:rgba(77,141,247,0.04)}
+
+/* Signal cards */
+.signal-card{background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);padding:12px;margin-bottom:8px;transition:border-color 0.1s}
+.signal-card:hover{border-color:rgba(77,141,247,0.2)}
+.signal-card.bullish{border-left:3px solid var(--positive)}
+.signal-card.bearish{border-left:3px solid var(--negative)}
+.signal-card.neutral{border-left:3px solid var(--muted)}
+.signal-card.opportunity{border-left:3px solid var(--accent)}
+.signal-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:4px}
+.signal-name{font-weight:600;font-size:11px}
+.signal-badge{font-size:9px;padding:1px 6px;border-radius:1px;font-weight:600;font-family:var(--mono);text-transform:uppercase;letter-spacing:0.3px}
+.signal-badge.bullish{background:rgba(0,230,118,0.12);color:var(--positive)}
+.signal-badge.bearish{background:rgba(255,82,82,0.12);color:var(--negative)}
+.signal-badge.neutral{background:rgba(90,98,112,0.15);color:var(--muted)}
+.signal-badge.opportunity{background:rgba(77,141,247,0.15);color:var(--accent)}
+.signal-explanation{font-size:10px;color:var(--text);line-height:1.5}
+
+/* Recommendation cards */
+.rec-card{background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);padding:14px;margin-bottom:10px;transition:border-color 0.1s}
+.rec-card:hover{border-color:rgba(77,141,247,0.2)}
+.rec-action{font-size:13px;font-weight:700;margin-bottom:3px;font-family:var(--mono)}
+.rec-action.buy{color:var(--positive);text-shadow:0 0 8px rgba(0,230,118,0.2)}
+.rec-action.sell{color:var(--negative);text-shadow:0 0 8px rgba(255,82,82,0.2)}
+.rec-action.hold{color:var(--warn)}
+.rec-product{font-size:14px;font-weight:600;color:var(--accent);margin-bottom:6px}
+.rec-meta{display:flex;gap:12px;margin-bottom:6px;flex-wrap:wrap}
+.rec-meta-item{font-size:10px;color:var(--muted);font-family:var(--mono)}
+.rec-meta-item strong{color:var(--text)}
+.rec-reasons{list-style:none;padding:0}
+.rec-reasons li{font-size:10px;color:var(--text);padding:2px 0;border-bottom:1px solid var(--border)}
+.rec-reasons li:last-child{border-bottom:none}
+
+/* Matrix table */
+.matrix-table td,.matrix-table th{border:1px solid var(--border);white-space:nowrap}
+.matrix-table tbody tr:hover{background:rgba(77,141,247,0.08) !important}
+.matrix-table tbody td{position:relative}
+.matrix-table tbody td:hover{background:rgba(77,141,247,0.15) !important;outline:1px solid var(--accent)}
+.matrix-table tbody td:hover::after{content:'';position:absolute;left:0;top:-2000px;width:100%;height:4000px;background:rgba(77,141,247,0.04);pointer-events:none;z-index:-1}
+.matrix-table .group-start{border-left:2px solid var(--accent) !important}
+.matrix-table td.empty-cell{background:var(--bg);opacity:1}
+.matrix-compact td{font-size:10px !important;padding:3px 2px !important}
+.matrix-compact th{font-size:9px !important;padding:4px 3px !important}
+.matrix-comfortable td{font-size:12px !important;padding:6px 5px !important}
+.matrix-comfortable th{font-size:10px !important;padding:6px 4px !important}
+.matrix-comfortable td.mill-cell{font-size:11px !important;padding:6px 10px !important}
+.matrix-ctrl{display:flex;gap:8px;margin-bottom:10px;align-items:center;flex-wrap:wrap}
+.matrix-ctrl label{font-size:10px;color:var(--muted);display:flex;align-items:center;gap:4px;cursor:pointer}
+.matrix-ctrl label input[type="checkbox"]{accent-color:var(--accent)}
+
 @media print{
   .sidebar,.mobile-header,.mobile-nav,.ai-sidepanel,.ai-toggle,.header,#modal,.breadcrumbs,.status-bar{display:none !important}
   #app{display:block;height:auto}

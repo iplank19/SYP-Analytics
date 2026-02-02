@@ -27,8 +27,8 @@ function showBuyModal(b=null){
   ['2x4#1','2x4#2','2x4#3','2x6#1','2x6#2','2x6#3','2x8#2','2x8#3','2x10#2','2x10#3','2x12#2','2x12#3','4x4#2','4x6','6x6','2x4 MSR','2x6 MSR','2x8 MSR','2x10 MSR','2x12 MSR','2x4 2400f','2x6 2400f','2x8 2400f','2x10 2400f'].forEach(p=>rlProducts.add(p));
   const prodList=[...rlProducts].sort();
   
-  // Build mill list from CRM + defaults
-  const millList=[...new Set([...MILLS,...S.mills.map(m=>m.name),...S.buys.map(x=>x.mill).filter(Boolean)])].sort();
+  // Build mill list from company-level names + CRM + trade history
+  const millList=[...new Set([...MILL_COMPANIES,...S.mills.map(m=>m.name),...S.buys.map(x=>x.mill).filter(Boolean)])].sort();
   
   // Build origin location list from CRM and previous buys
   const origins=[...new Set([...S.mills.filter(m=>m.origin).map(m=>m.origin),...S.buys.map(x=>x.origin).filter(Boolean)])].sort();
@@ -64,7 +64,7 @@ function showBuyModal(b=null){
         <div class="form-group"><label class="form-label">Length</label><select id="m-length" onchange="toggleBuyOptions();calcBuyVolume()"><option value="">Select...</option><option value="8" ${b?.length==='8'?'selected':''}>8'</option><option value="10" ${b?.length==='10'?'selected':''}>10'</option><option value="12" ${b?.length==='12'?'selected':''}>12'</option><option value="14" ${b?.length==='14'?'selected':''}>14'</option><option value="16" ${b?.length==='16'?'selected':''}>16'</option><option value="18" ${b?.length==='18'?'selected':''}>18'</option><option value="20" ${b?.length==='20'?'selected':''}>20'</option><option value="RL" ${b?.length==='RL'?'selected':''}>RL (Random)</option></select></div>
         <div class="form-group"><label class="form-label">Units (Bunks)</label><input type="number" id="m-units" value="${b?.units||''}" placeholder="# of units" onchange="calcBuyVolume()" step="0.01"></div>
         <div class="form-group"><label class="form-label">Pcs/Unit (PPU)</label><input type="number" id="m-ppu" value="${b?.ppu||''}" placeholder="auto" onchange="calcBuyVolume()" step="1"><div id="ppu-display-buy" style="font-size:10px;color:var(--muted);margin-top:2px"></div></div>
-        <div class="form-group"><label class="form-label">Volume (MBF)</label><input type="number" id="m-volume" value="${b?.volume||''}" onchange="calcBuyUnits()" step="0.01"><div style="font-size:10px;color:var(--info);margin-top:2px">← Auto-calcs from units</div></div>
+        <div class="form-group"><label class="form-label">Volume (MBF)</label><input type="number" id="m-volume" value="${b?.volume||''}" onchange="calcBuyUnits()" step="0.01"><div id="vol-hint-buy" style="font-size:10px;color:var(--info);margin-top:2px">← Auto-calcs from units</div></div>
       </div>
 
       <!-- SPLIT LOAD SECTION FOR BUY -->
@@ -143,16 +143,17 @@ function showBuyModal(b=null){
               </tbody><tfoot><tr style="font-weight:bold;border-top:2px solid var(--border)"><td>Total</td><td id="tally-total-vol">—</td><td id="tally-avg-price">—</td><td id="tally-total-val">—</td></tr></tfoot></table>`;
             }
             // Standard length-only tally
-            return`<table style="width:100%;font-size:11px"><thead><tr><th>Length</th><th>MBF</th><th id="tally-price-header">${isMSR?'Your $/MBF':'$/MBF'}</th><th id="tally-base-header" style="display:${isMSR?'table-cell':'none'}">Base #1</th><th id="tally-prem-header" style="display:${isMSR?'table-cell':'none'}">Premium</th><th>Value</th></tr></thead><tbody>
+            return`<table style="width:100%;font-size:11px"><thead><tr><th>Length</th><th>Units</th><th>MBF</th><th id="tally-price-header">${isMSR?'Your $/MBF':'$/MBF'}</th><th id="tally-base-header" style="display:${isMSR?'table-cell':'none'}">Base #1</th><th id="tally-prem-header" style="display:${isMSR?'table-cell':'none'}">Premium</th><th>Value</th></tr></thead><tbody>
             ${['8','10','12','14','16','18','20'].map(len=>`<tr>
               <td>${len}'</td>
+              <td><input type="number" id="tally-units-${len}" value="${b?.tally?.[len]?.units||''}" style="width:50px" onchange="calcTallyRowVol('${len}')" step="0.01"></td>
               <td><input type="number" id="tally-vol-${len}" value="${b?.tally?.[len]?.vol||''}" style="width:60px" onchange="calcTallyTotal()"></td>
               <td><input type="number" id="tally-price-${len}" value="${b?.tally?.[len]?.price||''}" style="width:70px" onchange="calcTallyTotal()"></td>
               <td id="tally-base-${len}" class="right" style="display:${isMSR?'table-cell':'none'};color:var(--muted)">—</td>
               <td id="tally-prem-${len}" class="right" style="display:${isMSR?'table-cell':'none'};color:var(--accent)">—</td>
               <td id="tally-val-${len}" class="right">—</td>
             </tr>`).join('')}
-          </tbody><tfoot><tr style="font-weight:bold;border-top:2px solid var(--border)"><td>Total</td><td id="tally-total-vol">—</td><td id="tally-avg-price">—</td><td id="tally-avg-base" style="display:${isMSR?'table-cell':'none'}">—</td><td id="tally-avg-prem" style="display:${isMSR?'table-cell':'none'}">—</td><td id="tally-total-val">—</td></tr></tfoot></table>`;
+          </tbody><tfoot><tr style="font-weight:bold;border-top:2px solid var(--border)"><td>Total</td><td id="tally-total-units">—</td><td id="tally-total-vol">—</td><td id="tally-avg-price">—</td><td id="tally-avg-base" style="display:${isMSR?'table-cell':'none'}">—</td><td id="tally-avg-prem" style="display:${isMSR?'table-cell':'none'}">—</td><td id="tally-total-val">—</td></tr></tfoot></table>`;
           })()}
         </div>
       </div>
@@ -177,28 +178,45 @@ function autoFillOrigin(){
   const mill=document.getElementById('m-mill')?.value;
   const originInput=document.getElementById('m-origin');
   const originList=document.getElementById('origin-list');
-  
+
   if(mill){
-    const crmMill=S.mills.find(m=>m.name===mill);
+    // Get locations from MILL_DIRECTORY + CRM
+    const company=extractMillCompany(mill);
+    const dirLocs=getMillLocations(company);
+
+    // Also check CRM mill for locations array
+    const crmMill=S.mills.find(m=>m.name===company||m.name===mill);
+    const crmLocs=[];
     if(crmMill){
-      // Get mill's locations
-      const locs=crmMill.locations||[crmMill.origin].filter(Boolean);
-      
-      // Update datalist with mill locations first  
-      if(originList&&locs.length){
-        const allOrigins=[...new Set([...locs,...S.mills.filter(m=>m.origin).map(m=>m.origin),...S.buys.map(x=>x.origin).filter(Boolean)])].sort();
-        originList.innerHTML=allOrigins.map(o=>`<option value="${o}">`).join('');
+      if(Array.isArray(crmMill.locations)){
+        crmMill.locations.forEach(l=>{
+          const label=typeof l==='string'?l:(l.label||`${l.city}, ${l.state||''}`.trim());
+          if(label&&!crmLocs.includes(label))crmLocs.push(label);
+        });
+      }else if(crmMill.origin){
+        crmLocs.push(crmMill.origin);
       }
-      
-      // Auto-fill first location if origin is empty
-      if(locs.length&&!originInput.value){
-        originInput.value=locs[0];
-      }
-      
-      // Also set region if available
-      if(crmMill.region&&!document.getElementById('m-region').value){
-        document.getElementById('m-region').value=crmMill.region;
-      }
+    }
+
+    // Merge all location labels
+    const allLocs=[...new Set([...dirLocs.map(l=>l.label),...crmLocs])].sort();
+
+    // Update datalist with company's locations
+    if(originList&&allLocs.length){
+      const extras=[...S.buys.map(x=>x.origin).filter(Boolean)];
+      const combined=[...new Set([...allLocs,...extras])].sort();
+      originList.innerHTML=combined.map(o=>`<option value="${o}">`).join('');
+    }
+
+    // Auto-fill if single location and origin is empty
+    if(allLocs.length===1&&!originInput.value){
+      originInput.value=allLocs[0];
+    }
+
+    // Set region from CRM if available
+    if(crmMill?.region){
+      const regionEl=document.getElementById('m-region');
+      if(regionEl)regionEl.value=crmMill.region;
     }
   }
 }
@@ -591,6 +609,10 @@ function toggleBuyOptions(){
   document.getElementById('msr-section').style.display=(isMSR&&!isRL)?'block':'none';
   document.getElementById('standard-price').style.display=(isMSR||isRL)?'none':'block';
   document.getElementById('rl-tally-section').style.display=isRL?'block':'none';
+
+  // Update volume hint for RL
+  const volHint=document.getElementById('vol-hint-buy');
+  if(volHint)volHint.textContent=isRL?'← Auto-calcs from units (at 14\' avg RL)':'← Auto-calcs from units';
   
   // Update tally header for MSR
   if(isRL){
@@ -669,25 +691,39 @@ function toggleTally(){
   document.getElementById('tally-grid').style.display=useTally?'block':'none';
 }
 
+// Auto-calc MBF from units for a tally row (RL per-length)
+function calcTallyRowVol(len){
+  const product=document.getElementById('m-product')?.value||'';
+  const units=parseFloat(document.getElementById(`tally-units-${len}`)?.value)||0;
+  if(!product||!units)return;
+  const mbf=calcMBFFromUnits(product,len,units);
+  if(mbf>0){
+    document.getElementById(`tally-vol-${len}`).value=mbf;
+    calcTallyTotal();
+  }
+}
+
 function calcTallyTotal(){
   const product=document.getElementById('m-product')?.value||'';
   const region=document.getElementById('m-region')?.value||'west';
   const isMSR=product.toUpperCase().includes('MSR')||product.toUpperCase().includes('2400');
   const baseMatch=product.match(/(\d+x\d+)/i);
   const baseSize=baseMatch?baseMatch[1].toLowerCase():'2x4';
-  
+
   // Get latest RL for base prices
   const latestRL=S.rl.length?S.rl[S.rl.length-1]:null;
-  
-  let totalVol=0,totalVal=0,totalBaseVal=0;
+
+  let totalVol=0,totalVal=0,totalBaseVal=0,totalUnits=0;
   ['8','10','12','14','16','18','20'].forEach(len=>{
+    const units=parseFloat(document.getElementById(`tally-units-${len}`)?.value)||0;
+    totalUnits+=units;
     const vol=parseFloat(document.getElementById(`tally-vol-${len}`)?.value)||0;
     const price=parseFloat(document.getElementById(`tally-price-${len}`)?.value)||0;
     const val=vol*price;
     document.getElementById(`tally-val-${len}`).textContent=val>0?fmt(Math.round(val)):'—';
     totalVol+=vol;
     totalVal+=val;
-    
+
     // For MSR, show base #1 price for each length
     if(isMSR&&latestRL){
       let basePrice=null;
@@ -699,7 +735,7 @@ function calcTallyTotal(){
       else if(latestRL.specified_lengths?.[region]?.[baseSize+'#2']?.[len]){
         basePrice=latestRL.specified_lengths[region][baseSize+'#2'][len];
       }
-      
+
       const baseEl=document.getElementById(`tally-base-${len}`);
       const premEl=document.getElementById(`tally-prem-${len}`);
       if(baseEl&&basePrice){
@@ -718,11 +754,18 @@ function calcTallyTotal(){
       }
     }
   });
-  
+
+  const totalUnitsEl=document.getElementById('tally-total-units');
+  if(totalUnitsEl)totalUnitsEl.textContent=totalUnits>0?fmtN(totalUnits):'—';
   document.getElementById('tally-total-vol').textContent=totalVol>0?fmtN(totalVol):'—';
   document.getElementById('tally-avg-price').textContent=totalVol>0?fmt(Math.round(totalVal/totalVol)):'—';
   document.getElementById('tally-total-val').textContent=totalVal>0?fmt(Math.round(totalVal)):'—';
-  
+
+  // Sync total units to main units field
+  if(totalUnits>0){
+    document.getElementById('m-units').value=totalUnits;
+  }
+
   // MSR averages
   if(isMSR){
     const avgBaseEl=document.getElementById('tally-avg-base');
@@ -736,7 +779,7 @@ function calcTallyTotal(){
       }
     }
   }
-  
+
   // Update main volume and price fields
   if(totalVol>0){
     document.getElementById('m-volume').value=fmtN(totalVol);
@@ -797,6 +840,10 @@ function toggleSellOptions(){
   if(msrSection)msrSection.style.display=(isMSR&&!isRL)?'block':'none';
   if(stdPrice)stdPrice.style.display=(isMSR||isRL)?'none':'block';
   if(rlTally)rlTally.style.display=isRL?'block':'none';
+
+  // Update volume hint for RL
+  const volHint=document.getElementById('vol-hint-sell');
+  if(volHint)volHint.textContent=isRL?'← Auto-calcs from units (at 14\' avg RL)':'← Auto-calcs from units';
   
   // Update tally header for MSR
   if(isRL){
@@ -1033,9 +1080,10 @@ function calcBuyVolume(){
   const lengthStr=document.getElementById('m-length')?.value||'';
   const units=parseFloat(document.getElementById('m-units')?.value)||0;
   autoFillPPU('buy');
-  if(!product||!lengthStr||lengthStr==='RL'||!units)return;
+  if(!product||!lengthStr||!units)return;
+  const calcLen=lengthStr==='RL'?'14':lengthStr;
   const formPPU=parseInt(document.getElementById('m-ppu')?.value)||0;
-  const mbf=calcMBFFromUnits(product,lengthStr,units,formPPU||undefined);
+  const mbf=calcMBFFromUnits(product,calcLen,units,formPPU||undefined);
   if(mbf>0)document.getElementById('m-volume').value=mbf;
 }
 
@@ -1045,9 +1093,10 @@ function calcSellVolume(){
   const lengthStr=document.getElementById('m-length')?.value||'';
   const units=parseFloat(document.getElementById('m-units')?.value)||0;
   autoFillPPU('sell');
-  if(!product||!lengthStr||lengthStr==='RL'||!units)return;
+  if(!product||!lengthStr||!units)return;
+  const calcLen=lengthStr==='RL'?'14':lengthStr;
   const formPPU=parseInt(document.getElementById('m-ppu')?.value)||0;
-  const mbf=calcMBFFromUnits(product,lengthStr,units,formPPU||undefined);
+  const mbf=calcMBFFromUnits(product,calcLen,units,formPPU||undefined);
   if(mbf>0){
     document.getElementById('m-volume').value=mbf;
     updateSellCalc();
@@ -1146,9 +1195,10 @@ function calcBuyUnits(){
   const product=document.getElementById('m-product')?.value||'';
   const lengthStr=document.getElementById('m-length')?.value||'';
   const mbf=parseFloat(document.getElementById('m-volume')?.value)||0;
-  if(!product||!lengthStr||lengthStr==='RL'||!mbf)return;
+  if(!product||!lengthStr||!mbf)return;
+  const calcLen=lengthStr==='RL'?'14':lengthStr;
   const formPPU=parseInt(document.getElementById('m-ppu')?.value)||0;
-  const units=calcUnitsFromMBF(product,lengthStr,mbf,formPPU||undefined);
+  const units=calcUnitsFromMBF(product,calcLen,mbf,formPPU||undefined);
   if(units>0)document.getElementById('m-units').value=units;
   autoFillPPU('buy');
 }
@@ -1158,9 +1208,10 @@ function calcSellUnits(){
   const product=document.getElementById('m-product')?.value||'';
   const lengthStr=document.getElementById('m-length')?.value||'';
   const mbf=parseFloat(document.getElementById('m-volume')?.value)||0;
-  if(!product||!lengthStr||lengthStr==='RL'||!mbf)return;
+  if(!product||!lengthStr||!mbf)return;
+  const calcLen=lengthStr==='RL'?'14':lengthStr;
   const formPPU=parseInt(document.getElementById('m-ppu')?.value)||0;
-  const units=calcUnitsFromMBF(product,lengthStr,mbf,formPPU||undefined);
+  const units=calcUnitsFromMBF(product,calcLen,mbf,formPPU||undefined);
   if(units>0)document.getElementById('m-units').value=units;
   autoFillPPU('sell');
 }
@@ -1350,7 +1401,7 @@ function showSellModal(s=null){
         <div class="form-group"><label class="form-label">Length</label><select id="m-length" onchange="toggleSellOptions();calcSellVolume()"><option value="">Select...</option><option value="8" ${s?.length==='8'?'selected':''}>8'</option><option value="10" ${s?.length==='10'?'selected':''}>10'</option><option value="12" ${s?.length==='12'?'selected':''}>12'</option><option value="14" ${s?.length==='14'?'selected':''}>14'</option><option value="16" ${s?.length==='16'?'selected':''}>16'</option><option value="18" ${s?.length==='18'?'selected':''}>18'</option><option value="20" ${s?.length==='20'?'selected':''}>20'</option><option value="RL" ${s?.length==='RL'?'selected':''}>RL (Random)</option></select></div>
         <div class="form-group"><label class="form-label">Units (Bunks)</label><input type="number" id="m-units" value="${s?.units||''}" placeholder="# of units" onchange="calcSellVolume()" step="0.01"></div>
         <div class="form-group"><label class="form-label">Pcs/Unit (PPU)</label><input type="number" id="m-ppu" value="${s?.ppu||''}" placeholder="auto" onchange="calcSellVolume()" step="1"><div id="ppu-display-sell" style="font-size:10px;color:var(--muted);margin-top:2px"></div></div>
-        <div class="form-group"><label class="form-label">Volume (MBF)</label><input type="number" id="m-volume" value="${s?.volume||''}" onchange="calcSellUnits();updateSellCalc();calcFlatFreight()" step="0.01"><div style="font-size:10px;color:var(--info);margin-top:2px">← Auto-calcs from units</div></div>
+        <div class="form-group"><label class="form-label">Volume (MBF)</label><input type="number" id="m-volume" value="${s?.volume||''}" onchange="calcSellUnits();updateSellCalc();calcFlatFreight()" step="0.01"><div id="vol-hint-sell" style="font-size:10px;color:var(--info);margin-top:2px">← Auto-calcs from units</div></div>
       </div>
 
       <!-- SPLIT LOAD SECTION -->

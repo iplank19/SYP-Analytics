@@ -1,14 +1,341 @@
 // SYP Analytics - State & Constants
 const PRODUCTS=['2x4#2','2x6#2','2x8#2','2x10#2','2x12#2','2x4#3','2x6#3','2x8#3'];
+
+// Full product list for Mill Intel quoting matrix (includes #1, MSR, #4)
+const MI_PRODUCTS=[
+  '2x4#1','2x6#1','2x8#1','2x10#1','2x12#1',
+  '2x4#2','2x6#2','2x8#2','2x10#2','2x12#2',
+  '2x4#3','2x6#3','2x8#3','2x10#3','2x12#3',
+  '2x4#4','2x6#4','2x8#4','2x10#4','2x12#4',
+  '2x4 MSR','2x6 MSR','2x8 MSR','2x10 MSR','2x12 MSR',
+];
+
+const PRODUCT_GROUPS={
+  'All':MI_PRODUCTS,
+  '#1':MI_PRODUCTS.filter(p=>p.includes('#1')),
+  '#2':MI_PRODUCTS.filter(p=>p.includes('#2')),
+  '#3':MI_PRODUCTS.filter(p=>p.includes('#3')),
+  '#4':MI_PRODUCTS.filter(p=>p.includes('#4')),
+  'MSR':MI_PRODUCTS.filter(p=>p.includes('MSR')),
+  'Studs':['2x4#1','2x6#1','2x4#2','2x6#2','2x4#3','2x6#3','2x4#4','2x6#4','2x4 MSR','2x6 MSR'],
+  'Wides':['2x8#1','2x10#1','2x12#1','2x8#2','2x10#2','2x12#2','2x8#3','2x10#3','2x12#3','2x8#4','2x10#4','2x12#4','2x8 MSR','2x10 MSR','2x12 MSR'],
+};
+
+// Derive products a customer has historically purchased from sell orders
+function getCustomerProducts(customerName){
+  if(!customerName||!S.sells)return[];
+  const products=new Set();
+  S.sells.filter(s=>s.customer===customerName&&s.status!=='cancelled').forEach(s=>{
+    const prods=s.product&&s.product.includes('/')?s.product.split('/').map(p=>p.trim()):[s.product];
+    prods.forEach(p=>{
+      if(!p)return;
+      const base=p.replace(/\s+\d+['"]?$/,'').trim();
+      if(base)products.add(base);
+    });
+  });
+  return[...products].sort();
+}
+
+const QUOTE_LENGTHS=['8','10','12','14','16','18','20','RL'];
+
+// Derive product+length combos a customer has historically purchased
+function getCustomerProductLengths(customerName){
+  if(!customerName||!S.sells)return[];
+  const combos=new Set();
+  S.sells.filter(s=>s.customer===customerName&&s.status!=='cancelled').forEach(s=>{
+    const prods=s.product&&s.product.includes('/')?s.product.split('/').map(p=>p.trim()):[s.product];
+    prods.forEach(p=>{
+      if(!p)return;
+      const lenMatch=p.match(/\s+(\d+)['"]?$/);
+      const base=p.replace(/\s+\d+['"]?$/,'').trim();
+      if(base)combos.add(lenMatch?`${base}|${lenMatch[1]}`:`${base}|RL`);
+    });
+  });
+  return[...combos].map(c=>{const[product,length]=c.split('|');return{product,length};});
+}
+
+// Built-in quote matrix templates
+const QUOTE_TEMPLATES={
+  'All RL':{desc:'All products, RL only',build:()=>{
+    const g={};MI_PRODUCTS.forEach(p=>{g[p]={};QUOTE_LENGTHS.forEach(l=>{g[p][l]=l==='RL';});});return g;
+  }},
+  '#2 RL':{desc:'#2 grade, RL only',build:()=>{
+    const g={};MI_PRODUCTS.forEach(p=>{g[p]={};QUOTE_LENGTHS.forEach(l=>{g[p][l]=p.includes('#2')&&l==='RL';});});return g;
+  }},
+  'Studs RL':{desc:'2x4 & 2x6 all grades, RL only',build:()=>{
+    const g={};MI_PRODUCTS.forEach(p=>{g[p]={};QUOTE_LENGTHS.forEach(l=>{g[p][l]=(p.startsWith('2x4')||p.startsWith('2x6'))&&l==='RL';});});return g;
+  }},
+  'Wides':{desc:'2x8-2x12 all grades, 10\'-20\'',build:()=>{
+    const lens=['10','12','14','16','18','20'];
+    const g={};MI_PRODUCTS.forEach(p=>{g[p]={};QUOTE_LENGTHS.forEach(l=>{g[p][l]=(p.startsWith('2x8')||p.startsWith('2x10')||p.startsWith('2x12'))&&lens.includes(l);});});return g;
+  }},
+  'Full Grid':{desc:'Everything checked',build:()=>{
+    const g={};MI_PRODUCTS.forEach(p=>{g[p]={};QUOTE_LENGTHS.forEach(l=>{g[p][l]=true;});});return g;
+  }}
+};
+
 const REGIONS=['west','central','east'];
 const DESTS=['Atlanta','Charlotte','Dallas','Memphis','Birmingham','Chicago','Houston','Nashville','Jacksonville','New Orleans'];
-const MILLS=['Canfor - DeQuincy','Canfor - Urbana','West Fraser - Huttig','West Fraser - Leola','Interfor - Monticello','Interfor - Georgetown','GP - Clarendon','GP - Camden','Rex Lumber - Bristol','Rex Lumber - Graceville','Weyerhaeuser - Dierks','Tolko - Leland'];
+const MILLS=[
+  'Canfor - DeQuincy','Canfor - Urbana','Canfor - Fulton','Canfor - Axis','Canfor - El Dorado',
+  'Canfor - Thomasville','Canfor - Moultrie','Canfor - DeRidder','Canfor - Camden SC','Canfor - Conway',
+  'West Fraser - Huttig','West Fraser - Leola','West Fraser - Opelika','West Fraser - Russellville',
+  'West Fraser - Blackshear','West Fraser - Dudley','West Fraser - Fitzgerald',
+  'West Fraser - New Boston','West Fraser - Henderson','West Fraser - Lufkin','West Fraser - Joyce',
+  'Interfor - Monticello','Interfor - Georgetown','Interfor - Fayette','Interfor - DeQuincy',
+  'Interfor - Preston','Interfor - Perry','Interfor - Baxley','Interfor - Swainsboro',
+  'Interfor - Thomaston','Interfor - Eatonton',
+  'GP - Clarendon','GP - Camden','GP - Talladega','GP - Frisco City','GP - Gurdon',
+  'GP - Albany','GP - Warrenton','GP - Taylorsville','GP - Dudley NC',
+  'GP - Diboll','GP - Pineland','GP - Prosperity',
+  'Weyerhaeuser - Dierks','Weyerhaeuser - Millport','Weyerhaeuser - Dodson','Weyerhaeuser - Holden',
+  'Weyerhaeuser - Philadelphia','Weyerhaeuser - Bruce','Weyerhaeuser - Magnolia',
+  'Weyerhaeuser - Grifton','Weyerhaeuser - Plymouth',
+  'Rex Lumber - Bristol','Rex Lumber - Graceville','Rex Lumber - Troy','Rex Lumber - Brookhaven',
+  'PotlatchDeltic - Ola','PotlatchDeltic - Waldo','PotlatchDeltic - Warren',
+  'Tolko - Leland','Idaho Forest Group - Lumberton','Hunt Forest Products - Winnfield',
+  'Biewer - Newton','Biewer - Winona','Anthony Timberlands - Bearden','Anthony Timberlands - Malvern',
+  'Lumberton Lumber','Harrigan Lumber','T.R. Miller - Brewton',
+  'Lincoln Lumber - Jasper','Lincoln Lumber - Conroe'
+];
 const FREIGHT={west:{Atlanta:96,Charlotte:104,Dallas:40,Memphis:60,Birmingham:85,Chicago:110,Houston:55,Nashville:78},central:{Atlanta:83,Charlotte:91,Dallas:70,Memphis:50,Birmingham:60,Chicago:90,Houston:75,Nashville:55},east:{Atlanta:60,Charlotte:55,Dallas:120,Memphis:80,Birmingham:65,Chicago:84,Houston:115,Nashville:65}};
-const NAV=[{id:'dashboard',icon:'📊',label:'Dashboard'},{id:'leaderboard',icon:'🏆',label:'Leaderboard'},{id:'insights',icon:'🎯',label:'Daily Briefing'},{id:'blotter',icon:'📋',label:'Trade Blotter'},{id:'pnl-calendar',icon:'📅',label:'P&L Calendar'},{id:'benchmark',icon:'🎯',label:'vs Market'},{id:'risk',icon:'⚠️',label:'Risk'},{id:'quotes',icon:'💰',label:'Quote Engine'},{id:'mill-pricing',icon:'🏭',label:'Mill Pricing'},{id:'products',icon:'📦',label:'By Product'},{id:'crm',icon:'🏢',label:'CRM'},{id:'rldata',icon:'📈',label:'RL Data'},{id:'settings',icon:'⚙️',label:'Settings'}];
+
+// SPIB-sourced mill directory: canonical name → { city, state }
+// Used for mill name normalization during intake
+const MILL_DIRECTORY={
+  // Canfor Southern Pine (SPIB IDs: 025,123,130,143,143f,144,145,205,426,446,674)
+  'Canfor - DeQuincy':{city:'DeQuincy',state:'LA'},'Canfor - Urbana':{city:'Urbana',state:'AR'},
+  'Canfor - Fulton':{city:'Fulton',state:'AL'},'Canfor - Axis':{city:'Axis',state:'AL'},
+  'Canfor - El Dorado':{city:'El Dorado',state:'AR'},'Canfor - Thomasville':{city:'Thomasville',state:'GA'},
+  'Canfor - Moultrie':{city:'Moultrie',state:'GA'},'Canfor - DeRidder':{city:'Deridder',state:'LA'},
+  'Canfor - Camden SC':{city:'Camden',state:'SC'},'Canfor - Conway':{city:'Conway',state:'SC'},
+  'Canfor - Marion':{city:'Marion',state:'SC'},'Canfor - Graham':{city:'Graham',state:'NC'},
+  // West Fraser (SPIB IDs: 24,285,33,700,711,720,857,861,95)
+  'West Fraser - Huttig':{city:'Huttig',state:'AR'},'West Fraser - Leola':{city:'Leola',state:'AR'},
+  'West Fraser - Opelika':{city:'Opelika',state:'AL'},'West Fraser - Russellville':{city:'Russellville',state:'AR'},
+  'West Fraser - Blackshear':{city:'Blackshear',state:'GA'},'West Fraser - Dudley':{city:'Dudley',state:'GA'},
+  'West Fraser - Fitzgerald':{city:'Fitzgerald',state:'GA'},'West Fraser - New Boston':{city:'New Boston',state:'TX'},
+  'West Fraser - Henderson':{city:'Henderson',state:'TX'},'West Fraser - Lufkin':{city:'Lufkin',state:'TX'},
+  'West Fraser - Joyce':{city:'Joyce',state:'LA'},
+  // Georgia-Pacific (SPIB IDs: 14,18,20,77,77p,77r,125,140,210,425,522,860)
+  'GP - Clarendon':{city:'Clarendon',state:'NC'},'GP - Camden':{city:'Camden',state:'TX'},
+  'GP - Talladega':{city:'Talladega',state:'AL'},'GP - Frisco City':{city:'Frisco City',state:'AL'},
+  'GP - Gurdon':{city:'Gurdon',state:'AR'},'GP - Albany':{city:'Albany',state:'GA'},
+  'GP - Warrenton':{city:'Warrenton',state:'GA'},'GP - Taylorsville':{city:'Taylorsville',state:'MS'},
+  'GP - Dudley NC':{city:'Dudley',state:'NC'},'GP - Diboll':{city:'Diboll',state:'TX'},
+  'GP - Pineland':{city:'Pineland',state:'TX'},'GP - Prosperity':{city:'Prosperity',state:'SC'},
+  'GP - Rome':{city:'Rome',state:'GA'},
+  // Weyerhaeuser (SPIB IDs: 62,63,72,128,163,277,400,403,490,2001)
+  'Weyerhaeuser - Dierks':{city:'Dierks',state:'AR'},'Weyerhaeuser - Millport':{city:'Millport',state:'AL'},
+  'Weyerhaeuser - Dodson':{city:'Dodson',state:'LA'},'Weyerhaeuser - Holden':{city:'Holden',state:'LA'},
+  'Weyerhaeuser - Philadelphia':{city:'Philadelphia',state:'MS'},'Weyerhaeuser - Bruce':{city:'Bruce',state:'MS'},
+  'Weyerhaeuser - Magnolia':{city:'Magnolia',state:'MS'},'Weyerhaeuser - Grifton':{city:'Grifton',state:'NC'},
+  'Weyerhaeuser - Plymouth':{city:'Plymouth',state:'NC'},'Weyerhaeuser - Idabel':{city:'Idabel',state:'OK'},
+  // Interfor
+  'Interfor - Monticello':{city:'Monticello',state:'AR'},'Interfor - Georgetown':{city:'Georgetown',state:'SC'},
+  'Interfor - Fayette':{city:'Fayette',state:'AL'},'Interfor - DeQuincy':{city:'DeQuincy',state:'LA'},
+  'Interfor - Preston':{city:'Preston',state:'GA'},'Interfor - Perry':{city:'Perry',state:'GA'},
+  'Interfor - Baxley':{city:'Baxley',state:'GA'},'Interfor - Swainsboro':{city:'Swainsboro',state:'GA'},
+  'Interfor - Thomaston':{city:'Thomaston',state:'GA'},'Interfor - Eatonton':{city:'Eatonton',state:'GA'},
+  // PotlatchDeltic (SPIB IDs: 146,404,434)
+  'PotlatchDeltic - Warren':{city:'Warren',state:'AR'},'PotlatchDeltic - Ola':{city:'Ola',state:'AR'},
+  'PotlatchDeltic - Waldo':{city:'Waldo',state:'AR'},
+  // Rex Lumber
+  'Rex Lumber - Bristol':{city:'Bristol',state:'FL'},'Rex Lumber - Graceville':{city:'Graceville',state:'FL'},
+  'Rex Lumber - Troy':{city:'Troy',state:'AL'},'Rex Lumber - Brookhaven':{city:'Brookhaven',state:'MS'},
+  // Others
+  'Tolko - Leland':{city:'Leland',state:'MS'},
+  'Idaho Forest Group - Lumberton':{city:'Lumberton',state:'MS'},
+  'Hunt Forest Products - Winnfield':{city:'Winnfield',state:'LA'},
+  'Biewer - Newton':{city:'Newton',state:'MS'},'Biewer - Winona':{city:'Winona',state:'MS'},
+  'Anthony Timberlands - Bearden':{city:'Bearden',state:'AR'},'Anthony Timberlands - Malvern':{city:'Malvern',state:'AR'},
+  'T.R. Miller - Brewton':{city:'Brewton',state:'AL'},
+  'Lincoln Lumber - Jasper':{city:'Jasper',state:'TX'},'Lincoln Lumber - Conroe':{city:'Conroe',state:'TX'},
+  'Barge Forest Products - Macon':{city:'Macon',state:'MS'},
+  'Scotch Lumber - Fulton':{city:'Fulton',state:'AL'},
+  'Klausner Lumber - Live Oak':{city:'Live Oak',state:'FL'},
+  'Hood Industries - Beaumont':{city:'Beaumont',state:'MS'},'Hood Industries - Waynesboro':{city:'Waynesboro',state:'MS'},
+  'Mid-South Lumber - Booneville':{city:'Booneville',state:'MS'},
+  'Murray Lumber - Murray':{city:'Murray',state:'KY'},
+  'Langdale Forest Products - Valdosta':{city:'Valdosta',state:'GA'},
+  'LaSalle Lumber - Urania':{city:'Urania',state:'LA'},
+  'Big River Forest Products - Gloster':{city:'Gloster',state:'MS'},
+  'Hankins Lumber - Grenada':{city:'Grenada',state:'MS'},
+  'Westervelt Lumber - Moundville':{city:'Moundville',state:'AL'},'Westervelt Lumber - Tuscaloosa':{city:'Tuscaloosa',state:'AL'}
+};
+
+// Company alias mapping for normalization: alternate names → canonical company prefix
+const _MILL_COMPANY_ALIASES={
+  'canfor':'Canfor','canfor southern pine':'Canfor','csp':'Canfor',
+  'west fraser':'West Fraser','wf':'West Fraser',
+  'georgia-pacific':'GP','georgia pacific':'GP','gp':'GP',
+  'weyerhaeuser':'Weyerhaeuser','wey':'Weyerhaeuser','weyer':'Weyerhaeuser',
+  'interfor':'Interfor',
+  'potlatchdeltic':'PotlatchDeltic','potlatch':'PotlatchDeltic','potlatch deltic':'PotlatchDeltic','pld':'PotlatchDeltic','pd':'PotlatchDeltic',
+  'rex':'Rex Lumber','rex lumber':'Rex Lumber',
+  'tolko':'Tolko',
+  'idaho forest group':'Idaho Forest Group','ifg':'Idaho Forest Group','idaho forest':'Idaho Forest Group',
+  'hunt':'Hunt Forest Products','hunt forest':'Hunt Forest Products','hunt forest products':'Hunt Forest Products',
+  'biewer':'Biewer','biewer lumber':'Biewer',
+  'anthony':'Anthony Timberlands','anthony timberlands':'Anthony Timberlands',
+  'tr miller':'T.R. Miller','t.r. miller':'T.R. Miller','t r miller':'T.R. Miller',
+  'lincoln':'Lincoln Lumber','lincoln lumber':'Lincoln Lumber',
+  'barge':'Barge Forest Products','barge forest':'Barge Forest Products',
+  'scotch':'Scotch Lumber','scotch lumber':'Scotch Lumber',
+  'klausner':'Klausner Lumber','klausner lumber':'Klausner Lumber',
+  'hood':'Hood Industries','hood industries':'Hood Industries',
+  'mid south':'Mid-South Lumber','mid-south':'Mid-South Lumber','mid south lumber':'Mid-South Lumber','mid south lumber company':'Mid-South Lumber','midsouth':'Mid-South Lumber','midsouth lumber':'Mid-South Lumber',
+  'murray':'Murray Lumber','murray lumber':'Murray Lumber',
+  'langdale':'Langdale Forest Products','langdale forest':'Langdale Forest Products',
+  'lasalle':'LaSalle Lumber','lasalle lumber':'LaSalle Lumber',
+  'big river':'Big River Forest Products','big river forest':'Big River Forest Products',
+  'hankins':'Hankins Lumber','hankins lumber':'Hankins Lumber',
+  'westervelt':'Westervelt Lumber','westervelt lumber':'Westervelt Lumber'
+};
+
+// Derived company-level list (for datalists/dropdowns — one per company, not per location)
+const MILL_COMPANIES=[...new Set(Object.keys(MILL_DIRECTORY).map(n=>n.split(' - ')[0]))].sort();
+
+// Extract company name from "Company - City" or alias
+function extractMillCompany(name){
+  if(!name)return name;
+  const trimmed=name.trim();
+  if(trimmed.includes(' - '))return trimmed.split(' - ')[0].trim();
+  const lower=trimmed.toLowerCase().replace(/[_\-–—]+/g,' ').replace(/\s+/g,' ');
+  const sortedAliases=Object.entries(_MILL_COMPANY_ALIASES).sort((a,b)=>b[0].length-a[0].length);
+  for(const[alias,company]of sortedAliases){
+    if(lower===alias||lower.startsWith(alias+' '))return company;
+  }
+  return trimmed;
+}
+
+// Get all locations for a company from MILL_DIRECTORY + CRM mills
+function getMillLocations(companyName){
+  const locs=[];
+  // From MILL_DIRECTORY
+  Object.entries(MILL_DIRECTORY).forEach(([name,info])=>{
+    if(name.startsWith(companyName+' - ')){
+      locs.push({city:info.city,state:info.state,name:name,label:`${info.city}, ${info.state}`});
+    }
+  });
+  // From CRM mills (server-loaded locations array)
+  const crmMill=S.mills.find(m=>m.name===companyName);
+  if(crmMill&&Array.isArray(crmMill.locations)){
+    crmMill.locations.forEach(loc=>{
+      if(loc.city&&!locs.find(l=>l.city.toLowerCase()===loc.city.toLowerCase()&&l.state.toUpperCase()===(loc.state||'').toUpperCase())){
+        locs.push({city:loc.city,state:loc.state||'',name:loc.name||`${companyName} - ${loc.city}`,label:`${loc.city}, ${loc.state||''}`});
+      }
+    });
+  }
+  return locs;
+}
+
+// Build city→canonical lookup from MILL_DIRECTORY
+const _MILL_CITY_LOOKUP={};
+Object.entries(MILL_DIRECTORY).forEach(([name,info])=>{
+  const city=info.city.toLowerCase();
+  if(!_MILL_CITY_LOOKUP[city])_MILL_CITY_LOOKUP[city]=[];
+  _MILL_CITY_LOOKUP[city].push(name);
+});
+
+/**
+ * Normalize a raw mill name to canonical "Company - City" format.
+ * Handles: "POTLATCHDELTIC OLA" → "PotlatchDeltic - Ola"
+ *          "Canfor DQ" → "Canfor - DeQuincy"
+ *          "GP" + city="Gurdon, AR" → "GP - Gurdon"
+ *          "Warren" → "PotlatchDeltic - Warren" (city-only lookup)
+ * @param {string} raw - Raw mill name from intake
+ * @param {string} [city] - Optional city hint (e.g. "Gurdon, AR")
+ * @returns {{ name: string, city: string, state: string }} Normalized result
+ */
+function normalizeMillName(raw, city) {
+  if (!raw) return { name: raw, city: city || '', state: '', company: '' };
+  const trimmed = raw.trim();
+
+  // 1. Already canonical? Direct lookup in MILL_DIRECTORY
+  if (MILL_DIRECTORY[trimmed]) {
+    const d = MILL_DIRECTORY[trimmed];
+    return { name: trimmed, city: d.city + ', ' + d.state, state: d.state, company: extractMillCompany(trimmed) };
+  }
+
+  const lower = trimmed.toLowerCase().replace(/[_\-–—]+/g, ' ').replace(/\s+/g, ' ');
+
+  // 2. Try "Company City" pattern (e.g. "POTLATCHDELTIC OLA", "Canfor DeQuincy", "GP Gurdon")
+  // Also handles "Company - City" with wrong casing
+  // Sort aliases longest-first so "mid south lumber company" matches before "mid south"
+  const sortedAliases = Object.entries(_MILL_COMPANY_ALIASES).sort((a, b) => b[0].length - a[0].length);
+  for (const [alias, company] of sortedAliases) {
+    if (lower.startsWith(alias)) {
+      // Extract the city portion after the company alias
+      let rest = lower.slice(alias.length).replace(/^[\s\-–—]+/, '').trim();
+      // Strip common corporate suffixes that aren't city names
+      rest = rest.replace(/\b(company|co|inc|llc|corp|corporation|lumber|forest|products|enterprises|industries)\b/gi, '').replace(/\s+/g, ' ').trim();
+      if (!rest && city) {
+        // Company-only name (e.g. "GEORGIA PACIFIC") — use city hint
+        rest = city.split(',')[0].trim().toLowerCase();
+      }
+      if (!rest) {
+        // Company-only name with no city hint — check if company has exactly one mill
+        const companyMills = Object.entries(MILL_DIRECTORY).filter(([n]) => n.startsWith(company + ' - '));
+        if (companyMills.length === 1) {
+          const [canonName, info] = companyMills[0];
+          return { name: canonName, city: info.city + ', ' + info.state, state: info.state, company };
+        }
+        // Multiple mills — return company name only (user needs to specify location)
+        return { name: company, city: '', state: '', company };
+      }
+
+      // Common city abbreviations
+      const cityAbbrevs = {
+        'dq': 'dequincy', 'deq': 'dequincy',
+        'er': 'el dorado', 'eld': 'el dorado',
+        'tv': 'thomasville', 'mtl': 'moultrie',
+        'fc': 'frisco city', 'nb': 'new boston'
+      };
+      const normalizedCity = cityAbbrevs[rest] || rest;
+
+      // Search MILL_DIRECTORY for matching company + city
+      for (const [canonName, info] of Object.entries(MILL_DIRECTORY)) {
+        if (!canonName.startsWith(company + ' - ')) continue;
+        if (info.city.toLowerCase() === normalizedCity ||
+            canonName.split(' - ')[1].toLowerCase() === normalizedCity ||
+            canonName.split(' - ')[1].toLowerCase().replace(/\s+/g, '') === normalizedCity.replace(/\s+/g, '')) {
+          return { name: canonName, city: info.city + ', ' + info.state, state: info.state, company };
+        }
+      }
+
+      // Company recognized but city not in directory — create formatted name
+      const formattedCity = normalizedCity.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+      const cityState = city || '';
+      const state = cityState.split(',').length > 1 ? cityState.split(',').pop().trim().toUpperCase() : '';
+      return { name: company + ' - ' + formattedCity, city: cityState || formattedCity, state, company };
+    }
+  }
+
+  // 3. City-only name (e.g. "Warren", "Ola", "Waldo") — look up by city
+  const cityMatches = _MILL_CITY_LOOKUP[lower];
+  if (cityMatches && cityMatches.length === 1) {
+    const d = MILL_DIRECTORY[cityMatches[0]];
+    return { name: cityMatches[0], city: d.city + ', ' + d.state, state: d.state, company: extractMillCompany(cityMatches[0]) };
+  }
+
+  // 4. Check if raw name is close to any MILLS entry (case-insensitive)
+  const millMatch = MILLS.find(m => m.toLowerCase() === lower);
+  if (millMatch && MILL_DIRECTORY[millMatch]) {
+    const d = MILL_DIRECTORY[millMatch];
+    return { name: millMatch, city: d.city + ', ' + d.state, state: d.state, company: extractMillCompany(millMatch) };
+  }
+
+  // 5. No match — return cleaned up version
+  const state = city ? (city.split(',').pop() || '').trim().toUpperCase() : '';
+  return { name: trimmed, city: city || '', state, company: extractMillCompany(trimmed) };
+}
+const NAV=[{id:'dashboard',icon:'📊',label:'Dashboard'},{id:'leaderboard',icon:'🏆',label:'Leaderboard'},{id:'insights',icon:'🎯',label:'Daily Briefing'},{id:'blotter',icon:'📋',label:'Trade Blotter'},{id:'pnl-calendar',icon:'📅',label:'P&L Calendar'},{id:'benchmark',icon:'🎯',label:'vs Market'},{id:'risk',icon:'⚠️',label:'Risk'},{id:'quotes',icon:'💰',label:'Quote Engine'},{id:'mi-intake',icon:'📥',label:'Mill Intake'},{id:'mi-prices',icon:'📊',label:'All Prices'},{id:'mi-intel',icon:'🧠',label:'Intelligence'},{id:'products',icon:'📦',label:'By Product'},{id:'crm',icon:'🏢',label:'CRM'},{id:'rldata',icon:'📈',label:'RL Data'},{id:'settings',icon:'⚙️',label:'Settings'}];
 
 // Nav groups for collapsible sidebar
 const NAV_GROUPS=[
-  {label:'Trading',items:['dashboard','leaderboard','blotter','pnl-calendar','quotes','mill-pricing']},
+  {label:'Trading',items:['dashboard','leaderboard','blotter','pnl-calendar','quotes']},
+  {label:'Mill Intel',items:['mi-intake','mi-prices','mi-intel']},
   {label:'Relationships',items:['crm','products']},
   {label:'Analytics',items:['insights','benchmark','risk','rldata']},
   {label:'System',items:['settings']}
@@ -83,7 +410,15 @@ let S={
   unitsMode:LS('unitsMode',true),
   // Mill Pricing intake
   millQuotes:LS('millQuotes',[]),
-  millPricingTab:'intake'
+  millPricingTab:'intake',
+  // Mill Intel state
+  miFilterProduct:'',
+  miFilterMill:'',
+  miFilterTrader:'',
+  miFilterDays:7,
+  miQuoteCustomer:'',
+  miQuoteItems:[],
+  quoteTemplates:LS('quoteTemplates',[])
 };
 
 // Migrate bad model IDs
@@ -179,6 +514,49 @@ function migrateTraderNames(){
   if(changed){SS('buys',S.buys);SS('sells',S.sells);SS('mills',S.mills);SS('customers',S.customers);}
 }
 migrateTraderNames();
+
+// Migrate buy mill names from "Company - City" to company-only
+(function migrateMillNames(){
+  let changed=false;
+  S.buys.forEach(b=>{
+    if(b.mill&&b.mill.includes(' - ')){
+      const company=extractMillCompany(b.mill);
+      // Move the location part to origin if origin is empty
+      if(!b.origin){
+        const info=MILL_DIRECTORY[b.mill];
+        if(info){
+          b.origin=info.city+', '+info.state;
+        }else{
+          // Fallback: parse city from "Company - City" format
+          const cityPart=b.mill.split(' - ').slice(1).join(' - ').trim();
+          if(cityPart)b.origin=cityPart;
+        }
+      }
+      b.mill=company;
+      changed=true;
+    }
+  });
+  // Also migrate S.mills names to company-level
+  const companyMap={};
+  S.mills.forEach(m=>{
+    if(m.name&&m.name.includes(' - ')){
+      const company=extractMillCompany(m.name);
+      if(!companyMap[company])companyMap[company]={...m,name:company,locations:[]};
+      if(m.origin&&!companyMap[company].locations.includes(m.origin))companyMap[company].locations.push(m.origin);
+      changed=true;
+    }
+  });
+  if(Object.keys(companyMap).length){
+    // Replace per-location entries with company entries
+    const companyNames=new Set(Object.keys(companyMap));
+    S.mills=S.mills.filter(m=>!m.name||!m.name.includes(' - ')||!companyNames.has(extractMillCompany(m.name)));
+    Object.values(companyMap).forEach(cm=>{
+      if(!S.mills.find(m=>m.name===cm.name))S.mills.push(cm);
+    });
+  }
+  if(changed){SS('buys',S.buys);SS('mills',S.mills);}
+})();
+
 const genId=()=>{
   // Timestamp-based + random suffix for cross-device uniqueness
   // Returns a large integer that won't collide across devices

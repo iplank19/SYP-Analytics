@@ -1377,28 +1377,50 @@ function render(){
       </div>
       `:''}`
   }
-  else if(S.view==='quotes'){
-    // Quote Engine View
+  else if(S.view==='quotes'||S.view==='mi-quotes'){
+    // Quote Engine View — with SOURCE / BUILD tabs
+    const _qeTab=S.view==='mi-quotes'?'source':(S.quoteTab||'build');
+    if(S.view==='mi-quotes'){S.view='quotes';S.quoteTab='source';}
+
+    // SOURCE tab: render Smart Quotes inline
+    if(_qeTab==='source'){
+      c.innerHTML=`
+        <div style="display:flex;gap:0;margin-bottom:16px">
+          <button class="btn ${_qeTab==='source'?'btn-primary':'btn-default'}" style="border-radius:var(--radius) 0 0 var(--radius)" onclick="S.quoteTab='source';render()">💡 SOURCE</button>
+          <button class="btn ${_qeTab==='build'?'btn-primary':'btn-default'}" style="border-radius:0 var(--radius) var(--radius) 0;position:relative" onclick="S.quoteTab='build';render()">📋 BUILD${(S.quoteItems||[]).length?' <span style=\"background:var(--accent);color:var(--bg);border-radius:8px;padding:1px 6px;font-size:9px;margin-left:4px\">'+(S.quoteItems||[]).length+'</span>':''}</button>
+        </div>
+        <div id="mi-quotes-inline"></div>`;
+      // Render Smart Quotes into the inline container
+      setTimeout(()=>{
+        const container=document.getElementById('mi-quotes-inline');
+        if(container) renderMiSmartQuotesInline(container);
+      },0);
+      return;
+    }
+
     const latestRL=S.rl.length?S.rl[S.rl.length-1]:null;
-    const mills=myMills().length?myMills():MILLS.map(m=>({name:m,location:m.includes('DeQuincy')||m.includes('Urbana')?'DeQuincy, LA':m.includes('Huttig')?'Huttig, AR':m.includes('Leola')?'Leola, AR':m.includes('Monticello')?'Monticello, AR':m.includes('Georgetown')?'Georgetown, SC':m.includes('Clarendon')?'Clarendon, NC':m.includes('Camden')?'Camden, AR':m.includes('Bristol')?'Bristol, FL':m.includes('Graceville')?'Graceville, FL':m.includes('Dierks')?'Dierks, AR':m.includes('Leland')?'Leland, MS':'Warren, AR'}));
+    const mills=myMills().length?myMills():MILL_COMPANIES.map(c=>({name:c,location:getMillLocations(c).map(l=>l.label).join(', ')}));
     const defaultOrigins=['Warren, AR','Gurdon, AR','Camden, AR','Monticello, AR','Clarendon, NC','Huttig, AR','DeQuincy, LA'];
     const origins=[...new Set([...defaultOrigins,...mills.map(m=>m.location||m.city||'').filter(Boolean)])];
-    
+
     // Get customers for current profile (filtered to current trader)
     const currentProfile=S.quoteProfile||'default';
     const profiles=S.quoteProfiles||{default:{name:'Default',customers:[]}};
     const profileCustomerIds=profiles[currentProfile]?.customers||[];
     const customers=myCustomers().filter(c=>c.type!=='mill');
-    
+
     // Calculate stats
     const items=S.quoteItems||[];
     const selectedItems=items.filter(i=>i.selected!==false);
-    const knownItems=selectedItems.filter(i=>!i.isShort);
-    const shortItems=selectedItems.filter(i=>i.isShort);
     const totalTLs=selectedItems.reduce((s,i)=>s+(i.tls||0),0);
-    const avgMargin=selectedItems.length?selectedItems.reduce((s,i)=>s+((i.fob||0)-(i.cost||0)),0)/selectedItems.length:0;
-    
+    // Determine current destination for landed cost calc
+    const _qeDest=S.specificCity||S.singleQuoteCustomer&&(()=>{const c=customers.find(x=>x.name===S.singleQuoteCustomer);return c?.locations?.[0]||c?.destination||'';})() ||'';
+
     c.innerHTML=`
+      <div style="display:flex;gap:0;margin-bottom:16px">
+        <button class="btn ${_qeTab==='source'?'btn-primary':'btn-default'}" style="border-radius:var(--radius) 0 0 var(--radius)" onclick="S.quoteTab='source';render()">💡 SOURCE</button>
+        <button class="btn ${_qeTab==='build'?'btn-primary':'btn-default'}" style="border-radius:0 var(--radius) var(--radius) 0" onclick="S.quoteTab='build';render()">📋 BUILD${items.length?' <span style=\"background:var(--accent);color:var(--bg);border-radius:8px;padding:1px 6px;font-size:9px;margin-left:4px\">'+items.length+'</span>':''}</button>
+      </div>
       ${S.trader==='Admin'?`<div style="margin-bottom:12px;padding:8px 12px;background:rgba(232,115,74,0.1);border:1px solid #e8734a;border-radius:4px;font-size:11px;color:#e8734a">🔑 <strong>Admin View</strong> — This is the Admin quote engine. Each trader has their own separate quote items and profiles.</div>`:''}
       <!-- Profile Selector -->
       <div class="card" style="margin-bottom:12px;padding:10px">
@@ -1420,20 +1442,16 @@ function render(){
           <div class="quote-toolbar">
             <span style="font-weight:600;color:var(--accent)">📋 Quote Builder</span>
             <div style="flex:1"></div>
+            <button class="btn btn-primary btn-sm" onclick="S.quoteTab='source';render()" title="Find best sources from Mill Intel">💡 Smart Source</button>
             <button class="btn btn-warn btn-sm" onclick="showQuickEntryModal()" title="Spreadsheet-style rapid entry">Quick Entry</button>
             <button class="btn btn-success btn-sm" onclick="addQuoteItem(false)">+ Add</button>
-            <button class="btn btn-info btn-sm" onclick="addQuoteItem(true)" title="Add short/spec position">+ Short</button>
-            <button class="btn btn-default btn-sm" onclick="loadFromInventory()">📦 Inventory</button>
-            <button class="btn btn-default btn-sm" onclick="loadFromMillQuotes()" title="Load current mill offers into quote items">🏭 Mill Quotes</button>
-            <button class="btn btn-warn btn-sm" onclick="aiPriceSelected()" title="AI suggest prices based on RL">🤖 AI Price</button>
-            <button class="btn btn-default btn-sm" onclick="refreshFromRL()" title="Update FOB prices from latest RL print">🔄 Refresh RL</button>
+            <button class="btn btn-default btn-sm" onclick="loadFromMillQuotes()" title="Load current mill offers from Mill Intel DB">🏭 Mill Quotes</button>
             <button class="btn btn-default btn-sm" onclick="clearQuoteItems()">Clear</button>
           </div>
           
           <div class="card">
             <div class="quote-stats">
               <div class="quote-stat"><span class="quote-stat-val">${selectedItems.length}</span><span class="quote-stat-lbl">Items</span></div>
-              <div class="quote-stat"><span class="quote-stat-val" style="color:var(--info)">${shortItems.length}</span><span class="quote-stat-lbl">Shorts</span></div>
               <div class="quote-stat"><span class="quote-stat-val">${totalTLs}</span><span class="quote-stat-lbl">TLs</span></div>
               <div class="quote-stat"><span class="quote-stat-val">${S.lanes.length}</span><span class="quote-stat-lbl">Lanes</span></div>
             </div>
@@ -1445,29 +1463,29 @@ function render(){
                   <th class="col-origin">Origin</th>
                   <th style="width:55px">Ship Wk</th>
                   <th style="width:45px">TLs</th>
-                  <th style="width:70px">RL Mkt</th>
-                  <th style="width:70px" title="Best mill quote from Mill Pricing database">Mill $</th>
-                  <th style="width:70px">Sell</th>
+                  <th style="width:70px" title="Mill FOB cost">Cost</th>
+                  <th style="width:70px">FOB Sell</th>
+                  <th style="width:70px" title="FOB Sell + freight to destination">Landed</th>
                   <th class="col-act"></th>
                 </tr></thead>
                 <tbody id="quote-items-body">
                   ${items.length?items.map((item,idx)=>{
-                    const parsed=parseProductString(item.product);
-                    const originRegion=getRegionFromOrigin(item.origin);
-                    const rlPrice=latestRL?getRLPrice(latestRL,parsed.base,parsed.length,originRegion):null;
-                    const regionLabel={west:'W',central:'C',east:'E'}[originRegion]||'?';
-                    return`<tr class="${item.isShort?'quote-row-short':''}" data-idx="${idx}">
+                    const isMSR=item.product?.toUpperCase().includes('MSR')||item.product?.toUpperCase().includes('2400');
+                    const destMiles=_qeDest?getLaneMiles(item.origin,_qeDest):null;
+                    const frt=destMiles?calcFreightPerMBF(destMiles,item.origin,isMSR):null;
+                    const landed=frt!=null&&item.fob?(item.fob+frt):null;
+                    return`<tr data-idx="${idx}">
                       <td><input type="checkbox" ${item.selected!==false?'checked':''} onchange="toggleQuoteItem(${idx},this.checked)"></td>
-                      <td>${item.isShort?'<span class="short-dot" title="Short position"></span>':''}<input type="text" value="${item.product||''}" onchange="updateQuoteItem(${idx},'product',this.value)" placeholder="2x4 #2 16'"></td>
+                      <td><input type="text" value="${item.product||''}" onchange="updateQuoteItem(${idx},'product',this.value)" placeholder="2x4 #2 16'"></td>
                       <td><input type="text" value="${item.origin||''}" onchange="updateQuoteItem(${idx},'origin',this.value)" placeholder="City, ST" list="origin-list"></td>
                       <td><input type="text" value="${item.shipWeek||''}" onchange="updateQuoteItem(${idx},'shipWeek',this.value)" placeholder="W1" style="width:45px;text-align:center"></td>
                       <td><input type="number" value="${item.tls||1}" onchange="updateQuoteItem(${idx},'tls',+this.value)" min="1" style="width:40px;text-align:center"></td>
-                      <td style="text-align:right;font-size:10px"><span style="color:var(--muted)">${regionLabel}:</span> <span style="color:var(--accent)">${rlPrice?'$'+rlPrice:'—'}</span></td>
-                      <td style="text-align:right;font-size:10px">${(()=>{const mc=typeof getMillCostForProduct==='function'?getMillCostForProduct(item.product,item.origin):null;return mc?'<span style="color:var(--positive)">$'+mc+'</span>':'<span style="color:var(--muted)">—</span>';})()}</td>
+                      <td style="text-align:right;font-size:10px"><span style="color:var(--muted)">${item.cost?'$'+item.cost:'—'}</span></td>
                       <td><input type="number" value="${item.fob||''}" onchange="updateQuoteItem(${idx},'fob',+this.value)" placeholder="$" style="width:60px"></td>
+                      <td style="text-align:right;font-size:10px;font-weight:600">${landed!=null?'<span style="color:var(--positive)">$'+landed+'</span>':'<span style="color:var(--muted)">—</span>'}</td>
                       <td><button class="quote-del-btn" onclick="removeQuoteItem(${idx})">×</button></td>
                     </tr>`;
-                  }).join(''):'<tr><td colspan="9" class="empty-state">No items yet. Click "+ Add Item" to start.</td></tr>'}
+                  }).join(''):'<tr><td colspan="9" class="empty-state">No items yet. Click "Smart Source" or "+ Add" to start.</td></tr>'}
                 </tbody>
               </table>
               <datalist id="origin-list">
@@ -2099,13 +2117,20 @@ function render(){
     else if(crmTab==='mills'){
       contentHTML=`
         <div class="card"><div class="card-header"><span class="card-title warn">${S.trader==='Admin'?'ALL MILLS':'MY MILLS'}</span><button class="btn btn-default btn-sm" onclick="showMillModal()">+ Add</button></div>
-          <div style="overflow-x:auto"><table><thead><tr>${S.trader==='Admin'?'<th>👤</th>':''}<th>Mill</th><th>Locations</th><th>Trades</th><th>Volume</th><th></th></tr></thead><tbody>
+          <div style="overflow-x:auto"><table><thead><tr>${S.trader==='Admin'?'<th>👤</th>':''}<th>Mill</th><th>Locations</th><th>Last Quoted</th><th>Trades</th><th>Volume</th><th></th></tr></thead><tbody>
             ${mills.length?mills.map(m=>{
-              const locs=m.locations||[m.origin].filter(Boolean);
-              const trades=S.trader==='Admin'?S.buys.filter(b=>b.mill===m.name):S.buys.filter(b=>b.mill===m.name&&(b.trader===S.trader||!b.trader));
+              const rawLocs=Array.isArray(m.locations)?m.locations:[];
+              const locs=rawLocs.length?rawLocs.map(l=>typeof l==='string'?l:l.label||`${l.city}, ${l.state||''}`):[m.origin||m.location].filter(Boolean);
+              const company=m.name;
+              const trades=S.trader==='Admin'?S.buys.filter(b=>extractMillCompany(b.mill)===company):S.buys.filter(b=>extractMillCompany(b.mill)===company&&(b.trader===S.trader||!b.trader));
               const vol=trades.reduce((s,b)=>s+(b.volume||0),0);
-              return`<tr>${S.trader==='Admin'?`<td><span style="display:inline-block;width:18px;height:18px;border-radius:50%;background:${traderColor(m.trader||'Ian P')};color:var(--bg);font-size:9px;font-weight:700;text-align:center;line-height:18px" title="${m.trader||'Ian P'}">${traderInitial(m.trader||'Ian P')}</span></td>`:''}<td class="bold">${m.name}</td><td style="font-size:10px">${locs.length?locs.join(', '):'—'}</td><td class="right">${trades.length}</td><td class="right">${fmtN(vol)} MBF</td><td style="white-space:nowrap"><button class="btn btn-default btn-sm" onclick="editMill('${m.name}')">Edit</button> <button class="btn btn-default btn-sm" onclick="deleteMill('${m.name}')" style="color:var(--negative)">×</button></td></tr>`;
-            }).join(''):`<tr><td colspan="${S.trader==='Admin'?6:5}" class="empty-state">No mills yet</td></tr>`}
+              const lq=m.last_quoted;
+              const lqAge=lq?Math.floor((new Date()-new Date(lq))/(1000*60*60*24)):null;
+              const lqColor=lqAge===null?'var(--muted)':lqAge<=3?'var(--positive)':lqAge<=7?'var(--warn,var(--accent))':'var(--negative)';
+              const lqLabel=lq?(lqAge===0?'Today':lqAge===1?'Yesterday':lqAge+'d ago'):'Never';
+              const lqTitle=lq?`${lq} (${m.quote_count||0} quotes)`:'No quotes on file';
+              return`<tr>${S.trader==='Admin'?`<td><span style="display:inline-block;width:18px;height:18px;border-radius:50%;background:${traderColor(m.trader||'Ian P')};color:var(--bg);font-size:9px;font-weight:700;text-align:center;line-height:18px" title="${m.trader||'Ian P'}">${traderInitial(m.trader||'Ian P')}</span></td>`:''}<td class="bold">${m.name}</td><td style="font-size:10px">${locs.length?locs.join(', '):'—'}</td><td style="font-size:10px;color:${lqColor}" title="${lqTitle}">${lqLabel}</td><td class="right">${trades.length}</td><td class="right">${fmtN(vol)} MBF</td><td style="white-space:nowrap"><button class="btn btn-default btn-sm" onclick="editMill('${m.name}')">Edit</button> <button class="btn btn-default btn-sm" onclick="deleteMill('${m.name}')" style="color:var(--negative)">×</button></td></tr>`;
+            }).join(''):`<tr><td colspan="${S.trader==='Admin'?7:6}" class="empty-state">No mills yet</td></tr>`}
           </tbody></table></div></div>`;
     }
 
@@ -2491,6 +2516,18 @@ function render(){
   }
   else if(S.view==='mill-pricing'){
     renderMillPricing();
+  }
+  else if(S.view==='mi-intake'){
+    renderMiIntake();
+  }
+  else if(S.view==='mi-prices'){
+    renderMiAggregated();
+  }
+  else if(S.view==='mi-intel'){
+    renderMiIntelligence();
+  }
+  else if(S.view==='mi-quotes'){
+    renderMiSmartQuotes();
   }
   else if(S.view==='pnl-calendar'){
     c.innerHTML=renderPnLCalendar();
