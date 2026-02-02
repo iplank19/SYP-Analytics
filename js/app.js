@@ -266,10 +266,16 @@ function initStatusBar(){
 
 // INIT
 async function init(){
+  // Check for matrix-only mode first
+  if(sessionStorage.getItem('syp_matrix_only')==='true'){
+    launchMatrixMode();
+    return;
+  }
+
   // Always require login
   const isLoggedIn=sessionStorage.getItem('syp_logged_in')==='true';
   const sessionTrader=sessionStorage.getItem('syp_trader');
-  
+
   if(!isLoggedIn||!sessionTrader){
     showLoginScreen();
     return;
@@ -344,9 +350,148 @@ function showLoginScreen(){
           <input type="password" id="new-password" placeholder="New password" style="width:100%;padding:8px;margin-bottom:8px;text-align:center;font-size:12px">
           <button class="btn btn-default btn-sm" style="width:100%" onclick="setupTraderPassword()">Set Password</button>
         </div>
+        <div style="margin-top:20px;border-top:1px solid var(--border);padding-top:16px">
+          <button class="btn btn-default" style="width:100%;padding:10px;font-size:12px" onclick="showMatrixLogin()">📊 Matrix Login</button>
+          <div style="color:var(--muted);font-size:9px;margin-top:4px">View pricing matrix only</div>
+        </div>
       </div>
     </div>`;
   setTimeout(()=>document.getElementById('login-password')?.focus(),100);
+}
+
+function showMatrixLogin(){
+  document.getElementById('app').innerHTML=`
+    <div style="display:flex;align-items:center;justify-content:center;height:100vh;background:var(--bg)">
+      <div style="background:var(--panel);border:1px solid var(--border);padding:40px;width:320px;text-align:center">
+        <div style="background:linear-gradient(135deg,var(--accent),#3a5eb8);padding:12px;font-weight:700;font-size:16px;color:var(--bg);margin-bottom:24px">PRICING MATRIX</div>
+        <div style="color:var(--muted);font-size:11px;margin-bottom:20px">Enter PIN to view mill pricing</div>
+        <input type="password" id="matrix-pin" placeholder="Enter PIN" style="width:100%;padding:12px;margin-bottom:16px;text-align:center;font-size:18px;letter-spacing:8px" maxlength="10" onkeydown="if(event.key==='Enter')doMatrixLogin()">
+        <button class="btn btn-primary" style="width:100%" onclick="doMatrixLogin()">View Matrix</button>
+        <div id="matrix-login-error" style="color:var(--negative);font-size:11px;margin-top:12px"></div>
+        <button class="btn btn-default btn-sm" style="margin-top:16px" onclick="showLoginScreen()">← Back to Login</button>
+      </div>
+    </div>`;
+  setTimeout(()=>document.getElementById('matrix-pin')?.focus(),100);
+}
+
+async function doMatrixLogin(){
+  const pin=document.getElementById('matrix-pin')?.value||'';
+  const errEl=document.getElementById('matrix-login-error');
+  if(!pin){errEl.textContent='Enter a PIN';return;}
+  errEl.textContent='Checking...';
+  try{
+    const res=await fetch('/api/pricing/auth',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({password:pin})
+    });
+    const data=await res.json();
+    if(data.ok){
+      sessionStorage.setItem('syp_matrix_only','true');
+      launchMatrixMode();
+    }else{
+      errEl.textContent='Invalid PIN';
+    }
+  }catch(e){
+    errEl.textContent='Connection error';
+  }
+}
+
+function launchMatrixMode(){
+  // Hide sidebar, AI panel, mobile nav — show only the matrix
+  document.getElementById('app').innerHTML=`
+    <div style="background:var(--panel);border-bottom:1px solid var(--border);padding:12px 24px;display:flex;justify-content:space-between;align-items:center">
+      <div style="font-size:16px;font-weight:700;color:var(--accent);letter-spacing:1px">SYP PRICING MATRIX</div>
+      <div style="display:flex;align-items:center;gap:16px">
+        <span id="matrix-updated" style="font-size:10px;color:var(--muted)"></span>
+        <button class="btn btn-sm" onclick="loadMatrixView()">Refresh</button>
+        <span style="font-size:11px;color:var(--muted);cursor:pointer;text-decoration:underline" onclick="exitMatrixMode()">Logout</span>
+      </div>
+    </div>
+    <div id="matrix-content" style="padding:16px">
+      <div class="spinner" style="margin:40px auto"></div>
+    </div>`;
+  // Hide everything else
+  const sidebar=document.querySelector('.sidebar');
+  const mobileHeader=document.querySelector('.mobile-header');
+  const mobileNav=document.querySelector('.mobile-nav');
+  const aiToggle=document.querySelector('.ai-toggle');
+  const aiPanel=document.getElementById('ai-panel');
+  if(sidebar)sidebar.style.display='none';
+  if(mobileHeader)mobileHeader.style.display='none';
+  if(mobileNav)mobileNav.style.display='none';
+  if(aiToggle)aiToggle.style.display='none';
+  if(aiPanel)aiPanel.style.display='none';
+  loadMatrixView();
+}
+
+function exitMatrixMode(){
+  sessionStorage.removeItem('syp_matrix_only');
+  location.reload();
+}
+
+async function loadMatrixView(){
+  const el=document.getElementById('matrix-content');
+  if(!el)return;
+  el.innerHTML='<div class="spinner" style="margin:40px auto"></div>';
+  try{
+    const params=new URLSearchParams({detail:'length'});
+    const res=await fetch('/api/mi/quotes/matrix?'+params);
+    if(!res.ok)throw new Error('API error: '+res.status);
+    const data=await res.json();
+    const{matrix,mills:allMills,columns:allColumns,products,best_by_col}=data;
+    if(!allMills.length){el.innerHTML='<div style="text-align:center;color:var(--muted);padding:40px">No mill quotes available.</div>';return}
+
+    // Filter empty
+    const columns=allColumns.filter(col=>allMills.some(m=>matrix[m]&&matrix[m][col]));
+    const mills=allMills.filter(m=>columns.some(col=>matrix[m]&&matrix[m][col]));
+
+    const max_by_col={};
+    columns.forEach(col=>{let mx=0;mills.forEach(m=>{const d=matrix[m]&&matrix[m][col];if(d&&d.price>mx)mx=d.price});max_by_col[col]=mx});
+
+    const colProduct=c=>c.replace(/\s+\d+[\-\/\d]*['"]?$/,'').replace(/\s+RL$/,'');
+    const colGroups=[];
+    let curProd=null,curGroup=[];
+    columns.forEach(c=>{const p=colProduct(c);if(p!==curProd){if(curGroup.length)colGroups.push({product:curProd,cols:curGroup});curProd=p;curGroup=[c]}else curGroup.push(c)});
+    if(curGroup.length)colGroups.push({product:curProd,cols:curGroup});
+
+    const prodHeaders=colGroups.map((g,i)=>`<th colspan="${g.cols.length}" class="${i>0?'group-start':''}" style="text-align:center;background:var(--panel-alt);border-bottom:2px solid var(--accent);font-size:11px;padding:6px 4px">${g.product}</th>`).join('');
+    const lenHeaders=columns.map((c,i)=>{const l=c.split(/\s/).pop();const p=colProduct(c);const pp=i>0?colProduct(columns[i-1]):null;return`<th class="${p!==pp?' group-start':''}" style="text-align:center;font-weight:400;color:var(--muted);min-width:48px">${l}</th>`}).join('');
+
+    const rows=mills.map(m=>{
+      const cells=columns.map((col,i)=>{
+        const d=matrix[m]&&matrix[m][col];
+        const p=colProduct(col);const pp=i>0?colProduct(columns[i-1]):null;const gs=p!==pp?' group-start':'';
+        if(!d)return`<td class="empty-cell${gs}"></td>`;
+        const isBest=d.price===best_by_col[col];
+        const age=Math.floor((new Date()-new Date(d.date))/(864e5));
+        const tip=[d.volume?d.volume+' MBF':'',d.tls?d.tls+' TL':'',d.ship_window,d.trader,age+'d ago'].filter(Boolean).join(' · ');
+        let heatBg='';const minP=best_by_col[col]||d.price;const maxP=max_by_col[col]||d.price;
+        if(maxP>minP){const pct=(d.price-minP)/(maxP-minP);heatBg=`background:hsla(${120-pct*120},45%,45%,0.12);`}else{heatBg='background:hsla(120,45%,45%,0.12);'}
+        const fade=age>3?'opacity:0.5;':'';const best=isBest?'color:var(--positive);font-weight:700;':'';
+        return`<td class="mono${gs}" style="text-align:center;${heatBg}${best}${fade}" title="${tip}">$${d.price}</td>`;
+      }).join('');
+      return`<tr><td style="white-space:nowrap;font-weight:500;font-size:11px;padding:4px 8px;position:sticky;left:0;background:var(--panel);z-index:1">${m}</td>${cells}</tr>`;
+    }).join('');
+
+    el.innerHTML=`
+      <div style="margin-bottom:8px;display:flex;gap:12px;align-items:center;font-size:10px;color:var(--muted)">
+        <span>${mills.length} mills · ${columns.length} columns</span>
+        <span>Green→Red = cheap→expensive</span>
+      </div>
+      <div style="overflow-x:auto;max-height:85vh;overflow-y:auto">
+        <table style="border-collapse:collapse;font-size:10px">
+          <thead style="position:sticky;top:0;z-index:2">
+            <tr><th rowspan="2" style="position:sticky;left:0;background:var(--panel);z-index:3;padding:4px 8px">Mill</th>${prodHeaders}</tr>
+            <tr>${lenHeaders}</tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>`;
+    document.getElementById('matrix-updated').textContent='Updated '+new Date().toLocaleTimeString();
+  }catch(e){
+    el.innerHTML=`<div style="text-align:center;color:var(--negative);padding:40px">Error: ${e.message}</div>`;
+  }
 }
 
 async function doLogin(){
