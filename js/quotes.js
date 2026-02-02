@@ -719,8 +719,11 @@ async function lookupMileageWithAPI(lanes){
               return (lo===ro||lo.startsWith(ro.split(',')[0])||ro.startsWith(lo.split(',')[0]))&&(ld===rd||ld.startsWith(rd.split(',')[0])||rd.startsWith(ld.split(',')[0]));
             });
             if(existingIdx>=0){
-              // Update existing lane — keep user's cached miles if they manually set it
-              console.log(`↻ Lane exists: ${S.lanes[existingIdx].origin} → ${S.lanes[existingIdx].dest} (${S.lanes[existingIdx].miles} mi), skipping API value ${r.miles}`);
+              const old=S.lanes[existingIdx];
+              if(old.miles!==r.miles){
+                console.log(`↻ Lane updated: ${old.origin} → ${old.dest} (${old.miles} → ${r.miles} mi)`);
+                old.miles=r.miles;old.origin=r.origin;old.dest=r.dest;old.added=new Date().toISOString();
+              }
             }else{
               S.lanes.push({origin:r.origin,dest:r.dest,miles:r.miles,added:new Date().toISOString()});
               console.log(`✓ ${r.origin} → ${r.dest}: ${r.miles} mi`);
@@ -750,7 +753,11 @@ async function lookupMileageWithAPI(lanes){
         return (lo===fo||lo.startsWith(fo.split(',')[0])||fo.startsWith(lo.split(',')[0]))&&(ld===fd||ld.startsWith(fd.split(',')[0])||fd.startsWith(ld.split(',')[0]));
       });
       if(existingIdx>=0){
-        console.log(`↻ Lane exists: ${S.lanes[existingIdx].origin} → ${S.lanes[existingIdx].dest} (${S.lanes[existingIdx].miles} mi), skipping API value ${miles}`);
+        const old=S.lanes[existingIdx];
+        if(old.miles!==miles){
+          console.log(`↻ Lane updated: ${old.origin} → ${old.dest} (${old.miles} → ${miles} mi)`);
+          old.miles=miles;old.origin=lane.origin;old.dest=lane.dest;old.added=new Date().toISOString();
+        }
       }else{
         S.lanes.push({origin:lane.origin,dest:lane.dest,miles,added:new Date().toISOString()});
         console.log(`✓ ${lane.origin} → ${lane.dest}: ${miles} mi`);

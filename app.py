@@ -21,8 +21,9 @@ CORS(app)
 CRM_DB_PATH = os.path.join(os.path.dirname(__file__), 'crm.db')
 
 def get_crm_db():
-    conn = sqlite3.connect(CRM_DB_PATH)
+    conn = sqlite3.connect(CRM_DB_PATH, timeout=10)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")
     return conn
 
 def init_crm_db():
@@ -235,7 +236,7 @@ MILL_DIRECTORY = {
     'Canfor - Marion': ('Marion', 'SC'), 'Canfor - Graham': ('Graham', 'NC'),
     'West Fraser - Huttig': ('Huttig', 'AR'), 'West Fraser - Leola': ('Leola', 'AR'),
     'West Fraser - Opelika': ('Opelika', 'AL'), 'West Fraser - Russellville': ('Russellville', 'AR'),
-    'West Fraser - Blackshear': ('Blackshear', 'GA'), 'West Fraser - Dudley GA': ('Dudley', 'GA'),
+    'West Fraser - Blackshear': ('Blackshear', 'GA'), 'West Fraser - Dudley GA': ('Dudley', 'GA'), 'West Fraser - Dudley': ('Dudley', 'GA'),
     'West Fraser - Fitzgerald': ('Fitzgerald', 'GA'), 'West Fraser - New Boston': ('New Boston', 'TX'),
     'West Fraser - Henderson': ('Henderson', 'TX'), 'West Fraser - Lufkin': ('Lufkin', 'TX'),
     'West Fraser - Joyce': ('Joyce', 'LA'),
@@ -245,7 +246,7 @@ MILL_DIRECTORY = {
     'GP - Warrenton': ('Warrenton', 'GA'), 'GP - Taylorsville': ('Taylorsville', 'MS'),
     'GP - Dudley NC': ('Dudley', 'NC'), 'GP - Diboll': ('Diboll', 'TX'),
     'GP - Pineland': ('Pineland', 'TX'), 'GP - Prosperity': ('Prosperity', 'SC'),
-    'GP - Rome': ('Rome', 'GA'),
+    'GP - Rome': ('Rome', 'GA'), 'GP - Rocky Creek': ('Frisco City', 'AL'),
     'Weyerhaeuser - Dierks': ('Dierks', 'AR'), 'Weyerhaeuser - Millport': ('Millport', 'AL'),
     'Weyerhaeuser - Dodson': ('Dodson', 'LA'), 'Weyerhaeuser - Holden': ('Holden', 'LA'),
     'Weyerhaeuser - Philadelphia': ('Philadelphia', 'MS'), 'Weyerhaeuser - Bruce': ('Bruce', 'MS'),
@@ -630,7 +631,6 @@ def warm_geo_cache():
             # Cache by "city, state" and by "location" field
             if r['city'] and r['state']:
                 geo_cache[f"{r['city']}, {r['state']}".lower().strip()] = coords
-                geo_cache[r['city'].lower().strip()] = coords
             if r['location']:
                 geo_cache[r['location'].lower().strip()] = coords
         print(f"Geo cache warmed: {len(geo_cache)} entries from CRM mills")
@@ -1471,10 +1471,10 @@ def create_mill():
             data.get('city', ''),
             data.get('state', ''),
             data.get('region', 'central'),
-            data.get('locations', '[]'),
-            json.dumps(data.get('products')) if data.get('products') else '[]',
+            json.dumps(data.get('locations')) if isinstance(data.get('locations'), list) else data.get('locations', '[]'),
+            json.dumps(data.get('products')) if isinstance(data.get('products'), list) else data.get('products', '[]'),
             data.get('notes', ''),
-            data.get('trader')
+            data.get('trader') or ''
         ))
         conn.commit()
         mill = conn.execute('SELECT * FROM mills WHERE id = ?', (cursor.lastrowid,)).fetchone()
@@ -1484,6 +1484,7 @@ def create_mill():
             sync_mill_to_mi(dict(mill))
         return jsonify(dict(mill)), 201
     except Exception as e:
+        print(f"[create_mill ERROR] {e} | data={request.get_json()}", flush=True)
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/crm/mills/<int:id>', methods=['PUT'])
@@ -1492,7 +1493,7 @@ def update_mill(id):
         data = request.get_json()
         conn = get_crm_db()
         # Only update fields that are present in the request (partial update support)
-        allowed = ['name', 'contact', 'phone', 'email', 'location', 'products', 'notes', 'trader']
+        allowed = ['name', 'contact', 'phone', 'email', 'location', 'locations', 'city', 'state', 'region', 'products', 'notes', 'trader']
         fields = [f for f in allowed if f in data]
         if not fields:
             return jsonify({'error': 'No fields to update'}), 400
@@ -1500,8 +1501,8 @@ def update_mill(id):
         values = []
         for f in fields:
             set_parts.append(f'{f} = ?')
-            if f == 'products':
-                values.append(json.dumps(data[f]) if data[f] else None)
+            if f in ('products', 'locations'):
+                values.append(json.dumps(data[f]) if isinstance(data[f], list) else data.get(f, '[]'))
             else:
                 values.append(data[f])
         set_clause = ', '.join(set_parts) + ', updated_at = CURRENT_TIMESTAMP'
@@ -2212,12 +2213,14 @@ def mi_quote_matrix():
             columns.add(col_key)
             if mill not in matrix:
                 matrix[mill] = {}
+            # Use MILL_DIRECTORY for accurate city/state (CRM parent record may differ)
+            dir_city, dir_state = MILL_DIRECTORY.get(mill, (r['city'], r['state']))
             matrix[mill][col_key] = {
                 'price': r['price'], 'date': r['date'], 'volume': r['volume'],
                 'ship_window': r['ship_window'], 'tls': r['tls'], 'trader': r['trader'],
                 'product': prod, 'length': length,
                 'lat': r['lat'], 'lon': r['lon'], 'region': r['region'],
-                'city': r['city'], 'state': r['state']
+                'city': dir_city, 'state': dir_state
             }
             if col_key not in best_by_col or r['price'] < best_by_col[col_key]:
                 best_by_col[col_key] = r['price']
@@ -2270,11 +2273,12 @@ def mi_quote_matrix():
             products.add(prod)
             if mill not in matrix:
                 matrix[mill] = {}
+            dir_city, dir_state = MILL_DIRECTORY.get(mill, (r['city'], r['state']))
             matrix[mill][prod] = {
                 'price': r['price'], 'date': r['date'], 'volume': r['volume'],
                 'ship_window': r['ship_window'], 'tls': r['tls'], 'trader': r['trader'],
                 'lat': r['lat'], 'lon': r['lon'], 'region': r['region'],
-                'city': r['city'], 'state': r['state']
+                'city': dir_city, 'state': dir_state
             }
             if prod not in best_by_product or r['price'] < best_by_product[prod]:
                 best_by_product[prod] = r['price']
@@ -2675,8 +2679,7 @@ def mi_list_rl():
 def mi_add_rl():
     data = request.json
     entries = data if isinstance(data, list) else [data]
-    conn = get_mi_db()
-    count = 0
+    rows = []
     for e in entries:
         if not e.get('date') or not e.get('product') or not e.get('region'):
             continue
@@ -2686,14 +2689,26 @@ def mi_add_rl():
                 continue
         except (ValueError, TypeError):
             continue
-        conn.execute(
-            "INSERT OR REPLACE INTO rl_prices (date, product, region, price) VALUES (?,?,?,?)",
-            (e['date'], e['product'], e['region'], price)
-        )
-        count += 1
-    conn.commit()
-    conn.close()
-    return jsonify({'created': count}), 201
+        rows.append((e['date'], e['product'], e['region'], price))
+    if rows:
+        for attempt in range(3):
+            try:
+                conn = get_mi_db()
+                conn.executemany(
+                    "INSERT OR REPLACE INTO rl_prices (date, product, region, price) VALUES (?,?,?,?)",
+                    rows
+                )
+                conn.commit()
+                conn.close()
+                return jsonify({'created': len(rows)}), 201
+            except sqlite3.OperationalError as e:
+                if 'locked' in str(e) and attempt < 2:
+                    try: conn.close()
+                    except: pass
+                    import time; time.sleep(1)
+                    continue
+                raise
+    return jsonify({'created': 0}), 201
 
 # ----- MI: LANES -----
 

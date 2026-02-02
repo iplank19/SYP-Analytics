@@ -393,12 +393,20 @@ function addMillLocation(){
 }
 
 async function saveMill(oldName){
-  const locations=[...document.querySelectorAll('.mill-loc')].map(el=>el.value.trim()).filter(Boolean);
+  const locStrings=[...document.querySelectorAll('.mill-loc')].map(el=>el.value.trim()).filter(Boolean);
+  const millName=normalizeMillCompany(document.getElementById('m-name').value);
+  const locations=locStrings.map(l=>{
+    const parts=l.split(',').map(s=>s.trim());
+    const city=parts[0]||'';const state=parts[1]||'';
+    return {city,state,lat:null,lon:null,name:city?`${millName} - ${city}`:''};
+  });
   const assignedTrader=S.trader==='Admin'?(document.getElementById('m-trader')?.value||'Ian P'):S.trader;
-  const m={name:normalizeMillCompany(document.getElementById('m-name').value),location:locations[0]||'',products:locations,contact:document.getElementById('m-contact').value,phone:document.getElementById('m-phone').value,notes:document.getElementById('m-notes').value,trader:assignedTrader};
+  const existing=S.mills.find(x=>x.name===oldName);
+  const region=document.getElementById('m-region')?.value||existing?.region||'central';
+  const firstLoc=locations[0]||{};
+  const m={name:millName,location:locStrings[0]||'',locations,city:firstLoc.city||'',state:firstLoc.state||'',region,contact:document.getElementById('m-contact').value,phone:document.getElementById('m-phone').value,notes:document.getElementById('m-notes').value,trader:assignedTrader};
   if(!m.name){showToast('Enter name','warn');return}
   try{
-    const existing=S.mills.find(x=>x.name===oldName);
     if(existing?.id){
       // Update existing mill via API
       m.trader=S.trader==='Admin'?assignedTrader:(existing.trader||S.trader);

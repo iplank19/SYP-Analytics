@@ -114,7 +114,7 @@ const MILL_DIRECTORY={
   // West Fraser (SPIB IDs: 24,285,33,700,711,720,857,861,95)
   'West Fraser - Huttig':{city:'Huttig',state:'AR'},'West Fraser - Leola':{city:'Leola',state:'AR'},
   'West Fraser - Opelika':{city:'Opelika',state:'AL'},'West Fraser - Russellville':{city:'Russellville',state:'AR'},
-  'West Fraser - Blackshear':{city:'Blackshear',state:'GA'},'West Fraser - Dudley GA':{city:'Dudley',state:'GA'},
+  'West Fraser - Blackshear':{city:'Blackshear',state:'GA'},'West Fraser - Dudley GA':{city:'Dudley',state:'GA'},'West Fraser - Dudley':{city:'Dudley',state:'GA'},
   'West Fraser - Fitzgerald':{city:'Fitzgerald',state:'GA'},'West Fraser - New Boston':{city:'New Boston',state:'TX'},
   'West Fraser - Henderson':{city:'Henderson',state:'TX'},'West Fraser - Lufkin':{city:'Lufkin',state:'TX'},
   'West Fraser - Joyce':{city:'Joyce',state:'LA'},
@@ -125,7 +125,7 @@ const MILL_DIRECTORY={
   'GP - Warrenton':{city:'Warrenton',state:'GA'},'GP - Taylorsville':{city:'Taylorsville',state:'MS'},
   'GP - Dudley NC':{city:'Dudley',state:'NC'},'GP - Diboll':{city:'Diboll',state:'TX'},
   'GP - Pineland':{city:'Pineland',state:'TX'},'GP - Prosperity':{city:'Prosperity',state:'SC'},
-  'GP - Rome':{city:'Rome',state:'GA'},
+  'GP - Rome':{city:'Rome',state:'GA'},'GP - Rocky Creek':{city:'Frisco City',state:'AL'},
   // Weyerhaeuser (SPIB IDs: 62,63,72,128,163,277,400,403,490,2001)
   'Weyerhaeuser - Dierks':{city:'Dierks',state:'AR'},'Weyerhaeuser - Millport':{city:'Millport',state:'AL'},
   'Weyerhaeuser - Dodson':{city:'Dodson',state:'LA'},'Weyerhaeuser - Holden':{city:'Holden',state:'LA'},
