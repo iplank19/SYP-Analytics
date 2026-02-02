@@ -1914,6 +1914,23 @@ def mi_submit_quotes():
     quotes = data if isinstance(data, list) else [data]
     conn = get_mi_db()
     created = []
+
+    # Auto-replace: delete old quotes for same mill + same date before inserting
+    cleared_keys = set()
+    for q in quotes:
+        mill_name = q.get('mill', '').strip()
+        quote_date = q.get('date', datetime.now().strftime('%Y-%m-%d'))
+        if mill_name and quote_date:
+            key = (mill_name.upper(), quote_date)
+            if key not in cleared_keys:
+                cleared_keys.add(key)
+                deleted = conn.execute(
+                    "DELETE FROM mill_quotes WHERE UPPER(mill_name)=? AND date=?",
+                    (mill_name.upper(), quote_date)
+                ).rowcount
+                if deleted:
+                    app.logger.info(f"Replaced {deleted} old quotes for {mill_name} on {quote_date}")
+
     for q in quotes:
         mill_name = q.get('mill', '').strip()
         if not mill_name or not q.get('product') or not q.get('price'):

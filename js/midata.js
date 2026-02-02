@@ -98,7 +98,22 @@ async function miSubmitQuotes(quotes) {
     });
   }
   const result = await miApiPost('/api/mi/quotes', quotes);
-  // Also push into S.millQuotes so they sync to Supabase cloud
+
+  // Auto-replace: remove old quotes for same mill + same date from S.millQuotes
+  const clearKeys = new Set();
+  quotes.forEach(q => {
+    const mill = (q.mill || '').toUpperCase();
+    const date = q.date || today();
+    if (mill) clearKeys.add(`${mill}|${date}`);
+  });
+  if (clearKeys.size) {
+    S.millQuotes = S.millQuotes.filter(mq => {
+      const key = `${(mq.mill || '').toUpperCase()}|${mq.date || ''}`;
+      return !clearKeys.has(key);
+    });
+  }
+
+  // Now push the new quotes
   quotes.forEach(q => {
     S.millQuotes.push({
       id: q.id || genId(),
