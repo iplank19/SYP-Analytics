@@ -269,7 +269,7 @@ MILL_DIRECTORY = {
     'Lincoln Lumber - Jasper': ('Jasper', 'TX'), 'Lincoln Lumber - Conroe': ('Conroe', 'TX'),
     'Barge Forest Products - Macon': ('Macon', 'MS'),
     'Scotch Lumber - Fulton': ('Fulton', 'AL'),
-    'Klausner Lumber - Live Oak': ('Live Oak', 'FL'),
+    'Binderholz - Live Oak': ('Live Oak', 'FL'), 'Binderholz - Enfield': ('Enfield', 'NC'),
     'Hood Industries - Beaumont': ('Beaumont', 'MS'), 'Hood Industries - Waynesboro': ('Waynesboro', 'MS'),
     'Mid-South Lumber - Booneville': ('Booneville', 'MS'),
     'Murray Lumber - Murray': ('Murray', 'KY'),
@@ -299,7 +299,9 @@ MILL_COMPANY_ALIASES = {
     'lincoln lumber': 'Lincoln Lumber',
     'barge forest products': 'Barge Forest Products',
     'scotch lumber': 'Scotch Lumber',
-    'klausner lumber': 'Klausner Lumber',
+    'klausner': 'Binderholz', 'klausner lumber': 'Binderholz', 'klausner lumber - live oak': 'Binderholz',
+    'enfield': 'Binderholz', 'binderholz enfield': 'Binderholz', 'binderholz - enfield': 'Binderholz',
+    'live oak': 'Binderholz', 'binderholz live oak': 'Binderholz', 'binderholz - live oak': 'Binderholz',
     'hood industries': 'Hood Industries',
     'mid-south lumber': 'Mid-South Lumber', 'mid south lumber': 'Mid-South Lumber',
     'mid south lumber company': 'Mid-South Lumber', 'midsouth': 'Mid-South Lumber',
@@ -322,7 +324,7 @@ MILL_COMPANY_ALIASES = {
     'two rivers lumber co llc': 'Two Rivers Lumber',
     'vicksburg forest products': 'Vicksburg Forest Products',
     'wm sheppard': 'WM Sheppard Lumber', 'wm sheppard lumber': 'WM Sheppard Lumber',
-    'wm sheppard lumber co inc': 'WM Sheppard Lumber',
+    'wm sheppard lumber co inc': 'WM Sheppard Lumber', 'wm shepard': 'WM Sheppard Lumber', 'wm shepard lumber': 'WM Sheppard Lumber',
     'beasley': 'Beasley Forest Products', 'beasley forest': 'Beasley Forest Products',
     'dupont pine': 'DuPont Pine Products', 'dupont pine products': 'DuPont Pine Products',
     'grayson': 'Grayson Lumber', 'great south': 'Great South Timber',
@@ -330,7 +332,7 @@ MILL_COMPANY_ALIASES = {
     'jordan': 'Jordan Lumber', 'jordan lumber': 'Jordan Lumber',
     'vicksburg': 'Vicksburg Forest Products', 'vicksburg forest': 'Vicksburg Forest Products',
     'harrigan': 'Harrigan Lumber', 'harrigan lumber': 'Harrigan Lumber', 'harrigan lumber co': 'Harrigan Lumber',
-    'lumberton': 'Lumberton Lumber', 'lumberton lumber': 'Lumberton Lumber',
+    'lumberton': 'Idaho Forest Group', 'lumberton lumber': 'Idaho Forest Group',
     'waldo': 'PotlatchDeltic', 'resolute fp us': 'Resolute FP',
     'idaho forest': 'Idaho Forest Group',
 }
@@ -2113,6 +2115,20 @@ def mi_delete_quote(quote_id):
     conn.commit()
     conn.close()
     return jsonify({'deleted': quote_id})
+
+@app.route('/api/mi/quotes/rename-mill', methods=['POST'])
+def mi_rename_mill_quotes():
+    """Bulk rename mill_name in quotes (admin utility)."""
+    data = request.json
+    old_name = data.get('old_name', '').strip()
+    new_name = data.get('new_name', '').strip()
+    if not old_name or not new_name:
+        return jsonify({'error': 'old_name and new_name required'}), 400
+    conn = get_mi_db()
+    cur = conn.execute("UPDATE mill_quotes SET mill_name=? WHERE mill_name=?", (new_name, old_name))
+    conn.commit()
+    conn.close()
+    return jsonify({'updated': cur.rowcount, 'old_name': old_name, 'new_name': new_name})
 
 @app.route('/api/mi/quotes/latest', methods=['GET'])
 def mi_latest_quotes():

@@ -153,7 +153,7 @@ const MILL_DIRECTORY={
   'Lincoln Lumber - Jasper':{city:'Jasper',state:'TX'},'Lincoln Lumber - Conroe':{city:'Conroe',state:'TX'},
   'Barge Forest Products - Macon':{city:'Macon',state:'MS'},
   'Scotch Lumber - Fulton':{city:'Fulton',state:'AL'},
-  'Klausner Lumber - Live Oak':{city:'Live Oak',state:'FL'},
+  'Binderholz - Live Oak':{city:'Live Oak',state:'FL'},'Binderholz - Enfield':{city:'Enfield',state:'NC'},
   'Hood Industries - Beaumont':{city:'Beaumont',state:'MS'},'Hood Industries - Waynesboro':{city:'Waynesboro',state:'MS'},
   'Mid-South Lumber - Booneville':{city:'Booneville',state:'MS'},
   'Murray Lumber - Murray':{city:'Murray',state:'KY'},
@@ -182,7 +182,9 @@ const _MILL_COMPANY_ALIASES={
   'lincoln':'Lincoln Lumber','lincoln lumber':'Lincoln Lumber',
   'barge':'Barge Forest Products','barge forest':'Barge Forest Products',
   'scotch':'Scotch Lumber','scotch lumber':'Scotch Lumber',
-  'klausner':'Klausner Lumber','klausner lumber':'Klausner Lumber',
+  'klausner':'Binderholz','klausner lumber':'Binderholz','klausner lumber - live oak':'Binderholz',
+  'enfield':'Binderholz','binderholz enfield':'Binderholz','binderholz - enfield':'Binderholz',
+  'live oak':'Binderholz','binderholz live oak':'Binderholz','binderholz - live oak':'Binderholz',
   'hood':'Hood Industries','hood industries':'Hood Industries',
   'mid south':'Mid-South Lumber','mid-south':'Mid-South Lumber','mid south lumber':'Mid-South Lumber','mid south lumber company':'Mid-South Lumber','midsouth':'Mid-South Lumber','midsouth lumber':'Mid-South Lumber',
   'murray':'Murray Lumber','murray lumber':'Murray Lumber',
@@ -203,8 +205,8 @@ const _MILL_COMPANY_ALIASES={
   'two rivers':'Two Rivers Lumber','two rivers lumber':'Two Rivers Lumber','two rivers lumber co llc':'Two Rivers Lumber',
   'vicksburg':'Vicksburg Forest Products','vicksburg forest':'Vicksburg Forest Products','vicksburg forest products':'Vicksburg Forest Products',
   'harrigan':'Harrigan Lumber','harrigan lumber':'Harrigan Lumber','harrigan lumber co':'Harrigan Lumber',
-  'lumberton':'Lumberton Lumber','lumberton lumber':'Lumberton Lumber',
-  'wm sheppard':'WM Sheppard Lumber','wm sheppard lumber':'WM Sheppard Lumber','wm sheppard lumber co inc':'WM Sheppard Lumber',
+  'lumberton':'Idaho Forest Group','lumberton lumber':'Idaho Forest Group','idaho forest group - lumberton':'Idaho Forest Group',
+  'wm sheppard':'WM Sheppard Lumber','wm sheppard lumber':'WM Sheppard Lumber','wm sheppard lumber co inc':'WM Sheppard Lumber','wm shepard':'WM Sheppard Lumber','wm shepard lumber':'WM Sheppard Lumber',
   'waldo':'PotlatchDeltic','charles ingram':'Charles Ingram Lumber','charles ingram lumber':'Charles Ingram Lumber','charles ingram lumber co':'Charles Ingram Lumber'
 };
 
