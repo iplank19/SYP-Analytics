@@ -2021,7 +2021,7 @@ def mi_latest_quotes():
     sql = """
         SELECT mq.*, m.lat, m.lon, m.region, m.city, m.state
         FROM mill_quotes mq
-        JOIN mills m ON mq.mill_id = m.id
+        LEFT JOIN mills m ON mq.mill_id = m.id
         WHERE mq.id IN (
             SELECT id FROM mill_quotes mq2
             WHERE mq2.mill_name = mq.mill_name AND mq2.product = mq.product
@@ -2054,9 +2054,10 @@ def mi_quote_matrix():
     if detail == 'length':
         sql = """
             SELECT mq.mill_name, mq.product, mq.length, mq.price, mq.date, mq.volume,
-                   mq.ship_window, mq.tls, mq.trader, m.lat, m.lon, m.region, m.city, m.state
+                   mq.ship_window, mq.tls, mq.trader,
+                   m.lat, m.lon, m.region, m.city, m.state
             FROM mill_quotes mq
-            JOIN mills m ON mq.mill_id = m.id
+            LEFT JOIN mills m ON mq.mill_id = m.id
             WHERE mq.id IN (
                 SELECT MAX(id) FROM mill_quotes GROUP BY mill_name, product, length
             )
@@ -2127,7 +2128,7 @@ def mi_quote_matrix():
             SELECT mq.mill_name, mq.product, mq.price, mq.date, mq.volume, mq.ship_window,
                    mq.tls, mq.trader, m.lat, m.lon, m.region, m.city, m.state
             FROM mill_quotes mq
-            JOIN mills m ON mq.mill_id = m.id
+            LEFT JOIN mills m ON mq.mill_id = m.id
             WHERE mq.id IN (
                 SELECT MAX(id) FROM mill_quotes GROUP BY mill_name, product
             )
@@ -2318,7 +2319,7 @@ def mi_intel_signals():
         # 4. Regional Arbitrage
         regional_prices = conn.execute("""
             SELECT m.region, MIN(mq.price) as best_price, mq.mill_name
-            FROM mill_quotes mq JOIN mills m ON mq.mill_id = m.id
+            FROM mill_quotes mq LEFT JOIN mills m ON mq.mill_id = m.id
             WHERE mq.product=? AND mq.date>=?
             GROUP BY m.region
         """, (product, d7)).fetchall()
@@ -2457,7 +2458,7 @@ def mi_intel_recommendations():
 
         best = conn.execute("""
             SELECT mq.mill_name, mq.price, m.city, m.region
-            FROM mill_quotes mq JOIN mills m ON mq.mill_id = m.id
+            FROM mill_quotes mq LEFT JOIN mills m ON mq.mill_id = m.id
             WHERE mq.product=? AND mq.date >= ?
             ORDER BY mq.price ASC LIMIT 1
         """, (product, (datetime.now() - timedelta(days=7)).strftime('%Y-%m-%d'))).fetchone()
