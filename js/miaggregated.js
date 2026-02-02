@@ -160,6 +160,8 @@ function miMatrixControls(products, colCount, totalCols, millCount, totalMills) 
 }
 
 async function miRenderGranularMatrix(el) {
+  // Sync cutoff to server so portal matrix matches
+  fetch('/api/pricing/cutoff', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({since:_miMatrixCutoff||''})}).catch(()=>{});
   const params = new URLSearchParams({detail: 'length'});
   if (_miMatrixProduct) params.set('product', _miMatrixProduct);
   if (_miMatrixCutoff) params.set('since', _miMatrixCutoff);
@@ -445,6 +447,7 @@ function miWipeMatrix() {
   const today = new Date().toISOString().slice(0, 10);
   _miMatrixCutoff = today;
   SS('miMatrixCutoff', today);
+  fetch('/api/pricing/cutoff', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({since:today})}).catch(()=>{});
   showToast('Matrix wiped — only new quotes will appear. Historical data preserved.', 'info');
   renderMiAggregated();
 }
@@ -452,6 +455,7 @@ function miWipeMatrix() {
 function miClearMatrixWipe() {
   _miMatrixCutoff = '';
   SS('miMatrixCutoff', '');
+  fetch('/api/pricing/cutoff', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({since:''})}).catch(()=>{});
   showToast('Showing all historical pricing', 'positive');
   renderMiAggregated();
 }

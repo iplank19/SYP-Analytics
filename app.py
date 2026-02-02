@@ -1434,13 +1434,30 @@ def update_mill(id):
                 values.append(data[f])
         set_clause = ', '.join(set_parts) + ', updated_at = CURRENT_TIMESTAMP'
         values.append(id)
+        # Get old name before update (for syncing mill_quotes)
+        old_row = conn.execute('SELECT name FROM mills WHERE id = ?', (id,)).fetchone()
+        old_name = old_row['name'] if old_row else None
+
         conn.execute(f'UPDATE mills SET {set_clause} WHERE id = ?', values)
         conn.commit()
         mill = conn.execute('SELECT * FROM mills WHERE id = ?', (id,)).fetchone()
         conn.close()
         if not mill:
             return jsonify({'error': 'Mill not found'}), 404
-        return jsonify(dict(mill))
+
+        # Sync to Mill Intel database
+        mill_dict = dict(mill)
+        sync_mill_to_mi(mill_dict)
+
+        # If name changed, update mill_quotes.mill_name in MI database
+        new_name = mill_dict.get('name', '')
+        if old_name and new_name and old_name != new_name:
+            mi_conn = get_mi_db()
+            mi_conn.execute('UPDATE mill_quotes SET mill_name = ? WHERE mill_id = ?', (new_name, id))
+            mi_conn.commit()
+            mi_conn.close()
+
+        return jsonify(mill_dict)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -1710,6 +1727,19 @@ def pricing_auth():
     if data.get('password') == PRICING_PASSWORD:
         return jsonify({'ok': True})
     return jsonify({'ok': False, 'error': 'Invalid password'}), 401
+
+# Server-side matrix cutoff (shared between in-app and portal)
+_matrix_cutoff = {'since': ''}
+
+@app.route('/api/pricing/cutoff', methods=['GET'])
+def get_matrix_cutoff():
+    return jsonify({'since': _matrix_cutoff['since']})
+
+@app.route('/api/pricing/cutoff', methods=['POST'])
+def set_matrix_cutoff():
+    data = request.json or {}
+    _matrix_cutoff['since'] = data.get('since', '')
+    return jsonify({'since': _matrix_cutoff['since']})
 
 # ==========================================
 # MILL INTEL ROUTES — /api/mi/*

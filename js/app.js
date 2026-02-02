@@ -441,6 +441,8 @@ async function loadMatrixView(){
   el.innerHTML='<div class="spinner" style="margin:40px auto"></div>';
   try{
     const params=new URLSearchParams({detail:'length'});
+    // Fetch server-side cutoff so portal matches in-app matrix
+    try{const cr=await fetch('/api/pricing/cutoff');if(cr.ok){const cd=await cr.json();if(cd.since)params.set('since',cd.since)}}catch(e){}
     const res=await fetch('/api/mi/quotes/matrix?'+params);
     if(!res.ok)throw new Error('API error: '+res.status);
     const data=await res.json();
