@@ -95,8 +95,9 @@ const MILLS=[
   'PotlatchDeltic - Ola','PotlatchDeltic - Waldo','PotlatchDeltic - Warren',
   'Tolko - Leland','Idaho Forest Group - Lumberton','Hunt Forest Products - Winnfield',
   'Biewer - Newton','Biewer - Winona','Anthony Timberlands - Bearden','Anthony Timberlands - Malvern',
-  'Lumberton Lumber','Harrigan Lumber','T.R. Miller - Brewton',
-  'Lincoln Lumber - Jasper','Lincoln Lumber - Conroe'
+  'Harrigan Lumber','T.R. Miller - Brewton',
+  'Lincoln Lumber - Jasper','Lincoln Lumber - Conroe',
+  'Binderholz - Live Oak','Binderholz - Enfield'
 ];
 const FREIGHT={west:{Atlanta:96,Charlotte:104,Dallas:40,Memphis:60,Birmingham:85,Chicago:110,Houston:55,Nashville:78},central:{Atlanta:83,Charlotte:91,Dallas:70,Memphis:50,Birmingham:60,Chicago:90,Houston:75,Nashville:55},east:{Atlanta:60,Charlotte:55,Dallas:120,Memphis:80,Birmingham:65,Chicago:84,Houston:115,Nashville:65}};
 
@@ -182,9 +183,7 @@ const _MILL_COMPANY_ALIASES={
   'lincoln':'Lincoln Lumber','lincoln lumber':'Lincoln Lumber',
   'barge':'Barge Forest Products','barge forest':'Barge Forest Products',
   'scotch':'Scotch Lumber','scotch lumber':'Scotch Lumber',
-  'klausner':'Binderholz','klausner lumber':'Binderholz','klausner lumber - live oak':'Binderholz',
-  'enfield':'Binderholz','binderholz enfield':'Binderholz','binderholz - enfield':'Binderholz',
-  'live oak':'Binderholz','binderholz live oak':'Binderholz','binderholz - live oak':'Binderholz',
+  'klausner':'Binderholz','klausner lumber':'Binderholz',
   'hood':'Hood Industries','hood industries':'Hood Industries',
   'mid south':'Mid-South Lumber','mid-south':'Mid-South Lumber','mid south lumber':'Mid-South Lumber','mid south lumber company':'Mid-South Lumber','midsouth':'Mid-South Lumber','midsouth lumber':'Mid-South Lumber',
   'murray':'Murray Lumber','murray lumber':'Murray Lumber',
