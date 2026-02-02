@@ -383,7 +383,7 @@ function renderPnLBarChart(labels,data){
   const ctx=document.getElementById('pnl-daily-bar-chart');
   if(!ctx)return;
   destroyChart('pnl-daily-bar');
-  const colors=data.map(v=>v>=0?'rgba(0,230,118,0.7)':'rgba(255,82,82,0.7)');
+  const colors=data.map(v=>v>=0?'rgba(166,227,161,0.7)':'rgba(243,139,168,0.7)');
   const borderColors=data.map(v=>v>=0?'#a6e3a1':'#f38ba8');
   window._charts['pnl-daily-bar']=new Chart(ctx,{
     type:'bar',

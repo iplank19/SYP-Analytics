@@ -567,7 +567,7 @@ let S={
   quoteMode:'known',
   quoteMBFperTL:23,
   quoteMSRFootage:false,
-  stateRates:LS('stateRates',{AR:2.25,LA:2.25,TX:2.50,MS:2.25,AL:2.50,FL:2.75,GA:2.50,SC:2.50,NC:2.50}),
+  stateRates:LS('stateRates',{AR:2.25,LA:2.25,TX:2.50,MS:2.25,AL:2.50,FL:2.75,GA:2.50,SC:2.50,NC:2.50,TN:2.25,KY:2.25,VA:2.50,OH:2.50,IN:2.50,IL:2.50,MO:2.25,WI:2.50,MI:2.50,MN:2.50,IA:2.50}),
   quoteProfiles:LS('quoteProfiles',{default:{name:'Default',customers:[]}}),
   quoteProfile:LS('quoteProfile','default'),
   marketBlurb:LS('marketBlurb',''),

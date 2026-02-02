@@ -180,7 +180,7 @@
     ];
 
     // Freight config defaults
-    const STATE_RATES={AR:2.25,LA:2.25,TX:2.50,MS:2.25,AL:2.50,FL:2.75,GA:2.50,SC:2.50,NC:2.50};
+    const STATE_RATES={AR:2.25,LA:2.25,TX:2.50,MS:2.25,AL:2.50,FL:2.75,GA:2.50,SC:2.50,NC:2.50,TN:2.25,KY:2.25,VA:2.50,OH:2.50,IN:2.50,IL:2.50,MO:2.25,WI:2.50,MI:2.50,MN:2.50,IA:2.50};
     const FREIGHT_BASE=450;
     const SHORT_HAUL_FLOOR=0;
     const MBF_PER_TL=23;
@@ -494,6 +494,7 @@
               method:'POST',headers:{'Content-Type':'application/json'},
               body:JSON.stringify({lanes:neededLanes})
             });
+            if(!mileRes.ok) throw new Error('Mileage lookup failed');
             const mileData=await mileRes.json();
             (mileData.results||mileData||[]).forEach(r=>{
               if(r.miles){

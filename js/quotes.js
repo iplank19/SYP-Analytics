@@ -277,14 +277,6 @@ function updateStateRate(state,rate){
   render();
 }
 
-// Calculate freight for a destination using state-based rates (legacy)
-function calcFreightForDest(dest,miles){
-  const state=extractState(dest);
-  const stateRate=state&&S.stateRates?S.stateRates[state]||0:0;
-  const mbfPerTL=S.quoteMSRFootage?20:(S.quoteMBFperTL||23);
-  const base=S.freightBase||0;
-  return Math.round((base+(miles*stateRate))/mbfPerTL);
-}
 
 // Get rate for a state (for display only)
 function getStateRate(state){
