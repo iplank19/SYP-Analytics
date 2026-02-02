@@ -632,31 +632,31 @@
       const results=_quoteResults.filter(r=>r.best);
       if(!results.length){showToast('No results to copy','warn');return;}
 
-      let txt=`SYP QUOTE — DLVD ${dest}\n`;
-      txt+='─'.repeat(65)+'\n';
-      txt+=padR('Item',20)+padR('Best Mill',22)+padL('FOB',8)+padL('Frt',8)+padL('Landed',8)+'\n';
-      txt+='─'.repeat(65)+'\n';
+      const lines=[];
+      lines.push('SYP Quote — Delivered: '+dest);
+      lines.push('');
+      lines.push(['Item','Best Mill','FOB','Freight','Landed'].join('\t'));
       results.forEach(r=>{
-        txt+=padR(r.label,20)+padR(r.best.mill,22)+
-          padL(fmt(r.best.fobPrice),8)+
-          padL(r.best.freightPerMBF!=null?fmt(r.best.freightPerMBF):'--',8)+
-          padL(r.best.landedCost!=null?fmt(r.best.landedCost):'--',8)+'\n';
+        lines.push([
+          r.label,
+          r.best.mill,
+          r.best.fobPrice!=null?'$'+Math.round(r.best.fobPrice):'',
+          r.best.freightPerMBF!=null?'$'+Math.round(r.best.freightPerMBF):'',
+          r.best.landedCost!=null?'$'+Math.round(r.best.landedCost):''
+        ].join('\t'));
       });
-      txt+='─'.repeat(65)+'\n';
+      const noOffer=_quoteResults.filter(r=>!r.best);
+      if(noOffer.length){lines.push('');lines.push('No offers: '+noOffer.map(r=>r.label).join(', '));}
 
-      navigator.clipboard.writeText(txt).then(()=>{
+      navigator.clipboard.writeText(lines.join('\n')).then(()=>{
         showToast('Copied to clipboard!','positive');
       }).catch(()=>{
-        // Fallback
         const ta=document.createElement('textarea');
-        ta.value=txt;document.body.appendChild(ta);ta.select();
+        ta.value=lines.join('\n');document.body.appendChild(ta);ta.select();
         document.execCommand('copy');document.body.removeChild(ta);
         showToast('Copied to clipboard!','positive');
       });
     }
-
-    function padR(s,n){s=String(s||'');return s.length>=n?s.substring(0,n):s+' '.repeat(n-s.length);}
-    function padL(s,n){s=String(s||'');return s.length>=n?s:' '.repeat(n-s.length)+s;}
 
     // ========== TOAST ==========
     function showToast(msg,type='info'){

@@ -621,19 +621,19 @@ function miCopyQuoteResults() {
   if (!results.length) return;
   const dest = document.getElementById('mi-quote-dest')?.value?.trim() ||
     document.getElementById('mi-quote-customer')?.selectedOptions?.[0]?.text || '';
-  const lines = ['SMART QUOTE — DLVD ' + dest, ''];
-  const hdr = ['Item', 'Best Mill', 'FOB', 'Freight', 'Landed'];
-  const rows = results.map(r => [
-    r.label,
-    r.best.mill,
-    r.best.fobPrice != null ? '$' + Math.round(r.best.fobPrice) : '—',
-    r.best.freightPerMBF != null ? '$' + Math.round(r.best.freightPerMBF) : '—',
-    r.best.landedCost != null ? '$' + Math.round(r.best.landedCost) : '—'
-  ]);
-  const widths = hdr.map((h, i) => Math.max(h.length, ...rows.map(r => r[i].length)));
-  lines.push(hdr.map((h, i) => h.padEnd(widths[i])).join('  '));
-  lines.push(widths.map(w => '—'.repeat(w)).join('  '));
-  rows.forEach(r => lines.push(r.map((c, i) => c.padEnd(widths[i])).join('  ')));
+  const lines = [];
+  lines.push('SYP Quote — Delivered: ' + dest);
+  lines.push('');
+  lines.push(['Item', 'Best Mill', 'FOB', 'Freight', 'Landed'].join('\t'));
+  results.forEach(r => {
+    lines.push([
+      r.label,
+      r.best.mill,
+      r.best.fobPrice != null ? '$' + Math.round(r.best.fobPrice) : '',
+      r.best.freightPerMBF != null ? '$' + Math.round(r.best.freightPerMBF) : '',
+      r.best.landedCost != null ? '$' + Math.round(r.best.landedCost) : ''
+    ].join('\t'));
+  });
   const noOffer = _miQuoteResults.filter(r => !r.best);
   if (noOffer.length) { lines.push(''); lines.push('No offers: ' + noOffer.map(r => r.label).join(', ')); }
   navigator.clipboard.writeText(lines.join('\n')).then(() => {
@@ -685,8 +685,8 @@ function miRenderQuoteResults() {
     </div>
   ` : '') +
 
-  // Detailed cards per result
-  _miQuoteResults.filter(r => r.best).map(r => {
+  // Detailed cards per result — hide intelligence in matrix mode
+  (isMatrixMode ? '' : _miQuoteResults.filter(r => r.best).map(r => {
     const rec = r.recommendation;
     const actionClass = rec?.action?.includes('BUY') ? 'positive' : rec?.action?.includes('SHORT') ? 'negative' : 'warn';
 
@@ -721,5 +721,5 @@ function miRenderQuoteResults() {
         </details>
       ` : ''}
     `;
-  }).join('');
+  }).join(''));
 }
