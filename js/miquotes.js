@@ -627,20 +627,18 @@ function miCopyQuoteResults() {
 <table style="border-collapse:collapse;font-family:Calibri,Arial,sans-serif;font-size:11pt;">
   <thead>
     <tr style="background:#1a5f7a;color:white;">
-      <th style="padding:8px 12px;text-align:left;border:1px solid #ccc;">Item</th>
-      <th style="padding:8px 12px;text-align:left;border:1px solid #ccc;">Best Mill</th>
-      <th style="padding:8px 12px;text-align:right;border:1px solid #ccc;">FOB</th>
-      <th style="padding:8px 12px;text-align:right;border:1px solid #ccc;">Freight</th>
-      <th style="padding:8px 12px;text-align:right;border:1px solid #ccc;">Landed</th>
+      <th style="padding:8px 12px;text-align:left;border:1px solid #ccc;">Product</th>
+      <th style="padding:8px 12px;text-align:right;border:1px solid #ccc;">Price</th>
+      <th style="padding:8px 12px;text-align:center;border:1px solid #ccc;">Qty</th>
+      <th style="padding:8px 12px;text-align:right;border:1px solid #ccc;">Ship</th>
     </tr>
   </thead>
   <tbody>
     ${results.map((r, i) => `<tr style="background:${i % 2 ? '#f5f5f5' : 'white'};">
       <td style="padding:6px 12px;border:1px solid #ddd;">${r.label}</td>
-      <td style="padding:6px 12px;border:1px solid #ddd;">${r.best.mill}</td>
-      <td style="padding:6px 12px;text-align:right;border:1px solid #ddd;">$${Math.round(r.best.fobPrice)}</td>
-      <td style="padding:6px 12px;text-align:right;border:1px solid #ddd;">${r.best.freightPerMBF != null ? '$' + Math.round(r.best.freightPerMBF) : '\u2014'}</td>
-      <td style="padding:6px 12px;text-align:right;border:1px solid #ddd;font-weight:bold;color:#2e7d32;">${r.best.landedCost != null ? '$' + Math.round(r.best.landedCost) : '\u2014'}</td>
+      <td style="padding:6px 12px;text-align:right;border:1px solid #ddd;font-weight:bold;color:#2e7d32;">${r.best.landedCost != null ? '$' + Math.round(r.best.landedCost) : '$' + Math.round(r.best.fobPrice)}</td>
+      <td style="padding:6px 12px;text-align:center;border:1px solid #ddd;">${r.best.tls || 1} TL</td>
+      <td style="padding:6px 12px;text-align:right;border:1px solid #ddd;color:#666;">${r.best.shipWindow || 'Prompt'}</td>
     </tr>`).join('')}
   </tbody>
 </table>
@@ -651,13 +649,10 @@ function miCopyQuoteResults() {
 
   // Plain text fallback
   const lines = ['SYP Quote \u2014 Delivered: ' + dest, ''];
-  lines.push(['Item', 'Best Mill', 'FOB', 'Freight', 'Landed'].join('\t'));
+  lines.push(['Product', 'Price', 'Qty', 'Ship'].join('\t'));
   results.forEach(r => {
-    lines.push([r.label, r.best.mill,
-      '$' + Math.round(r.best.fobPrice),
-      r.best.freightPerMBF != null ? '$' + Math.round(r.best.freightPerMBF) : '',
-      r.best.landedCost != null ? '$' + Math.round(r.best.landedCost) : ''
-    ].join('\t'));
+    const price = r.best.landedCost != null ? '$' + Math.round(r.best.landedCost) : '$' + Math.round(r.best.fobPrice);
+    lines.push([r.label, price, (r.best.tls || 1) + ' TL', r.best.shipWindow || 'Prompt'].join('\t'));
   });
   const noOffer = _miQuoteResults.filter(r => !r.best);
   if (noOffer.length) { lines.push(''); lines.push('No offers: ' + noOffer.map(r => r.label).join(', ')); }
@@ -700,14 +695,26 @@ function miRenderQuoteResults() {
   (hasResults ? `
     <table style="font-size:11px;width:100%;margin-bottom:16px;border-collapse:collapse">
       <thead><tr style="border-bottom:2px solid var(--border)">
-        <th style="text-align:left;padding:4px 6px">Item</th>
-        <th style="text-align:left;padding:4px 6px">Best Mill</th>
-        <th style="text-align:right;padding:4px 6px">FOB</th>
-        <th style="text-align:right;padding:4px 6px">Freight</th>
-        <th style="text-align:right;padding:4px 6px">Landed</th>
+        ${isMatrixMode ? `
+          <th style="text-align:left;padding:4px 6px">Product</th>
+          <th style="text-align:right;padding:4px 6px">Price</th>
+          <th style="text-align:center;padding:4px 6px">Qty</th>
+          <th style="text-align:right;padding:4px 6px">Ship</th>
+        ` : `
+          <th style="text-align:left;padding:4px 6px">Item</th>
+          <th style="text-align:left;padding:4px 6px">Best Mill</th>
+          <th style="text-align:right;padding:4px 6px">FOB</th>
+          <th style="text-align:right;padding:4px 6px">Freight</th>
+          <th style="text-align:right;padding:4px 6px">Landed</th>
+        `}
       </tr></thead>
       <tbody>
-        ${_miQuoteResults.filter(r => r.best).map(r => `<tr style="border-bottom:1px solid var(--border)">
+        ${_miQuoteResults.filter(r => r.best).map(r => isMatrixMode ? `<tr style="border-bottom:1px solid var(--border)">
+          <td style="padding:4px 6px;font-weight:600;color:var(--accent)">${r.label}</td>
+          <td style="padding:4px 6px;text-align:right;font-weight:600;color:var(--positive)" class="mono">${r.best.landedCost != null ? fmt(r.best.landedCost) : fmt(r.best.fobPrice)}</td>
+          <td style="padding:4px 6px;text-align:center" class="mono">${r.best.tls || 1} TL</td>
+          <td style="padding:4px 6px;text-align:right;color:var(--muted)">${r.best.shipWindow || 'Prompt'}</td>
+        </tr>` : `<tr style="border-bottom:1px solid var(--border)">
           <td style="padding:4px 6px;font-weight:600;color:var(--accent)">${r.label}</td>
           <td style="padding:4px 6px">${r.best.mill}</td>
           <td style="padding:4px 6px;text-align:right" class="mono">${fmt(r.best.fobPrice)}</td>
