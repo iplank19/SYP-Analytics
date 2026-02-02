@@ -440,61 +440,18 @@ async function loadMatrixView(){
   if(!el)return;
   el.innerHTML='<div class="spinner" style="margin:40px auto"></div>';
   try{
-    const params=new URLSearchParams({detail:'length'});
-    // Fetch server-side cutoff so portal matches in-app matrix
-    try{const cr=await fetch('/api/pricing/cutoff');if(cr.ok){const cd=await cr.json();if(cd.since)params.set('since',cd.since)}}catch(e){}
-    const res=await fetch('/api/mi/quotes/matrix?'+params);
-    if(!res.ok)throw new Error('API error: '+res.status);
-    const data=await res.json();
-    const{matrix,mills:allMills,columns:allColumns,products,best_by_col}=data;
-    if(!allMills.length){el.innerHTML='<div style="text-align:center;color:var(--muted);padding:40px">No mill quotes available.</div>';return}
-
-    // Filter empty
-    const columns=allColumns.filter(col=>allMills.some(m=>matrix[m]&&matrix[m][col]));
-    const mills=allMills.filter(m=>columns.some(col=>matrix[m]&&matrix[m][col]));
-
-    const max_by_col={};
-    columns.forEach(col=>{let mx=0;mills.forEach(m=>{const d=matrix[m]&&matrix[m][col];if(d&&d.price>mx)mx=d.price});max_by_col[col]=mx});
-
-    const colProduct=c=>c.replace(/\s+\d+[\-\/\d]*['"]?$/,'').replace(/\s+RL$/,'');
-    const colGroups=[];
-    let curProd=null,curGroup=[];
-    columns.forEach(c=>{const p=colProduct(c);if(p!==curProd){if(curGroup.length)colGroups.push({product:curProd,cols:curGroup});curProd=p;curGroup=[c]}else curGroup.push(c)});
-    if(curGroup.length)colGroups.push({product:curProd,cols:curGroup});
-
-    const prodHeaders=colGroups.map((g,i)=>`<th colspan="${g.cols.length}" class="${i>0?'group-start':''}" style="text-align:center;background:var(--panel-alt);border-bottom:2px solid var(--accent);font-size:11px;padding:6px 4px">${g.product}</th>`).join('');
-    const lenHeaders=columns.map((c,i)=>{const l=c.split(/\s/).pop();const p=colProduct(c);const pp=i>0?colProduct(columns[i-1]):null;return`<th class="${p!==pp?' group-start':''}" style="text-align:center;font-weight:400;color:var(--muted);min-width:48px">${l}</th>`}).join('');
-
-    const rows=mills.map(m=>{
-      const cells=columns.map((col,i)=>{
-        const d=matrix[m]&&matrix[m][col];
-        const p=colProduct(col);const pp=i>0?colProduct(columns[i-1]):null;const gs=p!==pp?' group-start':'';
-        if(!d)return`<td class="empty-cell${gs}"></td>`;
-        const isBest=d.price===best_by_col[col];
-        const age=Math.floor((new Date()-new Date(d.date))/(864e5));
-        const tip=[d.volume?d.volume+' MBF':'',d.tls?d.tls+' TL':'',d.ship_window,d.trader,age+'d ago'].filter(Boolean).join(' · ');
-        let heatBg='';const minP=best_by_col[col]||d.price;const maxP=max_by_col[col]||d.price;
-        if(maxP>minP){const pct=(d.price-minP)/(maxP-minP);heatBg=`background:hsla(${120-pct*120},45%,45%,0.12);`}else{heatBg='background:hsla(120,45%,45%,0.12);'}
-        const fade=age>3?'opacity:0.5;':'';const best=isBest?'color:var(--positive);font-weight:700;':'';
-        return`<td class="mono${gs}" style="text-align:center;${heatBg}${best}${fade}" title="${tip}">$${d.price}</td>`;
-      }).join('');
-      return`<tr><td style="white-space:nowrap;font-weight:500;font-size:11px;padding:4px 8px;position:sticky;left:0;background:var(--panel);z-index:1">${m}</td>${cells}</tr>`;
-    }).join('');
-
-    el.innerHTML=`
-      <div style="margin-bottom:8px;display:flex;gap:12px;align-items:center;font-size:10px;color:var(--muted)">
-        <span>${mills.length} mills · ${columns.length} columns</span>
-        <span>Green→Red = cheap→expensive</span>
-      </div>
-      <div style="overflow-x:auto;max-height:85vh;overflow-y:auto">
-        <table style="border-collapse:collapse;font-size:10px">
-          <thead style="position:sticky;top:0;z-index:2">
-            <tr><th rowspan="2" style="position:sticky;left:0;background:var(--panel);z-index:3;padding:4px 8px">Mill</th>${prodHeaders}</tr>
-            <tr>${lenHeaders}</tr>
-          </thead>
-          <tbody>${rows}</tbody>
-        </table>
-      </div>`;
+    // Sync cutoff from server so portal matches in-app matrix exactly
+    try{const cr=await fetch('/api/pricing/cutoff');if(cr.ok){const cd=await cr.json();_miMatrixCutoff=cd.since||''}}catch(e){}
+    // Use the exact same renderer as the in-app profile matrix
+    _miMatrixHideEmpty=true;
+    _miMatrixHideMills=true;
+    _miMatrixProduct='';
+    const wrapper=document.createElement('div');
+    wrapper.id='mi-agg-content';
+    wrapper.innerHTML='<div class="card-body"><div class="spinner" style="margin:20px auto"></div></div>';
+    el.innerHTML='';
+    el.appendChild(wrapper);
+    await miRenderGranularMatrix(wrapper);
     document.getElementById('matrix-updated').textContent='Updated '+new Date().toLocaleTimeString();
   }catch(e){
     el.innerHTML=`<div style="text-align:center;color:var(--negative);padding:40px">Error: ${e.message}</div>`;

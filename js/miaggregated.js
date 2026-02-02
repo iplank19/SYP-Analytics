@@ -250,9 +250,12 @@ async function miRenderGranularMatrix(el) {
 
   const densityClass = `matrix-${_miMatrixDensity}`;
 
+  const isPortal = sessionStorage.getItem('syp_matrix_only');
+  const controls = isPortal ? `<div style="display:flex;gap:12px;align-items:center;font-size:10px;color:var(--muted);margin-bottom:8px"><span>${mills.length} mills · ${columns.length} columns</span><span>Green→Red = cheap→expensive</span></div>` : miMatrixControls(products, columns.length, allColumns.length, mills.length, allMills.length);
+
   el.innerHTML = `<div class="card-body" style="padding:12px">
-    ${miMatrixControls(products, columns.length, allColumns.length, mills.length, allMills.length)}
-    <div style="overflow-x:auto;max-height:75vh;overflow-y:auto">
+    ${controls}
+    <div style="overflow-x:auto;max-height:${isPortal?'85':'75'}vh;overflow-y:auto">
       <table class="matrix-table ${densityClass}" style="border-collapse:collapse">
         <thead style="position:sticky;top:0;z-index:2">
           <tr><th rowspan="2" style="position:sticky;left:0;background:var(--panel);z-index:3;padding:4px 8px">Mill</th>${productHeaderCells}</tr>
