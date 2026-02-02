@@ -1695,6 +1695,23 @@ def health():
     return jsonify({'status': 'ok', 'cache_size': len(geo_cache)})
 
 # ==========================================
+# PRICING MATRIX — standalone read-only view
+# ==========================================
+
+PRICING_PASSWORD = os.environ.get('PRICING_PASSWORD', 'buckeyepricing')
+
+@app.route('/pricing')
+def pricing_page():
+    return send_from_directory('.', 'pricing.html')
+
+@app.route('/api/pricing/auth', methods=['POST'])
+def pricing_auth():
+    data = request.json or {}
+    if data.get('password') == PRICING_PASSWORD:
+        return jsonify({'ok': True})
+    return jsonify({'ok': False, 'error': 'Invalid password'}), 401
+
+# ==========================================
 # MILL INTEL ROUTES — /api/mi/*
 # ==========================================
 

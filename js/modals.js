@@ -696,7 +696,9 @@ function calcTallyRowVol(len){
   const product=document.getElementById('m-product')?.value||'';
   const units=parseFloat(document.getElementById(`tally-units-${len}`)?.value)||0;
   if(!product||!units)return;
-  const mbf=calcMBFFromUnits(product,len,units);
+  // Use form PPU if set, so tally matches the main form's PPU setting
+  const formPPU=parseInt(document.getElementById('m-ppu')?.value)||0;
+  const mbf=calcMBFFromUnits(product,len,units,formPPU||undefined);
   if(mbf>0){
     document.getElementById(`tally-vol-${len}`).value=mbf;
     calcTallyTotal();
@@ -2195,9 +2197,9 @@ function showImportModal(){
           <textarea id="import-text" placeholder="Paste orders here — CSV data, email text, order confirmations, or free-form descriptions...&#10;&#10;Examples:&#10;• CSV rows with headers&#10;• &quot;Sold 5 units 2x4#2 10' to ABC Lumber at $580, buying from XYZ Mill at $450&quot;&#10;• Forwarded order confirmation emails&#10;• Any structured or unstructured order data" style="width:100%;height:200px;font-family:monospace;font-size:11px;padding:12px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);resize:vertical"></textarea>
           <div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px">
             <div style="display:flex;align-items:center;gap:8px">
-              <input type="file" id="import-file-ai" accept=".csv,.txt" style="display:none" onchange="loadFileToTextarea(event)">
+              <input type="file" id="import-file-ai" accept=".csv,.txt,.xlsx,.xls,.pdf" style="display:none" onchange="loadOrderFile(event)">
               <button class="btn btn-default btn-sm" onclick="document.getElementById('import-file-ai').click()" style="font-size:10px">📎 Load File</button>
-              <span style="font-size:9px;color:var(--muted)">Or load a CSV/text file into the editor</span>
+              <span style="font-size:9px;color:var(--muted)">CSV, Excel, PDF, or text file</span>
             </div>
             <button class="btn btn-primary" onclick="processAIImport()" style="padding:8px 24px;font-size:12px">Parse with AI</button>
           </div>
@@ -2234,12 +2236,52 @@ function setImportMode(mode){
   }
 }
 
-function loadFileToTextarea(event){
+async function loadOrderFile(event){
   const file=event.target.files[0];
   if(!file)return;
-  file.text().then(text=>{
-    document.getElementById('import-text').value=text;
-  });
+  const ta=document.getElementById('import-text');
+
+  // Excel files — send to backend parser
+  if(file.name.match(/\.xlsx?$/i)){
+    try{
+      const formData=new FormData();
+      formData.append('file',file);
+      ta.value='Extracting Excel data...';
+      const res=await fetch('/api/parse-excel',{method:'POST',body:formData});
+      if(!res.ok)throw new Error('Failed to parse Excel');
+      const data=await res.json();
+      if(data.rows?.length){
+        ta.value=data.rows.map(r=>r.join('\t')).join('\n');
+      }else{
+        ta.value='No data found in Excel file';
+      }
+    }catch(e){
+      ta.value='Excel parse error: '+e.message;
+    }
+    return;
+  }
+
+  // PDF files — send to backend parser
+  if(file.name.toLowerCase().endsWith('.pdf')){
+    try{
+      const formData=new FormData();
+      formData.append('file',file);
+      ta.value='Extracting PDF text...';
+      const res=await fetch('/api/parse-pdf',{method:'POST',body:formData});
+      if(!res.ok)throw new Error('Failed to parse PDF');
+      const data=await res.json();
+      let text='';
+      if(data.tables?.length)text=data.tables.map(t=>t.rows.map(r=>r.join('\t')).join('\n')).join('\n\n');
+      if(data.text)text=text?(text+'\n\n'+data.text):data.text;
+      ta.value=text||'No text found in PDF';
+    }catch(e){
+      ta.value='PDF parse error: '+e.message;
+    }
+    return;
+  }
+
+  // Text/CSV files — read directly
+  ta.value=await file.text();
 }
 
 async function processCSVImport(event){
