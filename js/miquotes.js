@@ -417,7 +417,10 @@ async function miBuildSmartQuote() {
     recommendations.forEach(r => recByProduct[r.product] = r);
 
     const millLocations = {};
-    mills.forEach(m => { if (m.city) millLocations[m.name] = m.city; });
+    mills.forEach(m => {
+      if (m.location) millLocations[m.name] = m.location;
+      else if (m.city) millLocations[m.name] = m.state ? m.city + ', ' + m.state : m.city;
+    });
 
     // matrixData from detail=length: {matrix: {mill: {colKey: {price,...}}}, columns, mills, ...}
     // We need to search across all mills for each combo
@@ -436,7 +439,9 @@ async function miBuildSmartQuote() {
         if (!millData || !millData[colKey]) continue;
 
         const q = millData[colKey];
-        const origin = millLocations[mill] || q.city || '';
+        // Build origin as "City, ST" — use location field, mill lookup, or construct from city+state
+        const qOrigin = q.location || (q.city && q.state ? q.city + ', ' + q.state : q.city || '');
+        const origin = millLocations[mill] || qOrigin;
         if (!origin) continue;
 
         let miles = null;
