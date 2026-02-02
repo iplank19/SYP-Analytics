@@ -117,7 +117,7 @@ function showProspectModal(p=null){
 
 async function saveProspect(id){
   const data={
-    company_name:document.getElementById('p-company').value,
+    company_name:normalizeCustomerName(document.getElementById('p-company').value),
     contact_name:document.getElementById('p-contact').value,
     phone:document.getElementById('p-phone').value,
     email:document.getElementById('p-email').value,
@@ -261,8 +261,9 @@ async function convertProspect(id){
     const p=await res.json();
     // Optionally add to customers list
     if(!S.customers)S.customers=[];
-    if(!S.customers.find(c=>c.name===p.company_name)){
-      S.customers.push({name:p.company_name,destination:p.address||'',trader:S.trader});
+    const normName=normalizeCustomerName(p.company_name);
+    if(!S.customers.find(c=>c.name===normName)){
+      S.customers.push({name:normName,destination:p.address||'',trader:S.trader});
       await saveAllLocal();
     }
     closeModal();loadCRMProspects();

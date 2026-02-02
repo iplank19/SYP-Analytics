@@ -28,7 +28,7 @@ function showBuyModal(b=null){
   const prodList=[...rlProducts].sort();
   
   // Build mill list from company-level names + CRM + trade history
-  const millList=[...new Set([...MILL_COMPANIES,...S.mills.map(m=>m.name),...S.buys.map(x=>x.mill).filter(Boolean)])].sort();
+  const millList=[...new Set([...MILL_COMPANIES,...S.mills.map(m=>m.name),...S.buys.map(x=>normalizeMillCompany(x.mill)).filter(Boolean)])].sort();
   
   // Build origin location list from CRM and previous buys
   const origins=[...new Set([...S.mills.filter(m=>m.origin).map(m=>m.origin),...S.buys.map(x=>x.origin).filter(Boolean)])].sort();
@@ -143,11 +143,11 @@ function showBuyModal(b=null){
               </tbody><tfoot><tr style="font-weight:bold;border-top:2px solid var(--border)"><td>Total</td><td id="tally-total-vol">—</td><td id="tally-avg-price">—</td><td id="tally-total-val">—</td></tr></tfoot></table>`;
             }
             // Standard length-only tally
-            return`<table style="width:100%;font-size:11px"><thead><tr><th>Length</th><th>Units</th><th>MBF</th><th id="tally-price-header">${isMSR?'Your $/MBF':'$/MBF'}</th><th id="tally-base-header" style="display:${isMSR?'table-cell':'none'}">Base #1</th><th id="tally-prem-header" style="display:${isMSR?'table-cell':'none'}">Premium</th><th>Value</th></tr></thead><tbody>
+            return`<table style="width:100%;font-size:11px"><thead><tr><th>Length</th><th>Units</th><th style="color:var(--muted)">MBF</th><th id="tally-price-header">${isMSR?'Your $/MBF':'$/MBF'}</th><th id="tally-base-header" style="display:${isMSR?'table-cell':'none'}">Base #1</th><th id="tally-prem-header" style="display:${isMSR?'table-cell':'none'}">Premium</th><th>Value</th></tr></thead><tbody>
             ${['8','10','12','14','16','18','20'].map(len=>`<tr>
               <td>${len}'</td>
               <td><input type="number" id="tally-units-${len}" value="${b?.tally?.[len]?.units||''}" style="width:50px" onchange="calcTallyRowVol('${len}')" step="0.01"></td>
-              <td><input type="number" id="tally-vol-${len}" value="${b?.tally?.[len]?.vol||''}" style="width:60px" onchange="calcTallyTotal()"></td>
+              <td id="tally-vol-${len}" class="right" style="color:var(--muted);font-size:10px">${b?.tally?.[len]?.vol||'—'}</td>
               <td><input type="number" id="tally-price-${len}" value="${b?.tally?.[len]?.price||''}" style="width:70px" onchange="calcTallyTotal()"></td>
               <td id="tally-base-${len}" class="right" style="display:${isMSR?'table-cell':'none'};color:var(--muted)">—</td>
               <td id="tally-prem-${len}" class="right" style="display:${isMSR?'table-cell':'none'};color:var(--accent)">—</td>
@@ -695,14 +695,13 @@ function toggleTally(){
 function calcTallyRowVol(len){
   const product=document.getElementById('m-product')?.value||'';
   const units=parseFloat(document.getElementById(`tally-units-${len}`)?.value)||0;
-  if(!product||!units)return;
+  const volEl=document.getElementById(`tally-vol-${len}`);
+  if(!product||!units){if(volEl)volEl.textContent='—';calcTallyTotal();return}
   // Use form PPU if set, so tally matches the main form's PPU setting
   const formPPU=parseInt(document.getElementById('m-ppu')?.value)||0;
   const mbf=calcMBFFromUnits(product,len,units,formPPU||undefined);
-  if(mbf>0){
-    document.getElementById(`tally-vol-${len}`).value=mbf;
-    calcTallyTotal();
-  }
+  if(volEl)volEl.textContent=mbf>0?fmtN(mbf):'—';
+  calcTallyTotal();
 }
 
 function calcTallyTotal(){
@@ -715,11 +714,16 @@ function calcTallyTotal(){
   // Get latest RL for base prices
   const latestRL=S.rl.length?S.rl[S.rl.length-1]:null;
 
+  const formPPU=parseInt(document.getElementById('m-ppu')?.value)||0;
   let totalVol=0,totalVal=0,totalBaseVal=0,totalUnits=0;
   ['8','10','12','14','16','18','20'].forEach(len=>{
     const units=parseFloat(document.getElementById(`tally-units-${len}`)?.value)||0;
     totalUnits+=units;
-    const vol=parseFloat(document.getElementById(`tally-vol-${len}`)?.value)||0;
+    // Calculate MBF from units (not from an input field)
+    const vol=units>0?calcMBFFromUnits(product,len,units,formPPU||undefined):0;
+    // Update the display cell
+    const volEl=document.getElementById(`tally-vol-${len}`);
+    if(volEl)volEl.textContent=vol>0?fmtN(vol):'—';
     const price=parseFloat(document.getElementById(`tally-price-${len}`)?.value)||0;
     const val=vol*price;
     const valEl=document.getElementById(`tally-val-${len}`);
@@ -1260,19 +1264,37 @@ function autoFillPPU(formType){
 // Legacy alias for any remaining calls
 function updatePPUDisplay(formType){autoFillPPU(formType);}
 
+// Auto-calc MBF from units for a sell tally row
+function calcSellTallyRowVol(len){
+  const product=document.getElementById('m-product')?.value||'';
+  const units=parseFloat(document.getElementById(`tally-units-${len}`)?.value)||0;
+  const volEl=document.getElementById(`tally-vol-${len}`);
+  if(!product||!units){if(volEl)volEl.textContent='—';calcSellTallyTotal();return}
+  const formPPU=parseInt(document.getElementById('m-ppu')?.value)||0;
+  const mbf=calcMBFFromUnits(product,len,units,formPPU||undefined);
+  if(volEl)volEl.textContent=mbf>0?fmtN(mbf):'—';
+  calcSellTallyTotal();
+}
+
 function calcSellTallyTotal(){
   const product=document.getElementById('m-product')?.value||'';
   const region=document.getElementById('m-region')?.value||'west';
   const isMSR=product.toUpperCase().includes('MSR')||product.toUpperCase().includes('2400');
   const baseMatch=product.match(/(\d+x\d+)/i);
   const baseSize=baseMatch?baseMatch[1].toLowerCase():'2x4';
-  
+
   // Get latest RL for base prices
   const latestRL=S.rl.length?S.rl[S.rl.length-1]:null;
-  
-  let totalVol=0,totalVal=0,totalBaseVal=0;
+  const formPPU=parseInt(document.getElementById('m-ppu')?.value)||0;
+
+  let totalVol=0,totalVal=0,totalBaseVal=0,totalUnits=0;
   ['8','10','12','14','16','18','20'].forEach(len=>{
-    const vol=parseFloat(document.getElementById(`tally-vol-${len}`)?.value)||0;
+    const units=parseFloat(document.getElementById(`tally-units-${len}`)?.value)||0;
+    totalUnits+=units;
+    // Calculate MBF from units
+    const vol=units>0?calcMBFFromUnits(product,len,units,formPPU||undefined):0;
+    const volEl=document.getElementById(`tally-vol-${len}`);
+    if(volEl)volEl.textContent=vol>0?fmtN(vol):'—';
     const price=parseFloat(document.getElementById(`tally-price-${len}`)?.value)||0;
     const val=vol*price;
     const valEl=document.getElementById(`tally-val-${len}`);
@@ -1311,10 +1333,18 @@ function calcSellTallyTotal(){
     }
   });
   
+  const totalUnitsEl=document.getElementById('tally-total-units');
+  if(totalUnitsEl)totalUnitsEl.textContent=totalUnits>0?fmtN(totalUnits):'—';
   document.getElementById('tally-total-vol').textContent=totalVol>0?fmtN(totalVol):'—';
   document.getElementById('tally-avg-price').textContent=totalVol>0?fmt(Math.round(totalVal/totalVol)):'—';
   document.getElementById('tally-total-val').textContent=totalVal>0?fmt(Math.round(totalVal)):'—';
-  
+
+  // Sync total units to main units field
+  if(totalUnits>0){
+    const unitsEl=document.getElementById('m-units');
+    if(unitsEl)unitsEl.value=totalUnits;
+  }
+
   // MSR averages
   if(isMSR){
     const avgBaseEl=document.getElementById('tally-avg-base');
@@ -1366,7 +1396,7 @@ function showSellModal(s=null){
   const dests=[...new Set([...S.customers.flatMap(c=>c.locations||[c.destination]).filter(Boolean),...S.sells.map(x=>x.destination).filter(Boolean)])].sort();
   
   // Customer list from CRM
-  const custList=[...new Set([...S.customers.map(c=>c.name),...S.sells.map(x=>x.customer).filter(Boolean)])].sort();
+  const custList=[...new Set([...S.customers.map(c=>c.name),...S.sells.map(x=>normalizeCustomerName(x.customer)).filter(Boolean)])].sort();
   
   // Get available buys (with volume remaining) - using orderNum, normalized to strings
   const orderSold={};
@@ -1481,16 +1511,17 @@ function showSellModal(s=null){
                 </tr>`).join('')}
               </tbody><tfoot><tr style="font-weight:bold;border-top:2px solid var(--border)"><td>Total</td><td id="tally-total-vol">—</td><td id="tally-avg-price">—</td><td id="tally-total-val">—</td></tr></tfoot></table>`;
             }
-            return`<table style="width:100%;font-size:11px"><thead><tr><th>Length</th><th>MBF</th><th id="tally-price-header-sell">${isMSR?'Your $/MBF':'$/MBF DLVD'}</th><th id="tally-base-header-sell" style="display:${isMSR?'table-cell':'none'}">Base #1</th><th id="tally-prem-header-sell" style="display:${isMSR?'table-cell':'none'}">Premium</th><th>Value</th></tr></thead><tbody>
+            return`<table style="width:100%;font-size:11px"><thead><tr><th>Length</th><th>Units</th><th style="color:var(--muted)">MBF</th><th id="tally-price-header-sell">${isMSR?'Your $/MBF':'$/MBF DLVD'}</th><th id="tally-base-header-sell" style="display:${isMSR?'table-cell':'none'}">Base #1</th><th id="tally-prem-header-sell" style="display:${isMSR?'table-cell':'none'}">Premium</th><th>Value</th></tr></thead><tbody>
             ${['8','10','12','14','16','18','20'].map(len=>`<tr>
               <td>${len}'</td>
-              <td><input type="number" id="tally-vol-${len}" value="${s?.tally?.[len]?.vol||''}" style="width:60px" onchange="calcSellTallyTotal()"></td>
+              <td><input type="number" id="tally-units-${len}" value="${s?.tally?.[len]?.units||''}" style="width:50px" onchange="calcSellTallyRowVol('${len}')" step="0.01"></td>
+              <td id="tally-vol-${len}" class="right" style="color:var(--muted);font-size:10px">${s?.tally?.[len]?.vol||'—'}</td>
               <td><input type="number" id="tally-price-${len}" value="${s?.tally?.[len]?.price||''}" style="width:70px" onchange="calcSellTallyTotal()"></td>
               <td id="tally-base-${len}" class="right" style="display:${isMSR?'table-cell':'none'};color:var(--muted)">—</td>
               <td id="tally-prem-${len}" class="right" style="display:${isMSR?'table-cell':'none'};color:var(--accent)">—</td>
               <td id="tally-val-${len}" class="right">—</td>
             </tr>`).join('')}
-          </tbody><tfoot><tr style="font-weight:bold;border-top:2px solid var(--border)"><td>Total</td><td id="tally-total-vol">—</td><td id="tally-avg-price">—</td><td id="tally-avg-base" style="display:${isMSR?'table-cell':'none'}">—</td><td id="tally-avg-prem" style="display:${isMSR?'table-cell':'none'}">—</td><td id="tally-total-val">—</td></tr></tfoot></table>`;
+          </tbody><tfoot><tr style="font-weight:bold;border-top:2px solid var(--border)"><td>Total</td><td id="tally-total-units">—</td><td id="tally-total-vol">—</td><td id="tally-avg-price">—</td><td id="tally-avg-base" style="display:${isMSR?'table-cell':'none'}">—</td><td id="tally-avg-prem" style="display:${isMSR?'table-cell':'none'}">—</td><td id="tally-total-val">—</td></tr></tfoot></table>`;
           })()}
         </div>
       </div>
@@ -1552,13 +1583,15 @@ async function createPOFromOC(){
   let tally=null;
   if(useTally){
     tally={};
+    const formPPU=parseInt(document.getElementById('m-ppu')?.value)||0;
     ['8','10','12','14','16','18','20'].forEach(len=>{
-      const vol=parseFloat(document.getElementById(`tally-vol-${len}`)?.value)||0;
+      const units=parseFloat(document.getElementById(`tally-units-${len}`)?.value)||0;
+      const vol=units>0?calcMBFFromUnits(product,len,units,formPPU||undefined):0;
       const tallyPrice=parseFloat(document.getElementById(`tally-price-${len}`)?.value)||0;
-      if(vol>0)tally[len]={vol,price:tallyPrice};
+      if(vol>0||units>0)tally[len]={vol,price:tallyPrice,units};
     });
   }
-  
+
   const customer=document.getElementById('m-cust')?.value||'';
   const destination=document.getElementById('m-dest')?.value||'';
   const oc=document.getElementById('m-oc')?.value||'';
@@ -1624,13 +1657,15 @@ async function createOCFromPO(){
   let tally=null;
   if(useTally){
     tally={};
+    const formPPU=parseInt(document.getElementById('m-ppu')?.value)||0;
     ['8','10','12','14','16','18','20'].forEach(len=>{
-      const vol=parseFloat(document.getElementById(`tally-vol-${len}`)?.value)||0;
+      const units=parseFloat(document.getElementById(`tally-units-${len}`)?.value)||0;
+      const vol=units>0?calcMBFFromUnits(product,len,units,formPPU||undefined):0;
       const tallyPrice=parseFloat(document.getElementById(`tally-price-${len}`)?.value)||0;
-      if(vol>0)tally[len]={vol,price:tallyPrice};
+      if(vol>0||units>0)tally[len]={vol,price:tallyPrice,units};
     });
   }
-  
+
   const mill=document.getElementById('m-mill')?.value||'';
   const origin=document.getElementById('m-origin')?.value||'';
   const po=document.getElementById('m-po')?.value||'';
@@ -2206,9 +2241,9 @@ function showImportModal(){
         </div>
         <div id="import-csv-section" style="display:none">
           <div style="text-align:center;padding:40px 20px;border:2px dashed var(--border);border-radius:8px">
-            <div style="font-size:12px;color:var(--muted);margin-bottom:16px">Upload a CSV file in the standard order format</div>
-            <input type="file" id="import-file" accept=".csv" style="display:none" onchange="processCSVImport(event)">
-            <button class="btn btn-primary" onclick="document.getElementById('import-file').click()" style="padding:10px 28px;font-size:12px">Choose CSV File</button>
+            <div style="font-size:12px;color:var(--muted);margin-bottom:16px">Upload a CSV or Excel file in the OC Reports format</div>
+            <input type="file" id="import-file" accept=".csv,.xlsx,.xls" style="display:none" onchange="processCSVImport(event)">
+            <button class="btn btn-primary" onclick="document.getElementById('import-file').click()" style="padding:10px 28px;font-size:12px">Choose File</button>
           </div>
         </div>
       </div>
@@ -2288,7 +2323,23 @@ async function processCSVImport(event){
   const file=event.target.files[0];
   if(!file)return;
   try{
-    const csvText=await file.text();
+    let csvText;
+    if(file.name.match(/\.xlsx?$/i)){
+      // Excel file — convert via backend then feed to deterministic parser
+      const formData=new FormData();
+      formData.append('file',file);
+      const res=await fetch('/api/parse-excel',{method:'POST',body:formData});
+      if(!res.ok)throw new Error('Failed to parse Excel file');
+      const data=await res.json();
+      if(!data.rows?.length)throw new Error('No data found in Excel file');
+      csvText=data.rows.map(r=>r.map(c=>{
+        // Quote fields that contain commas or quotes
+        const s=String(c||'');
+        return s.includes(',')||s.includes('"')?'"'+s.replace(/"/g,'""')+'"':s;
+      }).join(',')).join('\n');
+    }else{
+      csvText=await file.text();
+    }
     const orders=parseOrderCSV(csvText);
     window._importOrders=orders;
     showImportPreview(orders);

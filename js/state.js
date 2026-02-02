@@ -190,7 +190,22 @@ const _MILL_COMPANY_ALIASES={
   'lasalle':'LaSalle Lumber','lasalle lumber':'LaSalle Lumber',
   'big river':'Big River Forest Products','big river forest':'Big River Forest Products',
   'hankins':'Hankins Lumber','hankins lumber':'Hankins Lumber',
-  'westervelt':'Westervelt Lumber','westervelt lumber':'Westervelt Lumber'
+  'westervelt':'Westervelt Lumber','westervelt lumber':'Westervelt Lumber',
+  'resolute':'Resolute FP','resolute fp':'Resolute FP','resolute fp us':'Resolute FP','resolute fp us inc':'Resolute FP',
+  'binderholz':'Binderholz','binderholz timber':'Binderholz','binderholz timber llc':'Binderholz',
+  'beasley':'Beasley Forest Products','beasley forest':'Beasley Forest Products','beasley forest products':'Beasley Forest Products',
+  'dupont pine':'DuPont Pine Products','dupont pine products':'DuPont Pine Products',
+  'grayson':'Grayson Lumber','grayson lumber':'Grayson Lumber','grayson lumber corp':'Grayson Lumber',
+  'great south':'Great South Timber','great south timber':'Great South Timber','great south timber & lbr':'Great South Timber',
+  'green bay':'Green Bay Packaging','green bay packaging':'Green Bay Packaging','green bay packaging inc':'Green Bay Packaging',
+  'hardy':'Idaho Forest Group','hardy technologies':'Idaho Forest Group','hardy technologies llc':'Idaho Forest Group',
+  'jordan':'Jordan Lumber','jordan lumber':'Jordan Lumber',
+  'two rivers':'Two Rivers Lumber','two rivers lumber':'Two Rivers Lumber','two rivers lumber co llc':'Two Rivers Lumber',
+  'vicksburg':'Vicksburg Forest Products','vicksburg forest':'Vicksburg Forest Products','vicksburg forest products':'Vicksburg Forest Products',
+  'harrigan':'Harrigan Lumber','harrigan lumber':'Harrigan Lumber','harrigan lumber co':'Harrigan Lumber',
+  'lumberton':'Lumberton Lumber','lumberton lumber':'Lumberton Lumber',
+  'wm sheppard':'WM Sheppard Lumber','wm sheppard lumber':'WM Sheppard Lumber','wm sheppard lumber co inc':'WM Sheppard Lumber',
+  'waldo':'PotlatchDeltic','charles ingram':'Charles Ingram Lumber','charles ingram lumber':'Charles Ingram Lumber','charles ingram lumber co':'Charles Ingram Lumber'
 };
 
 // Derived company-level list (for datalists/dropdowns — one per company, not per location)
@@ -330,6 +345,184 @@ function normalizeMillName(raw, city) {
   const state = city ? (city.split(',').pop() || '').trim().toUpperCase() : '';
   return { name: trimmed, city: city || '', state, company: extractMillCompany(trimmed) };
 }
+
+// --- Customer name normalization (mirrors mill alias pattern) ---
+
+const _CUSTOMER_ALIASES={
+  'power truss':'Power Truss and Lumber','power truss and lumber':'Power Truss and Lumber','power truss & lumber':'Power Truss and Lumber',
+  'protec panel and truss':'ProTec Panel and Truss','protec panel & truss':'ProTec Panel and Truss',
+  'craters and freighters':'Craters & Freighters','craters & freighters':'Craters & Freighters','craters & freighters (stl custom crating llc)':'Craters & Freighters',
+  'precision truss':'Precision Truss & Metal','precision truss and metal':'Precision Truss & Metal','precision truss & metal':'Precision Truss & Metal','precision truss & walls':'Precision Truss & Metal','precision truss and walls':'Precision Truss & Metal',
+  'rehkemper and sons':'Rehkemper & Sons','rehkemper & sons':'Rehkemper & Sons','rehkemper sons':'Rehkemper & Sons','rehkemper & son inc':'Rehkemper & Sons','rehkemper & son':'Rehkemper & Sons','rehkemper and son inc':'Rehkemper & Sons',
+  'power truss inc':'Power Truss and Lumber',
+  'protec panel & truss':'ProTec Panel and Truss','protec panel and truss':'ProTec Panel and Truss',
+  'atwood forest prods inc':'Atwood Forest Products Inc','atwood forest prods':'Atwood Forest Products Inc',
+  'g proulx bldg products':'G Proulx Building Products',
+  'jefferson home bldrs inc':'Jefferson Home Builders Inc','jefferson home bldrs':'Jefferson Home Builders Inc',
+  'nvr building prdts co':'NVR Building Products Co','nvr building prdts':'NVR Building Products Co',
+  'raymond bldg sy llc uslbm':'Raymond Building Supply LLC USLBM'
+};
+
+// Common corporate suffixes stripped during matching
+const _CORP_SUFFIXES=/\b(inc\.?|llc\.?|co\.?|corp\.?|corporation|company|enterprises|ltd\.?|limited|group|holdings|lumber|timber|forest products|building products|distribution|supply)\s*\.?\s*$/i;
+
+function normalizeCustomerName(raw){
+  if(!raw)return raw
+  const trimmed=raw.trim()
+  if(!trimmed)return trimmed
+
+  // 1. Exact case-insensitive match against existing customers
+  const exactMatch=S.customers.find(c=>c.name&&c.name.toLowerCase()===trimmed.toLowerCase())
+  if(exactMatch)return exactMatch.name
+
+  // 2. Alias dictionary lookup
+  const lower=trimmed.toLowerCase().replace(/[_\-–—]+/g,' ').replace(/\s+/g,' ').trim()
+  const sortedAliases=Object.entries(_CUSTOMER_ALIASES).sort((a,b)=>b[0].length-a[0].length)
+  for(const[alias,canonical]of sortedAliases){
+    if(lower===alias)return canonical
+  }
+
+  // 3. Suffix-stripped matching against existing customers
+  const stripped=lower.replace(_CORP_SUFFIXES,'').trim()
+  if(stripped){
+    for(const c of S.customers){
+      if(!c.name)continue
+      const cStripped=c.name.toLowerCase().replace(_CORP_SUFFIXES,'').trim()
+      if(stripped===cStripped)return c.name
+    }
+  }
+
+  // 4. No match — return trimmed original
+  return trimmed
+}
+
+// Normalize mill input to canonical company name
+function normalizeMillCompany(raw){
+  if(!raw)return raw
+  const trimmed=raw.trim()
+  if(!trimmed)return trimmed
+  if(MILL_COMPANIES.includes(trimmed))return trimmed
+  return extractMillCompany(trimmed)
+}
+
+// One-time migration: normalize existing entity names in trades and CRM
+function migrateEntityNames(){
+  let changed=false
+
+  // Normalize customer names in sells
+  S.sells.forEach(s=>{
+    if(s.customer){
+      const norm=normalizeCustomerName(s.customer)
+      if(norm!==s.customer){s.customer=norm;changed=true}
+    }
+  })
+
+  // Normalize mill names in buys
+  S.buys.forEach(b=>{
+    if(b.mill){
+      const norm=normalizeMillCompany(b.mill)
+      if(norm!==b.mill){b.mill=norm;changed=true}
+    }
+  })
+
+  // Normalize customer list names and deduplicate
+  S.customers.forEach(c=>{
+    if(c.name){
+      const norm=normalizeCustomerName(c.name)
+      if(norm!==c.name){c.name=norm;changed=true}
+    }
+  })
+  const seen=new Map()
+  S.customers=S.customers.filter(c=>{
+    if(!c.name)return true
+    const key=c.name.toLowerCase()
+    if(seen.has(key)){
+      const existing=seen.get(key)
+      if(c.locations)existing.locations=[...new Set([...(existing.locations||[]),...c.locations])]
+      if(c.destination&&!existing.destination)existing.destination=c.destination
+      if(c.email&&!existing.email)existing.email=c.email
+      return false
+    }
+    seen.set(key,c)
+    return true
+  })
+
+  // Remove known invalid/ghost mill entries
+  const _GHOST_MILLS=new Set(['unknown mill','warren','waldo','wm shepard lumber'])
+  S.mills=S.mills.filter(m=>{
+    if(m.name&&_GHOST_MILLS.has(m.name.toLowerCase())){changed=true;return false}
+    return true
+  })
+
+  // Normalize mill list names and deduplicate
+  S.mills.forEach(m=>{
+    if(m.name){
+      const norm=normalizeMillCompany(m.name)
+      if(norm!==m.name){m.name=norm;changed=true}
+    }
+  })
+  const seenMills=new Map()
+  S.mills=S.mills.filter(m=>{
+    if(!m.name)return true
+    const key=m.name.toLowerCase()
+    if(seenMills.has(key)){
+      const existing=seenMills.get(key)
+      if(m.locations)existing.locations=[...new Set([...(existing.locations||[]),...m.locations])]
+      return false
+    }
+    seenMills.set(key,m)
+    return true
+  })
+
+  if(changed){
+    save('sells',S.sells)
+    save('buys',S.buys)
+    save('customers',S.customers)
+    save('mills',S.mills)
+  }
+}
+
+// Mill quote name mappings for legacy ALL-CAPS / ghost entries
+const _MQ_RENAMES={
+  'MID SOUTH LUMBER COMPANY':'Mid-South Lumber',
+  'POTLATCHDELTIC OLA':'PotlatchDeltic - Ola',
+  'WM Shepard Lumber - Brooklet':'WM Sheppard Lumber - Brooklet',
+  'Waldo':'PotlatchDeltic - Waldo',
+  'Warren':'PotlatchDeltic - Warren',
+  'Lumberton Lumber':'Idaho Forest Group - Lumberton'
+};
+// GEORGIA PACIFIC note→location mapping
+const _GP_NOTE_MAP={
+  'GP Talladega':'GP - Talladega','Talladega AL':'GP - Talladega',
+  'GP Rome':'GP - Rome',
+  'GP SL Warrenton II':'GP - Warrenton','Warrenton GA':'GP - Warrenton',
+  'GP Dudley':'West Fraser - Dudley','Dudley NC':'West Fraser - Dudley',
+  'GP Gurdon':'GP - Gurdon',
+  'GP Albany':'GP - Albany','Albany GP':'GP - Albany'
+};
+
+function normalizeMillQuotes(){
+  if(!S.millQuotes||!S.millQuotes.length)return
+  let changed=false
+  S.millQuotes=S.millQuotes.filter(q=>{
+    if(!q.mill)return false
+    // Remove Unknown Mill entries
+    if(q.mill.startsWith('Unknown Mill')){changed=true;return false}
+    // Direct renames
+    if(_MQ_RENAMES[q.mill]){q.mill=_MQ_RENAMES[q.mill];changed=true}
+    // GEORGIA PACIFIC → GP - Location based on notes, or remove if no location
+    else if(q.mill==='GEORGIA PACIFIC'){
+      const mapped=_GP_NOTE_MAP[q.notes]
+      if(mapped){q.mill=mapped;changed=true}
+      else{changed=true;return false}
+    }
+    // Remove generic GP (no location) — duplicates of GP - Albany/Rome/etc
+    else if(q.mill==='GP'){changed=true;return false}
+    return true
+  })
+  if(changed)save('millQuotes',S.millQuotes)
+}
+
 const NAV=[{id:'dashboard',icon:'📊',label:'Dashboard'},{id:'leaderboard',icon:'🏆',label:'Leaderboard'},{id:'insights',icon:'🎯',label:'Daily Briefing'},{id:'blotter',icon:'📋',label:'Trade Blotter'},{id:'pnl-calendar',icon:'📅',label:'P&L Calendar'},{id:'benchmark',icon:'🎯',label:'vs Market'},{id:'risk',icon:'⚠️',label:'Risk'},{id:'quotes',icon:'💰',label:'Quote Engine'},{id:'mi-intake',icon:'📥',label:'Mill Intake'},{id:'mi-prices',icon:'📊',label:'All Prices'},{id:'mi-intel',icon:'🧠',label:'Intelligence'},{id:'products',icon:'📦',label:'By Product'},{id:'crm',icon:'🏢',label:'CRM'},{id:'rldata',icon:'📈',label:'RL Data'},{id:'settings',icon:'⚙️',label:'Settings'}];
 
 // Nav groups for collapsible sidebar

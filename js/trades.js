@@ -57,13 +57,14 @@ async function saveBuy(id){
     }
     // Standard length rows (only if no mixed rows found)
     if(mi===0){
+      const formPPU=parseInt(document.getElementById('m-ppu')?.value)||0;
       ['8','10','12','14','16','18','20'].forEach(len=>{
-        const rawVol=parseFloat(document.getElementById(`tally-vol-${len}`)?.value);
         const rawPrice=parseFloat(document.getElementById(`tally-price-${len}`)?.value);
         const rawUnits=parseFloat(document.getElementById(`tally-units-${len}`)?.value);
-        const vol=isNaN(rawVol)?0:rawVol;
         const tallyPrice=isNaN(rawPrice)?0:rawPrice;
         const units=isNaN(rawUnits)?0:rawUnits;
+        // Calculate MBF from units (units-first entry)
+        const vol=units>0?calcMBFFromUnits(product,len,units,formPPU||undefined):0;
         if(vol>0||units>0){
           tempTally[len]={vol,price:tallyPrice,units};
           tallyTotalVol+=vol;
@@ -91,7 +92,7 @@ async function saveBuy(id){
   }
   
   const rawMill=document.getElementById('m-mill').value;
-  const mill=extractMillCompany(rawMill);// Store company name, not "Company - City"
+  const mill=normalizeMillCompany(rawMill);// Store canonical company name
   const origin=document.getElementById('m-origin').value;
   const orderNum=document.getElementById('m-orderNum').value;
 
@@ -170,9 +171,9 @@ async function saveBuy(id){
 }
 
 async function saveSell(id){
-  const customer=document.getElementById('m-cust').value;
+  const customer=normalizeCustomerName(document.getElementById('m-cust').value);
   const destination=document.getElementById('m-dest').value;
-  
+
   // Save customer to CRM if new
   if(customer&&!S.customers.find(c=>c.name===customer)){
     S.customers.push({name:customer,destination:destination,addedDate:today()});
@@ -239,13 +240,16 @@ async function saveSell(id){
     }
     // Standard length rows (only if no mixed rows found)
     if(mi===0){
+      const formPPU=parseInt(document.getElementById('m-ppu')?.value)||0;
       ['8','10','12','14','16','18','20'].forEach(len=>{
-        const rawVol=parseFloat(document.getElementById(`tally-vol-${len}`)?.value);
         const rawPrice=parseFloat(document.getElementById(`tally-price-${len}`)?.value);
-        const vol=isNaN(rawVol)?0:rawVol;
+        const rawUnits=parseFloat(document.getElementById(`tally-units-${len}`)?.value);
         const tallyPrice=isNaN(rawPrice)?0:rawPrice;
-        if(vol>0){
-          tempTally[len]={vol,price:tallyPrice};
+        const units=isNaN(rawUnits)?0:rawUnits;
+        // Calculate MBF from units (units-first entry)
+        const vol=units>0?calcMBFFromUnits(product,len,units,formPPU||undefined):0;
+        if(vol>0||units>0){
+          tempTally[len]={vol,price:tallyPrice,units};
           tallyTotalVol+=vol;
           tallyTotalVal+=vol*tallyPrice;
         }
@@ -336,7 +340,7 @@ async function saveRL(){
 async function saveCust(oldName){
   const locations=[...document.querySelectorAll('.cust-loc')].map(el=>el.value.trim()).filter(Boolean);
   const assignedTrader=S.trader==='Admin'?(document.getElementById('m-trader')?.value||'Ian P'):S.trader;
-  const c={name:document.getElementById('m-name').value,contact:document.getElementById('m-contact')?.value||'',phone:document.getElementById('m-phone')?.value||'',email:document.getElementById('m-email')?.value||'',locations:locations,destination:locations[0]||'',notes:document.getElementById('m-terms')?.value||'',trader:assignedTrader};
+  const c={name:normalizeCustomerName(document.getElementById('m-name').value),contact:document.getElementById('m-contact')?.value||'',phone:document.getElementById('m-phone')?.value||'',email:document.getElementById('m-email')?.value||'',locations:locations,destination:locations[0]||'',notes:document.getElementById('m-terms')?.value||'',trader:assignedTrader};
   if(!c.name){showToast('Enter name','warn');return}
   try{
     const existing=S.customers.find(x=>x.name===oldName);
@@ -354,7 +358,8 @@ async function saveCust(oldName){
 
 function showMillModal(m=null){
   const mill=m?S.mills.find(x=>x.name===m):null;
-  const locs=mill?.locations||[mill?.origin].filter(Boolean);
+  const rawLocs=mill?.locations||[mill?.origin].filter(Boolean);
+  const locs=rawLocs.map(l=>typeof l==='string'?l:(l&&l.city?`${l.city}, ${l.state||''}`.trim():''));
   document.getElementById('modal').innerHTML=`<div class="modal-overlay" onclick="closeModal()"><div class="modal" onclick="event.stopPropagation()">
     <div class="modal-header"><span class="modal-title positive">${mill?'EDIT':'NEW'} MILL</span><button class="modal-close" onclick="closeModal()">×</button></div>
     <div class="modal-body">
@@ -390,7 +395,7 @@ function addMillLocation(){
 async function saveMill(oldName){
   const locations=[...document.querySelectorAll('.mill-loc')].map(el=>el.value.trim()).filter(Boolean);
   const assignedTrader=S.trader==='Admin'?(document.getElementById('m-trader')?.value||'Ian P'):S.trader;
-  const m={name:document.getElementById('m-name').value,location:locations[0]||'',products:locations,contact:document.getElementById('m-contact').value,phone:document.getElementById('m-phone').value,notes:document.getElementById('m-notes').value,trader:assignedTrader};
+  const m={name:normalizeMillCompany(document.getElementById('m-name').value),location:locations[0]||'',products:locations,contact:document.getElementById('m-contact').value,phone:document.getElementById('m-phone').value,notes:document.getElementById('m-notes').value,trader:assignedTrader};
   if(!m.name){showToast('Enter name','warn');return}
   try{
     const existing=S.mills.find(x=>x.name===oldName);

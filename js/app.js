@@ -287,6 +287,7 @@ async function init(){
   await initDB();
   await loadAllLocal();
   migrateTraderNames();
+  if(!localStorage.getItem('syp_entityMigration_v1')){migrateEntityNames();localStorage.setItem('syp_entityMigration_v1','1')}
 
   // Init Supabase (uses hardcoded defaults if not overridden)
   const sbUrl=LS('supabaseUrl','')||DEFAULT_SUPABASE_URL;
@@ -301,6 +302,7 @@ async function init(){
       if(result.success){
         await loadAllLocal(); // Reload with cloud data
         migrateTraderNames();
+        if(!localStorage.getItem('syp_entityMigration_v1')){migrateEntityNames();localStorage.setItem('syp_entityMigration_v1','1')}
         console.log('Cloud sync: pulled latest data');
       }
     }catch(e){

@@ -221,7 +221,7 @@ async function cloudSync(action='push'){
         if(d.futuresContracts){S.futuresContracts=d.futuresContracts;SS('futuresContracts',S.futuresContracts)}
         if(d.futuresParams){S.futuresParams=d.futuresParams;SS('futuresParams',S.futuresParams)}
         // Mill pricing
-        if(d.millQuotes){S.millQuotes=d.millQuotes;SS('millQuotes',S.millQuotes)}
+        if(d.millQuotes){S.millQuotes=d.millQuotes;normalizeMillQuotes();SS('millQuotes',S.millQuotes)}
         // Save to local storage too
         await saveAllLocal();
         // Sync pulled customers/mills into SQLite (so loadCRMData finds them)
@@ -432,6 +432,7 @@ async function loadAllLocal(){
   S.futuresParams=await dbGet('futuresParams',LS('futuresParams',{carryRate:0.08,storageCost:2,insuranceCost:1}));
   // Mill pricing
   S.millQuotes=await dbGet('millQuotes',LS('millQuotes',[]));
+  normalizeMillQuotes();
 }
 
 // Sync pulled customers/mills into SQLite so loadCRMData finds them

@@ -175,13 +175,13 @@ function executeAITool(name,params){
         return{success:true,data:mills};
       }
       case 'add_customer':{
-        const cust={id:genId(),name:params.name,destination:params.destination,email:params.email||'',type:'customer',quoteSelected:true,locations:[params.destination].filter(Boolean)};
+        const cust={id:genId(),name:normalizeCustomerName(params.name),destination:params.destination,email:params.email||'',type:'customer',quoteSelected:true,locations:[params.destination].filter(Boolean)};
         S.customers.push(cust);
         save('customers',S.customers);
         return{success:true,message:`Added customer: ${cust.name}`,data:cust};
       }
       case 'add_mill':{
-        const mill={id:genId(),name:params.name,location:params.location,region:params.region||'west',type:'mill',trader:S.trader==='Admin'?'Ian P':S.trader};
+        const mill={id:genId(),name:normalizeMillCompany(params.name),location:params.location,region:params.region||'west',type:'mill',trader:S.trader==='Admin'?'Ian P':S.trader};
         S.mills.push(mill);
         save('mills',S.mills);
         return{success:true,message:`Added mill: ${mill.name} (${mill.location})`,data:mill};
@@ -900,12 +900,16 @@ function parseOrderCSV(csvText){
 
   const header=lines[0].toLowerCase();
   const hasHeader=header.includes('order');
-  const dataLines=hasHeader?lines.slice(1):lines;
+  // Filter out footer rows (Total, Applied filters, blank data)
+  const dataLines=(hasHeader?lines.slice(1):lines).filter(l=>{
+    const first=l.split(/[,\t]/)[0].trim().toLowerCase();
+    return first&&first!=='total'&&!first.startsWith('applied filter');
+  });
 
   const headerFields=hasHeader?parseCSVRow(lines[0]):[];
 
   // Detect CSV format by header columns
-  // New format (15 cols): Order #, Seller, Customer, Ship To State, Ship To City, DELETE COLUMN, PO Price (buy), OC Price (sell), Product Description, Product Detail, Tally, Mill, Ship From State, Ship From City, PO_BuyTraderName
+  // OC Reports format (15 cols): Order #, Seller, Customer, Ship To State, Ship To City, DELETE COLUMN, OC Price (sell), Product Description, Product Detail, Tally, Mill, Ship From State, Ship From City, PO_BuyTraderName, PO Price (buy)
   // Old format (13 cols): Order, Seller, Customer, ShipToState, ShipToCity, SellPrice, ProductDesc, ProductDetail, Tally, Mill, ShipFromState, ShipFromCity, Buyer
   const hasOCPrice=headerFields.some(h=>/oc.*price/i.test(h));
   const hasPOPrice=headerFields.some(h=>/po.*price/i.test(h));
@@ -916,27 +920,27 @@ function parseOrderCSV(csvText){
   // Parse rows
   const rows=dataLines.map(line=>{
     const f=parseCSVRow(line);
-    if(f.length<13)return null;
+    if(f.length<(isNewFormat?10:7))return null;
 
     let orderNum,seller,customer,shipToState,shipToCity,buyPrice,sellPrice,productDesc,productDetail,tally,mill,shipFromState,shipFromCity,buyer;
 
     if(isNewFormat){
-      // New format: Order #, Seller, Customer, Ship To State, Ship To City, DELETE COLUMN, PO Price, OC Price, Product Description, Product Detail, Tally, Mill, Ship From State, Ship From City, PO_BuyTraderName
+      // OC Reports: Order #, Seller, Customer, Ship To State, Ship To City, DELETE COLUMN, OC Price, Product Description, Product Detail, Tally, Mill, Ship From State, Ship From City, PO_BuyTraderName, PO Price
       orderNum=f[0];
       seller=f[1];
       customer=f[2];
       shipToState=f[3];
       shipToCity=f[4];
       // f[5] is DELETE COLUMN - skip it
-      buyPrice=parsePrice(f[6]);// PO Price
-      sellPrice=parsePrice(f[7]);// OC Price
-      productDesc=f[8];
-      productDetail=f[9];
-      tally=f[10];
-      mill=f[11];
-      shipFromState=f[12];
-      shipFromCity=f[13];
-      buyer=f[14]||seller;// PO_BuyTraderName
+      sellPrice=parsePrice(f[6]);// OC Price (sell)
+      productDesc=f[7];
+      productDetail=f[8];
+      tally=f[9];
+      mill=f[10];
+      shipFromState=f[11];
+      shipFromCity=f[12];
+      buyer=f[13]||seller;// PO_BuyTraderName
+      buyPrice=parsePrice(f[14]);// PO Price (buy)
     }else{
       // Old format (legacy)
       orderNum=f[0];
@@ -959,6 +963,11 @@ function parseOrderCSV(csvText){
     const{product,length,dim,thick,wide,isTimber}=parseProduct(productDesc,productDetail);
     const units=parseTally(tally);
     const mbf=unitsToMBF(units,dim,length,isTimber);
+
+    // Normalize entity names (handles ALL-CAPS, aliases, suffix stripping)
+    if(customer&&typeof normalizeCustomerName==='function')customer=normalizeCustomerName(customer);
+    if(mill&&typeof normalizeMillCompany==='function')mill=normalizeMillCompany(mill);
+
     return{
       orderNum,
       seller,

@@ -6,6 +6,7 @@ from flask import Flask, send_from_directory, request, jsonify
 from flask_cors import CORS
 import requests
 import os
+import re
 import time
 import sqlite3
 import json
@@ -315,13 +316,23 @@ MILL_COMPANY_ALIASES = {
     'grayson lumber': 'Grayson Lumber', 'grayson lumber corp': 'Grayson Lumber',
     'great south timber': 'Great South Timber', 'great south timber & lbr': 'Great South Timber',
     'green bay packaging': 'Green Bay Packaging', 'green bay packaging inc.': 'Green Bay Packaging',
-    'hardy technologies': 'Hardy Technologies', 'hardy technologies llc': 'Hardy Technologies',
+    'hardy': 'Idaho Forest Group', 'hardy technologies': 'Idaho Forest Group', 'hardy technologies llc': 'Idaho Forest Group',
     'resolute': 'Resolute FP', 'resolute fp': 'Resolute FP', 'resolute fp us inc': 'Resolute FP',
     'two rivers': 'Two Rivers Lumber', 'two rivers lumber': 'Two Rivers Lumber',
     'two rivers lumber co llc': 'Two Rivers Lumber',
     'vicksburg forest products': 'Vicksburg Forest Products',
     'wm sheppard': 'WM Sheppard Lumber', 'wm sheppard lumber': 'WM Sheppard Lumber',
     'wm sheppard lumber co inc': 'WM Sheppard Lumber',
+    'beasley': 'Beasley Forest Products', 'beasley forest': 'Beasley Forest Products',
+    'dupont pine': 'DuPont Pine Products', 'dupont pine products': 'DuPont Pine Products',
+    'grayson': 'Grayson Lumber', 'great south': 'Great South Timber',
+    'green bay': 'Green Bay Packaging', 'green bay packaging inc': 'Green Bay Packaging',
+    'jordan': 'Jordan Lumber', 'jordan lumber': 'Jordan Lumber',
+    'vicksburg': 'Vicksburg Forest Products', 'vicksburg forest': 'Vicksburg Forest Products',
+    'harrigan': 'Harrigan Lumber', 'harrigan lumber': 'Harrigan Lumber', 'harrigan lumber co': 'Harrigan Lumber',
+    'lumberton': 'Lumberton Lumber', 'lumberton lumber': 'Lumberton Lumber',
+    'waldo': 'PotlatchDeltic', 'resolute fp us': 'Resolute FP',
+    'idaho forest': 'Idaho Forest Group',
 }
 
 def extract_company_name(mill_name):
@@ -344,6 +355,67 @@ def extract_company_name(mill_name):
         if lower.startswith(a + ' ') or lower == a:
             return canonical
     return name
+
+# Customer alias mapping (mirrors _CUSTOMER_ALIASES in state.js)
+CUSTOMER_ALIASES = {
+    'power truss': 'Power Truss and Lumber', 'power truss and lumber': 'Power Truss and Lumber',
+    'power truss & lumber': 'Power Truss and Lumber',
+    'protec panel and truss': 'ProTec Panel and Truss', 'protec panel & truss': 'ProTec Panel and Truss',
+    'craters and freighters': 'Craters & Freighters', 'craters & freighters': 'Craters & Freighters',
+    'craters & freighters (stl custom crating llc)': 'Craters & Freighters',
+    'precision truss': 'Precision Truss & Metal', 'precision truss and metal': 'Precision Truss & Metal',
+    'precision truss & metal': 'Precision Truss & Metal', 'precision truss & walls': 'Precision Truss & Metal',
+    'precision truss and walls': 'Precision Truss & Metal',
+    'rehkemper and sons': 'Rehkemper & Sons', 'rehkemper & sons': 'Rehkemper & Sons',
+    'rehkemper sons': 'Rehkemper & Sons', 'rehkemper & son inc': 'Rehkemper & Sons',
+    'rehkemper & son': 'Rehkemper & Sons', 'rehkemper and son inc': 'Rehkemper & Sons',
+    'power truss inc': 'Power Truss and Lumber',
+    'atwood forest prods inc': 'Atwood Forest Products Inc', 'atwood forest prods': 'Atwood Forest Products Inc',
+    'g proulx bldg products': 'G Proulx Building Products',
+    'jefferson home bldrs inc': 'Jefferson Home Builders Inc', 'jefferson home bldrs': 'Jefferson Home Builders Inc',
+    'nvr building prdts co': 'NVR Building Products Co', 'nvr building prdts': 'NVR Building Products Co',
+    'raymond bldg sy llc uslbm': 'Raymond Building Supply LLC USLBM',
+}
+
+# Common corporate suffixes for stripping during matching
+_CORP_SUFFIXES_RE = re.compile(
+    r'\b(inc\.?|llc\.?|co\.?|corp\.?|corporation|company|enterprises|ltd\.?|limited|'
+    r'group|holdings|lumber|timber|forest products|building products|distribution|supply)\s*\.?\s*$',
+    re.IGNORECASE
+)
+
+def normalize_customer_name(name):
+    """Normalize a customer name by stripping common suffixes and matching aliases."""
+    if not name:
+        return name
+    trimmed = name.strip()
+    if not trimmed:
+        return trimmed
+
+    # 1. Alias dictionary lookup
+    lower = re.sub(r'[_\-\u2013\u2014]+', ' ', trimmed.lower()).strip()
+    lower = re.sub(r'\s+', ' ', lower)
+    for alias, canonical in sorted(CUSTOMER_ALIASES.items(), key=lambda x: -len(x[0])):
+        if lower == alias:
+            return canonical
+
+    # 2. Check existing customers in DB for suffix-stripped match
+    try:
+        conn = get_crm_db()
+        rows = conn.execute('SELECT DISTINCT name FROM customers').fetchall()
+        conn.close()
+        stripped = _CORP_SUFFIXES_RE.sub('', lower).strip()
+        if stripped:
+            for row in rows:
+                if row['name']:
+                    db_stripped = _CORP_SUFFIXES_RE.sub('', row['name'].lower()).strip()
+                    if stripped == db_stripped:
+                        return row['name']
+    except Exception:
+        pass
+
+    # 3. No match - return trimmed original
+    return trimmed
 
 def get_mi_db():
     conn = sqlite3.connect(MI_DB_PATH, timeout=10)
@@ -798,7 +870,7 @@ def create_prospect():
             INSERT INTO prospects (company_name, contact_name, phone, email, address, notes, status, source, trader)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         ''', (
-            data.get('company_name'),
+            normalize_customer_name(data.get('company_name')),
             data.get('contact_name'),
             data.get('phone'),
             data.get('email'),
@@ -1283,7 +1355,7 @@ def create_customer():
             INSERT INTO customers (name, contact, phone, email, destination, locations, notes, trader)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         ''', (
-            data.get('name'),
+            normalize_customer_name(data.get('name')),
             data.get('contact'),
             data.get('phone'),
             data.get('email'),
