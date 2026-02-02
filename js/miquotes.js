@@ -422,13 +422,52 @@ async function miBuildSmartQuote() {
       else if (m.city) millLocations[m.name] = m.state ? m.city + ', ' + m.state : m.city;
     });
 
-    // matrixData from detail=length: {matrix: {mill: {colKey: {price,...}}}, columns, mills, ...}
-    // We need to search across all mills for each combo
     const allMills = matrixData.mills || [];
 
+    // --- STEP 1: Collect all unique origin→destination lanes needed ---
+    const originMap = {}; // mill → origin string
+    const neededLanes = [];
+    const seenKeys = new Set();
+
+    for (const combo of combos) {
+      const colKey = combo.length === 'RL' ? `${combo.product} RL` : `${combo.product} ${combo.length}'`;
+      for (const mill of allMills) {
+        const millData = matrixData.matrix[mill];
+        if (!millData || !millData[colKey]) continue;
+
+        const q = millData[colKey];
+        const qOrigin = q.city && q.state ? q.city + ', ' + q.state : q.city || '';
+        const origin = millLocations[mill] || qOrigin;
+        if (!origin) continue;
+
+        originMap[mill] = origin;
+
+        // Check if lane is already cached (same logic as build side)
+        const key = `${origin}|${destination}`;
+        if (seenKeys.has(key)) continue;
+        seenKeys.add(key);
+
+        const cachedMiles = typeof getLaneMiles === 'function' ? getLaneMiles(origin, destination) : null;
+        if (!cachedMiles) {
+          neededLanes.push({ key, origin, dest: destination });
+        }
+      }
+    }
+
+    // --- STEP 2: Bulk lookup missing lanes (same as build side) ---
+    if (neededLanes.length > 0) {
+      console.log(`Sourcing: Looking up ${neededLanes.length} missing lane(s)...`);
+      if (typeof lookupMileageWithAPI === 'function') {
+        const failed = await lookupMileageWithAPI(neededLanes);
+        if (failed.length > 0) {
+          console.log(`${failed.length} lane(s) failed lookup — freight will be unavailable for those`);
+        }
+      }
+    }
+
+    // --- STEP 3: Build quotes using cached lanes + calcFreightPerMBF (same as build side) ---
     _miQuoteResults = [];
 
-    // Group combos by product for recommendation lookup
     for (const combo of combos) {
       const colKey = combo.length === 'RL' ? `${combo.product} RL` : `${combo.product} ${combo.length}'`;
       const rec = recByProduct[combo.product];
@@ -439,22 +478,16 @@ async function miBuildSmartQuote() {
         if (!millData || !millData[colKey]) continue;
 
         const q = millData[colKey];
-        // Build origin as "City, ST" from matrix data or mill lookup
-        const qOrigin = q.city && q.state ? q.city + ', ' + q.state : q.city || '';
-        const origin = millLocations[mill] || qOrigin;
+        const origin = originMap[mill] || (q.city && q.state ? q.city + ', ' + q.state : q.city || '');
         if (!origin) continue;
 
-        let miles = null;
-        let freightPerMBF = null;
+        // Use getLaneMiles (same cache as build side)
+        const miles = typeof getLaneMiles === 'function' ? getLaneMiles(origin, destination) : null;
 
-        try {
-          const mileageResult = await miGetMileage(origin, destination);
-          miles = mileageResult.miles;
-          const state = miExtractState(origin);
-          const rate = S.stateRates[state] || MI_STATE_RATES[state] || 2.50;
-          freightPerMBF = Math.round((S.freightBase + miles * rate) / S.quoteMBFperTL);
-          if (freightPerMBF < S.shortHaulFloor) freightPerMBF = S.shortHaulFloor;
-        } catch (e) {}
+        // Use calcFreightPerMBF (same function as build side)
+        const isMSR = (combo.product || '').toUpperCase().includes('MSR');
+        const freightPerMBF = miles && typeof calcFreightPerMBF === 'function'
+          ? calcFreightPerMBF(miles, origin, isMSR) : null;
 
         const landedCost = freightPerMBF != null ? q.price + freightPerMBF : null;
 
