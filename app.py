@@ -2315,13 +2315,14 @@ def mi_quote_matrix():
             columns.add(col_key)
             if mill not in matrix:
                 matrix[mill] = {}
-            # Use MILL_DIRECTORY for accurate city/state (CRM parent record may differ)
+            # Use MILL_DIRECTORY for accurate city/state/region (CRM parent record may differ)
             dir_city, dir_state = MILL_DIRECTORY.get(mill, (r['city'], r['state']))
+            dir_region = MI_STATE_REGIONS.get(dir_state.upper(), 'central') if dir_state else r['region']
             matrix[mill][col_key] = {
                 'price': r['price'], 'date': r['date'], 'volume': r['volume'],
                 'ship_window': r['ship_window'], 'tls': r['tls'], 'trader': r['trader'],
                 'product': prod, 'length': length,
-                'lat': r['lat'], 'lon': r['lon'], 'region': r['region'],
+                'lat': r['lat'], 'lon': r['lon'], 'region': dir_region,
                 'city': dir_city, 'state': dir_state
             }
             if col_key not in best_by_col or r['price'] < best_by_col[col_key]:
@@ -2378,10 +2379,11 @@ def mi_quote_matrix():
             if mill not in matrix:
                 matrix[mill] = {}
             dir_city, dir_state = MILL_DIRECTORY.get(mill, (r['city'], r['state']))
+            dir_region = MI_STATE_REGIONS.get(dir_state.upper(), 'central') if dir_state else r['region']
             matrix[mill][prod] = {
                 'price': r['price'], 'date': r['date'], 'volume': r['volume'],
                 'ship_window': r['ship_window'], 'tls': r['tls'], 'trader': r['trader'],
-                'lat': r['lat'], 'lon': r['lon'], 'region': r['region'],
+                'lat': r['lat'], 'lon': r['lon'], 'region': dir_region,
                 'city': dir_city, 'state': dir_state
             }
             if prod not in best_by_product or r['price'] < best_by_product[prod]:
