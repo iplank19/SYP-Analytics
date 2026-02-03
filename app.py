@@ -2197,6 +2197,19 @@ def mi_delete_quote(quote_id):
     invalidate_matrix_cache()  # Clear cached matrix data
     return jsonify({'deleted': quote_id})
 
+@app.route('/api/mi/quotes/by-mill', methods=['DELETE'])
+def mi_delete_mill_quotes():
+    """Delete all quotes for a specific mill."""
+    mill_name = request.args.get('mill', '').strip()
+    if not mill_name:
+        return jsonify({'error': 'mill parameter required'}), 400
+    conn = get_mi_db()
+    cur = conn.execute("DELETE FROM mill_quotes WHERE mill_name=?", (mill_name,))
+    conn.commit()
+    conn.close()
+    invalidate_matrix_cache()
+    return jsonify({'deleted': cur.rowcount, 'mill': mill_name})
+
 @app.route('/api/mi/quotes/rename-mill', methods=['POST'])
 def mi_rename_mill_quotes():
     """Bulk rename mill_name in quotes (admin utility)."""

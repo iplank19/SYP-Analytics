@@ -259,7 +259,8 @@ async function miRenderGranularMatrix(el) {
 
       return `<td class="mono${gs}" style="text-align:center;${heatBg}${bestStyle}${fade}${dayPriorBorder}" title="${tip}">$${d.price}</td>`;
     }).join('');
-    return `<tr><td class="mill-cell" style="white-space:nowrap;font-weight:500;font-size:11px;padding:4px 8px;position:sticky;left:0;background:var(--panel);z-index:1">${m}</td>${cells}</tr>`;
+    const delBtn = isPortal ? '' : `<td style="padding:2px;position:sticky;right:0;background:var(--panel);z-index:1"><button onclick="miDeleteMillQuotes('${m.replace(/'/g, "\\'")}');event.stopPropagation()" style="background:none;border:none;color:var(--negative);cursor:pointer;font-size:11px;padding:2px 6px;opacity:0.5" title="Delete all quotes for ${m}" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=0.5">×</button></td>`;
+    return `<tr><td class="mill-cell" style="white-space:nowrap;font-weight:500;font-size:11px;padding:4px 8px;position:sticky;left:0;background:var(--panel);z-index:1">${m}</td>${cells}${delBtn}</tr>`;
   }).join('');
 
   const densityClass = `matrix-${_miMatrixDensity}`;
@@ -267,12 +268,13 @@ async function miRenderGranularMatrix(el) {
   const isPortal = sessionStorage.getItem('syp_matrix_only');
   const controls = isPortal ? `<div style="display:flex;gap:12px;align-items:center;font-size:10px;color:var(--muted);margin-bottom:8px"><span>${mills.length} mills · ${columns.length} columns</span><span>Green→Red = cheap→expensive</span></div>` : miMatrixControls(products, columns.length, allColumns.length, mills.length, allMills.length);
 
+  const delHeader = isPortal ? '' : '<th rowspan="2" style="position:sticky;right:0;background:var(--panel);z-index:3;width:24px"></th>';
   el.innerHTML = `<div class="card-body" style="padding:12px">
     ${controls}
     <div style="overflow-x:auto;max-height:${isPortal?'85':'75'}vh;overflow-y:auto">
       <table class="matrix-table ${densityClass}" style="border-collapse:collapse">
         <thead style="position:sticky;top:0;z-index:2">
-          <tr><th rowspan="2" style="position:sticky;left:0;background:var(--panel);z-index:3;padding:4px 8px">Mill</th>${productHeaderCells}</tr>
+          <tr><th rowspan="2" style="position:sticky;left:0;background:var(--panel);z-index:3;padding:4px 8px">Mill</th>${productHeaderCells}${delHeader}</tr>
           <tr>${lengthHeaderCells}</tr>
         </thead>
         <tbody>${bodyRows}</tbody>
@@ -476,4 +478,17 @@ function miClearMatrixWipe() {
   fetch('/api/pricing/cutoff', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({since:''})}).catch(()=>{});
   showToast('Showing all historical pricing', 'positive');
   renderMiAggregated();
+}
+
+async function miDeleteMillQuotes(millName) {
+  if (!confirm(`Delete ALL quotes for "${millName}"?\n\nThis cannot be undone.`)) return;
+  try {
+    const res = await fetch(`/api/mi/quotes/by-mill?mill=${encodeURIComponent(millName)}`, {method: 'DELETE'});
+    if (!res.ok) throw new Error(`API error: ${res.status}`);
+    const data = await res.json();
+    showToast(`Deleted ${data.deleted} quotes for ${millName}`, 'positive');
+    renderMiAggregated();
+  } catch (e) {
+    showToast(`Failed to delete: ${e.message}`, 'negative');
+  }
 }
