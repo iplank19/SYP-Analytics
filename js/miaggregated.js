@@ -13,6 +13,7 @@ let _miMatrixHideMills = LS('miMatrixHideMills', true);
 let _miMatrixDensity = LS('miMatrixDensity', 'compact');
 let _miMatrixCutoff = LS('miMatrixCutoff', ''); // '' = show all, date string = show only quotes since that date
 let _miMatrixMaxAge = LS('miMatrixMaxAge', ''); // '' = show all, number = max days old (e.g. '1' = today only, '3' = last 3 days)
+let _miPortalMargin = 0; // Portal-specific FOB margin adder ($/MBF)
 
 async function renderMiAggregated() {
   const c = document.getElementById('content');
@@ -169,6 +170,21 @@ function miMatrixControls(products, colCount, totalCols, millCount, totalMills) 
   </div>`;
 }
 
+// Normalize ship window to "Prompt" or "1-2 Weeks"
+function normalizeShipWindow(ship) {
+  if (!ship) return '1-2 Weeks';
+  const s = ship.toLowerCase().trim();
+  if (s === 'prompt' || s === 'immediate' || s === 'spot') return 'Prompt';
+  return '1-2 Weeks';
+}
+
+// Update portal margin and re-render matrix
+function updatePortalMargin(val) {
+  _miPortalMargin = parseFloat(val) || 0;
+  const el = document.getElementById('mi-agg-content');
+  if (el) miRenderGranularMatrix(el);
+}
+
 async function miRenderGranularMatrix(el) {
   // Sync cutoff to server so portal matrix matches
   fetch('/api/pricing/cutoff', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({since:_miMatrixCutoff||''})}).catch(()=>{});
@@ -239,10 +255,13 @@ async function miRenderGranularMatrix(el) {
       // Filter by max age if set
       if (!d || (maxAge !== null && age > maxAge)) return `<td class="empty-cell${gs}"></td>`;
 
+      // Apply portal margin if in portal mode
+      const displayPrice = isPortal ? d.price + _miPortalMargin : d.price;
       const isBest = d.price === best_by_col[col];
       const vol = d.volume ? `${d.volume} MBF` : '';
       const tls = d.tls ? `${d.tls} TL` : '';
-      const tip = [vol, tls, d.ship_window, d.trader, `${age}d ago`].filter(Boolean).join(' · ');
+      const shipNorm = normalizeShipWindow(d.ship_window);
+      const tip = [vol, tls, shipNorm, d.trader, `${age}d ago`].filter(Boolean).join(' · ');
 
       let heatBg = '';
       const minP = best_by_col[col] || d.price;
@@ -259,7 +278,7 @@ async function miRenderGranularMatrix(el) {
       const bestStyle = isBest ? 'color:var(--positive);font-weight:700;' : '';
       const dayPriorBorder = age > 0 ? `border-bottom:2px solid ${age===1?'var(--warn)':'var(--negative)'};` : '';
 
-      return `<td class="mono${gs}" style="text-align:center;${heatBg}${bestStyle}${fade}${dayPriorBorder}" title="${tip}">$${d.price}</td>`;
+      return `<td class="mono${gs}" style="text-align:center;${heatBg}${bestStyle}${fade}${dayPriorBorder}" title="${tip}" data-base-price="${d.price}" data-ship="${shipNorm}">$${displayPrice}</td>`;
     }).join('');
     const delBtn = isPortal ? '' : `<td style="padding:2px;position:sticky;right:0;background:var(--panel);z-index:1"><button onclick="miDeleteMillQuotes('${m.replace(/'/g, "\\'")}');event.stopPropagation()" style="background:none;border:none;color:var(--negative);cursor:pointer;font-size:11px;padding:2px 6px;opacity:0.5" title="Delete all quotes for ${m}" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=0.5">×</button></td>`;
     return `<tr><td class="mill-cell" style="white-space:nowrap;font-weight:500;font-size:11px;padding:4px 8px;position:sticky;left:0;background:var(--panel);z-index:1">${m}</td>${cells}${delBtn}</tr>`;
@@ -267,7 +286,14 @@ async function miRenderGranularMatrix(el) {
 
   const densityClass = `matrix-${_miMatrixDensity}`;
 
-  const controls = isPortal ? `<div style="display:flex;gap:12px;align-items:center;font-size:10px;color:var(--muted);margin-bottom:8px"><span>${mills.length} mills · ${columns.length} columns</span><span>Green→Red = cheap→expensive</span></div>` : miMatrixControls(products, columns.length, allColumns.length, mills.length, allMills.length);
+  const portalMarginInput = `
+    <div style="display:flex;align-items:center;gap:6px;padding:4px 8px;background:var(--bg);border-radius:4px">
+      <span style="font-size:10px;color:var(--muted)">Margin ±:</span>
+      <input type="number" id="portal-margin" value="${_miPortalMargin||''}" placeholder="0" style="width:55px;padding:4px;font-size:11px;text-align:center" onchange="updatePortalMargin(this.value)" title="Add/subtract $/MBF margin to all prices">
+      <span style="font-size:10px;color:var(--muted)">$/MBF</span>
+    </div>`;
+  const marginLabel = _miPortalMargin ? `<span style="color:var(--accent);font-weight:600">${_miPortalMargin > 0 ? '+' : ''}$${_miPortalMargin}/MBF</span>` : '';
+  const controls = isPortal ? `<div style="display:flex;gap:12px;align-items:center;font-size:10px;color:var(--muted);margin-bottom:8px;flex-wrap:wrap">${portalMarginInput}${marginLabel}<span>${mills.length} mills · ${columns.length} columns</span><span>Green→Red = cheap→expensive</span></div>` : miMatrixControls(products, columns.length, allColumns.length, mills.length, allMills.length);
 
   const delHeader = isPortal ? '' : '<th rowspan="2" style="position:sticky;right:0;background:var(--panel);z-index:3;width:24px"></th>';
   el.innerHTML = `<div class="card-body" style="padding:12px">
