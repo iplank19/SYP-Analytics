@@ -12,6 +12,7 @@ let _miMatrixHideEmpty = LS('miMatrixHideEmpty', true);
 let _miMatrixHideMills = LS('miMatrixHideMills', true);
 let _miMatrixDensity = LS('miMatrixDensity', 'compact');
 let _miMatrixCutoff = LS('miMatrixCutoff', ''); // '' = show all, date string = show only quotes since that date
+let _miMatrixMaxAge = LS('miMatrixMaxAge', ''); // '' = show all, number = max days old (e.g. '1' = today only, '3' = last 3 days)
 
 async function renderMiAggregated() {
   const c = document.getElementById('content');
@@ -144,13 +145,22 @@ function miMatrixControls(products, colCount, totalCols, millCount, totalMills) 
     <label><input type="checkbox" ${_miMatrixHideEmpty?'checked':''} onchange="_miMatrixHideEmpty=this.checked;SS('miMatrixHideEmpty',_miMatrixHideEmpty);renderMiAggregated()"> Hide empty cols</label>` : '';
   const hideMillsChk = _miMatrixDetail === 'length' ? `
     <label><input type="checkbox" ${_miMatrixHideMills?'checked':''} onchange="_miMatrixHideMills=this.checked;SS('miMatrixHideMills',_miMatrixHideMills);renderMiAggregated()"> Hide empty mills</label>` : '';
+  const ageFilter = `
+    <select onchange="_miMatrixMaxAge=this.value;SS('miMatrixMaxAge',_miMatrixMaxAge);renderMiAggregated()" style="padding:4px 8px;font-size:11px;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:var(--radius)">
+      <option value=""${_miMatrixMaxAge===''?' selected':''}>All Ages</option>
+      <option value="0"${_miMatrixMaxAge==='0'?' selected':''}>Today Only</option>
+      <option value="1"${_miMatrixMaxAge==='1'?' selected':''}>≤1 Day</option>
+      <option value="2"${_miMatrixMaxAge==='2'?' selected':''}>≤2 Days</option>
+      <option value="3"${_miMatrixMaxAge==='3'?' selected':''}>≤3 Days</option>
+      <option value="7"${_miMatrixMaxAge==='7'?' selected':''}>≤1 Week</option>
+    </select>`;
   const densityBtns = `
     <button class="btn btn-sm ${_miMatrixDensity==='compact'?'btn-primary':'btn-default'}" onclick="_miMatrixDensity='compact';SS('miMatrixDensity','compact');renderMiAggregated()">◼</button>
     <button class="btn btn-sm ${_miMatrixDensity==='comfortable'?'btn-primary':'btn-default'}" onclick="_miMatrixDensity='comfortable';SS('miMatrixDensity','comfortable');renderMiAggregated()">◻</button>`;
   const stats = colCount != null ? `<span style="color:var(--muted);font-size:10px">${millCount}${totalMills && millCount!==totalMills?' of '+totalMills:''} mills · ${colCount}${totalCols && colCount!==totalCols?' of '+totalCols:''} cols</span>` : '';
   return `<div class="matrix-ctrl">
     <div style="display:flex;gap:4px">${detailBtns}</div>
-    ${productFilter} ${hideEmptyChk} ${hideMillsChk}
+    ${productFilter} ${hideEmptyChk} ${hideMillsChk} ${ageFilter}
     <div style="display:flex;gap:2px;margin-left:4px">${densityBtns}</div>
     <span style="margin-left:auto;display:flex;gap:12px;align-items:center">
       ${stats}
@@ -221,10 +231,13 @@ async function miRenderGranularMatrix(el) {
       const prevProd = idx > 0 ? colProduct(columns[idx - 1]) : null;
       const gs = prod !== prevProd ? ' group-start' : '';
 
-      if (!d) return `<td class="empty-cell${gs}"></td>`;
+      const age = d ? Math.floor((new Date() - new Date(d.date)) / (1000*60*60*24)) : null;
+      const maxAge = _miMatrixMaxAge !== '' ? parseInt(_miMatrixMaxAge, 10) : null;
+
+      // Filter by max age if set
+      if (!d || (maxAge !== null && age > maxAge)) return `<td class="empty-cell${gs}"></td>`;
 
       const isBest = d.price === best_by_col[col];
-      const age = Math.floor((new Date() - new Date(d.date)) / (1000*60*60*24));
       const vol = d.volume ? `${d.volume} MBF` : '';
       const tls = d.tls ? `${d.tls} TL` : '';
       const tip = [vol, tls, d.ship_window, d.trader, `${age}d ago`].filter(Boolean).join(' · ');
@@ -284,9 +297,10 @@ async function miRenderSummaryMatrix(el) {
   const bodyRows = mills.map(m => {
     const cells = products.map(p => {
       const d = matrix[m]?.[p];
-      if (!d) return '<td style="text-align:center;color:var(--muted)">-</td>';
+      const age = d ? Math.floor((new Date() - new Date(d.date)) / (1000*60*60*24)) : null;
+      const maxAge = _miMatrixMaxAge !== '' ? parseInt(_miMatrixMaxAge, 10) : null;
+      if (!d || (maxAge !== null && age > maxAge)) return '<td style="text-align:center;color:var(--muted)">-</td>';
       const isBest = d.price === best_by_product[p];
-      const age = Math.floor((new Date() - new Date(d.date)) / (1000*60*60*24));
       return `<td class="mono" style="text-align:center;${isBest?'color:var(--positive);font-weight:700':''}${age>3?';opacity:0.5':''}" title="${d.ship_window||''} | ${d.trader||''} | ${age}d ago">$${d.price}</td>`;
     }).join('');
     return `<tr><td style="white-space:nowrap;font-weight:500">${m}</td>${cells}</tr>`;

@@ -11,6 +11,7 @@ let _matrixProduct = ''; // filter to one product in length view
 let _matrixHideEmpty = LS('matrixHideEmpty', true);
 let _matrixHideMills = LS('matrixHideMills', true);
 let _matrixDensity = LS('matrixDensity', 'compact'); // 'compact' | 'comfortable'
+let _matrixMaxAge = LS('matrixMaxAge', ''); // '' = show all, number = max days old
 
 async function renderAggregated() {
   const c = document.getElementById('content');
@@ -143,6 +144,15 @@ function matrixControls(products, colCount, totalCols, millCount, totalMills) {
     <label><input type="checkbox" ${_matrixHideEmpty?'checked':''} onchange="_matrixHideEmpty=this.checked;SS('matrixHideEmpty',_matrixHideEmpty);renderAggregated()"> Hide empty cols</label>` : '';
   const hideMillsChk = _matrixDetail === 'length' ? `
     <label><input type="checkbox" ${_matrixHideMills?'checked':''} onchange="_matrixHideMills=this.checked;SS('matrixHideMills',_matrixHideMills);renderAggregated()"> Hide empty mills</label>` : '';
+  const ageFilter = `
+    <select onchange="_matrixMaxAge=this.value;SS('matrixMaxAge',_matrixMaxAge);renderAggregated()" style="padding:4px 8px;font-size:11px;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:var(--radius)">
+      <option value=""${_matrixMaxAge===''?' selected':''}>All Ages</option>
+      <option value="0"${_matrixMaxAge==='0'?' selected':''}>Today Only</option>
+      <option value="1"${_matrixMaxAge==='1'?' selected':''}>≤1 Day</option>
+      <option value="2"${_matrixMaxAge==='2'?' selected':''}>≤2 Days</option>
+      <option value="3"${_matrixMaxAge==='3'?' selected':''}>≤3 Days</option>
+      <option value="7"${_matrixMaxAge==='7'?' selected':''}>≤1 Week</option>
+    </select>`;
   const densityBtns = `
     <button class="btn btn-sm ${_matrixDensity==='compact'?'btn-primary':'btn-default'}" onclick="_matrixDensity='compact';SS('matrixDensity','compact');renderAggregated()" title="Compact density">◼</button>
     <button class="btn btn-sm ${_matrixDensity==='comfortable'?'btn-primary':'btn-default'}" onclick="_matrixDensity='comfortable';SS('matrixDensity','comfortable');renderAggregated()" title="Comfortable density">◻</button>`;
@@ -152,6 +162,7 @@ function matrixControls(products, colCount, totalCols, millCount, totalMills) {
     ${productFilter}
     ${hideEmptyChk}
     ${hideMillsChk}
+    ${ageFilter}
     <div style="display:flex;gap:2px;margin-left:4px">${densityBtns}</div>
     <span style="margin-left:auto;display:flex;gap:12px;align-items:center">
       ${stats}
@@ -234,10 +245,13 @@ async function renderGranularMatrix(el) {
       const prevProd = idx > 0 ? colProduct(columns[idx - 1]) : null;
       const gs = prod !== prevProd ? ' group-start' : '';
 
-      if (!d) return `<td class="empty-cell${gs}"></td>`;
+      const age = d ? Math.floor((new Date() - new Date(d.date)) / (1000*60*60*24)) : null;
+      const maxAge = _matrixMaxAge !== '' ? parseInt(_matrixMaxAge, 10) : null;
+
+      // Filter by max age if set
+      if (!d || (maxAge !== null && age > maxAge)) return `<td class="empty-cell${gs}"></td>`;
 
       const isBest = d.price === best_by_col[col];
-      const age = Math.floor((new Date() - new Date(d.date)) / (1000*60*60*24));
       const vol = d.volume ? `${d.volume} MBF` : '';
       const tls = d.tls ? `${d.tls} TL` : '';
       const tip = [vol, tls, d.ship_window, d.trader, `${age}d ago`].filter(Boolean).join(' · ');
@@ -295,9 +309,10 @@ async function renderSummaryMatrix(el) {
   const bodyRows = mills.map(m => {
     const cells = products.map(p => {
       const d = matrix[m]?.[p];
-      if (!d) return '<td style="text-align:center;color:var(--muted)">-</td>';
+      const age = d ? Math.floor((new Date() - new Date(d.date)) / (1000*60*60*24)) : null;
+      const maxAge = _matrixMaxAge !== '' ? parseInt(_matrixMaxAge, 10) : null;
+      if (!d || (maxAge !== null && age > maxAge)) return '<td style="text-align:center;color:var(--muted)">-</td>';
       const isBest = d.price === best_by_product[p];
-      const age = Math.floor((new Date() - new Date(d.date)) / (1000*60*60*24));
       return `<td class="mono" style="text-align:center;${isBest?'color:var(--positive);font-weight:700':''}${age>3?';opacity:0.5':''}" title="${d.ship_window||''} | ${d.trader||''} | ${age}d ago">$${d.price}</td>`;
     }).join('');
     return `<tr><td style="white-space:nowrap;font-weight:500">${m}</td>${cells}</tr>`;
