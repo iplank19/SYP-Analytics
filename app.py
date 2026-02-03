@@ -240,6 +240,7 @@ MILL_DIRECTORY = {
     'West Fraser - Fitzgerald': ('Fitzgerald', 'GA'), 'West Fraser - New Boston': ('New Boston', 'TX'),
     'West Fraser - Henderson': ('Henderson', 'TX'), 'West Fraser - Lufkin': ('Lufkin', 'TX'),
     'West Fraser - Joyce': ('Joyce', 'LA'),
+    'West Fraser - Maplesville': ('Maplesville', 'AL'), 'West Fraser - Mcdavid': ('Mcdavid', 'FL'),
     'GP - Clarendon': ('Clarendon', 'NC'), 'GP - Camden': ('Camden', 'TX'),
     'GP - Talladega': ('Talladega', 'AL'), 'GP - Frisco City': ('Frisco City', 'AL'),
     'GP - Gurdon': ('Gurdon', 'AR'), 'GP - Albany': ('Albany', 'GA'),
@@ -277,6 +278,7 @@ MILL_DIRECTORY = {
     'Langdale Forest Products - Valdosta': ('Valdosta', 'GA'),
     'LaSalle Lumber - Urania': ('Urania', 'LA'),
     'Big River Forest Products - Gloster': ('Gloster', 'MS'),
+    'Big River Forest Products - Vicksburg': ('Vicksburg', 'MS'),
     'Hankins Lumber - Grenada': ('Grenada', 'MS'),
     'Westervelt Lumber - Moundville': ('Moundville', 'AL'), 'Westervelt Lumber - Tuscaloosa': ('Tuscaloosa', 'AL'),
 }

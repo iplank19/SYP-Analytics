@@ -82,6 +82,7 @@ const MILLS=[
   'West Fraser - Huttig','West Fraser - Leola','West Fraser - Opelika','West Fraser - Russellville',
   'West Fraser - Blackshear','West Fraser - Dudley GA','West Fraser - Fitzgerald',
   'West Fraser - New Boston','West Fraser - Henderson','West Fraser - Lufkin','West Fraser - Joyce',
+  'West Fraser - Maplesville','West Fraser - Mcdavid',
   'Interfor - Monticello','Interfor - Georgetown','Interfor - Fayette','Interfor - DeQuincy',
   'Interfor - Preston','Interfor - Perry','Interfor - Baxley','Interfor - Swainsboro',
   'Interfor - Thomaston','Interfor - Eatonton',
@@ -117,7 +118,8 @@ const MILL_DIRECTORY={
   'West Fraser - Blackshear':{city:'Blackshear',state:'GA'},'West Fraser - Dudley GA':{city:'Dudley',state:'GA'},'West Fraser - Dudley':{city:'Dudley',state:'GA'},
   'West Fraser - Fitzgerald':{city:'Fitzgerald',state:'GA'},'West Fraser - New Boston':{city:'New Boston',state:'TX'},
   'West Fraser - Henderson':{city:'Henderson',state:'TX'},'West Fraser - Lufkin':{city:'Lufkin',state:'TX'},
-  'West Fraser - Joyce':{city:'Joyce',state:'LA'},
+  'West Fraser - Joyce':{city:'Joyce',state:'LA'},'West Fraser - Maplesville':{city:'Maplesville',state:'AL'},
+  'West Fraser - Mcdavid':{city:'Mcdavid',state:'FL'},
   // Georgia-Pacific (SPIB IDs: 14,18,20,77,77p,77r,125,140,210,425,522,860)
   'GP - Clarendon':{city:'Clarendon',state:'NC'},'GP - Camden':{city:'Camden',state:'TX'},
   'GP - Talladega':{city:'Talladega',state:'AL'},'GP - Frisco City':{city:'Frisco City',state:'AL'},
@@ -161,6 +163,7 @@ const MILL_DIRECTORY={
   'Langdale Forest Products - Valdosta':{city:'Valdosta',state:'GA'},
   'LaSalle Lumber - Urania':{city:'Urania',state:'LA'},
   'Big River Forest Products - Gloster':{city:'Gloster',state:'MS'},
+  'Big River Forest Products - Vicksburg':{city:'Vicksburg',state:'MS'},
   'Hankins Lumber - Grenada':{city:'Grenada',state:'MS'},
   'Westervelt Lumber - Moundville':{city:'Moundville',state:'AL'},'Westervelt Lumber - Tuscaloosa':{city:'Tuscaloosa',state:'AL'}
 };
