@@ -1,6 +1,6 @@
 // SYP Analytics - Modal Functions
 // MODALS
-function closeModal(){document.getElementById('modal').innerHTML=''}
+function closeModal(){setHTML('modal','')}
 
 // Global keyboard shortcuts
 document.addEventListener('keydown',e=>{

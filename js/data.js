@@ -93,7 +93,7 @@ async function cloudSync(action='push'){
       };
       
       // Merge local passwords with cloud passwords
-      const localPasswords=JSON.parse(localStorage.getItem('traderPasswords')||'{}');
+      const localPasswords=safeJSONParse(localStorage.getItem('traderPasswords'),{});
       Object.assign(existingPasswords,localPasswords);
       
       // Upload local data to cloud
@@ -468,13 +468,21 @@ async function syncMillsToServer(mills){
 }
 
 // Enhanced save function that saves to IndexedDB
+// Keys in ALWAYS_SYNC will trigger cloud sync regardless of autoSync setting
+const ALWAYS_SYNC_KEYS = ['lanes', 'buys', 'sells', 'customers', 'mills', 'freightBase', 'stateRates'];
+
 async function save(key,value){
   S[key]=value;
   await dbSet(key,value);
   SS(key,value); // backup
-  
-  // Auto-sync to cloud if configured
-  if(supabase&&S.autoSync){
-    cloudSync('push').catch(()=>{});
+
+  // Auto-sync to cloud if configured, or if key is in always-sync list
+  if(supabase && (S.autoSync || ALWAYS_SYNC_KEYS.includes(key))){
+    clearTimeout(_cloudPushTimer);
+    _cloudPushTimer=setTimeout(()=>{
+      if(_isPulling||_isPushing)return;
+      _isPushing=true;
+      cloudSync('push').catch(e=>console.warn('Auto cloud sync failed:',e)).finally(()=>{_isPushing=false});
+    },2000);
   }
 }

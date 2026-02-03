@@ -8,11 +8,13 @@ let _miActiveTemplate = '';
 // Re-render the Smart Quotes UI into whichever container is active (inline or standalone)
 function _miReRenderSource() {
   const inline = document.getElementById('mi-quotes-inline');
+  const content = document.getElementById('content');
   if (inline) {
     _miRenderSmartQuotesInto(inline);
-  } else {
+  } else if (content) {
     renderMiSmartQuotes();
   }
+  // If neither container exists, skip render silently
 }
 
 // Safe ID for product names with spaces (e.g. "2x4 MSR" → "2x4-MSR")
@@ -210,6 +212,11 @@ async function renderMiSmartQuotesInline(container) {
 }
 
 async function _miRenderSmartQuotesInto(c) {
+  // Guard against null container
+  if (!c) {
+    console.warn('_miRenderSmartQuotesInto: container is null, skipping render');
+    return;
+  }
   const isMatrixMode = !!document.getElementById('matrix-quotes-content');
 
   // Lengths: exclude RL in matrix mode

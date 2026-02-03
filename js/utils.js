@@ -1,4 +1,27 @@
 // SYP Analytics - Utility Functions
+
+// Safe innerHTML setter - prevents null reference errors
+function setHTML(id, html) {
+  const el = document.getElementById(id);
+  if (el) {
+    el.innerHTML = html;
+    return true;
+  }
+  console.warn(`setHTML: element '${id}' not found`);
+  return false;
+}
+
+// Safe JSON parse with fallback
+function safeJSONParse(str, fallback = null) {
+  if (!str) return fallback;
+  try {
+    return JSON.parse(str);
+  } catch (e) {
+    console.warn('safeJSONParse failed:', e.message);
+    return fallback;
+  }
+}
+
 // Leaderboard time period helpers
 function getLeaderboardRange(period){
   const now=new Date();

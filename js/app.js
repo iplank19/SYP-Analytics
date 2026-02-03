@@ -507,7 +507,7 @@ async function doLogin(){
   errEl.textContent='Checking...';
 
   // Pull passwords from cloud first
-  let passwords=JSON.parse(localStorage.getItem('traderPasswords')||'{}');
+  let passwords=safeJSONParse(localStorage.getItem('traderPasswords'),{});
   try{
     const res=await fetch(`${DEFAULT_SUPABASE_URL}/rest/v1/syp_data?user_id=eq.default&select=data`,{
       headers:{'apikey':DEFAULT_SUPABASE_KEY,'Authorization':`Bearer ${DEFAULT_SUPABASE_KEY}`}
@@ -554,7 +554,7 @@ async function setupTraderPassword(){
 
   errEl.textContent='Saving...';
 
-  const passwords=JSON.parse(localStorage.getItem('traderPasswords')||'{}');
+  const passwords=safeJSONParse(localStorage.getItem('traderPasswords'),{});
   const hash=btoa(pwd.split('').reverse().join('')+pwd.length);
   passwords[trader]=hash;
   localStorage.setItem('traderPasswords',JSON.stringify(passwords));
@@ -596,7 +596,7 @@ function setAppPassword(pwd){
     showToast('Password must be at least 3 characters','warn');
     return;
   }
-  const passwords=JSON.parse(localStorage.getItem('traderPasswords')||'{}');
+  const passwords=safeJSONParse(localStorage.getItem('traderPasswords'),{});
   const hash=btoa(pwd.split('').reverse().join('')+pwd.length);
   passwords[S.trader]=hash;
   localStorage.setItem('traderPasswords',JSON.stringify(passwords));
