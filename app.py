@@ -672,32 +672,42 @@ def index():
     return send_from_directory('.', 'index.html')
 
 def geocode_location(location):
-    """Convert city, state to coordinates"""
+    """Convert city, state to coordinates - prefers cities over counties"""
     if not location:
         return None
-    
+
     # Check cache first
     cache_key = location.lower().strip()
     if cache_key in geo_cache:
         return geo_cache[cache_key]
-    
+
     try:
         url = "https://nominatim.openstreetmap.org/search"
         params = {
             'q': location,
             'format': 'json',
-            'limit': 1,
+            'limit': 5,  # Get multiple results to prefer cities over counties
             'countrycodes': 'us'
         }
         headers = {'User-Agent': 'SYP-Analytics/1.0'}
-        
+
         resp = requests.get(url, params=params, headers=headers, timeout=10)
         results = resp.json()
-        
+
         if results:
+            # Prefer city/town/village over county - counties often have same name as cities
+            city_types = ['city', 'town', 'village', 'hamlet', 'suburb', 'neighbourhood']
+            best = None
+            for r in results:
+                if r.get('type') in city_types or r.get('addresstype') in city_types:
+                    best = r
+                    break
+            if not best:
+                best = results[0]
+
             coords = {
-                'lat': float(results[0]['lat']),
-                'lon': float(results[0]['lon'])
+                'lat': float(best['lat']),
+                'lon': float(best['lon'])
             }
             geo_cache[cache_key] = coords
             return coords

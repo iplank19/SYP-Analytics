@@ -1454,6 +1454,12 @@ function render(){
               <div class="quote-stat"><span class="quote-stat-val">${selectedItems.length}</span><span class="quote-stat-lbl">Items</span></div>
               <div class="quote-stat"><span class="quote-stat-val">${totalTLs}</span><span class="quote-stat-lbl">TLs</span></div>
               <div class="quote-stat"><span class="quote-stat-val">${S.lanes.length}</span><span class="quote-stat-lbl">Lanes</span></div>
+              <div style="flex:1"></div>
+              <div style="display:flex;align-items:center;gap:6px;padding:4px 8px;background:var(--bg);border-radius:4px">
+                <span style="font-size:10px;color:var(--muted)">Adjust All FOB:</span>
+                <input type="number" id="profit-adder" placeholder="±" style="width:55px;padding:4px;font-size:11px;text-align:center" title="Enter amount to add/subtract from all FOB prices">
+                <button class="btn btn-success btn-sm" onclick="applyProfitAdder()" title="Apply adjustment to all selected items" style="padding:4px 8px;font-size:10px">Apply</button>
+              </div>
             </div>
             <div style="overflow-x:auto;max-height:400px;overflow-y:auto">
               <table class="quote-table">
@@ -1475,6 +1481,7 @@ function render(){
                     const destMiles=_qeDest?getLaneMiles(item.origin,_qeDest):null;
                     const frt=destMiles?calcFreightPerMBF(destMiles,item.origin,isMSR):null;
                     const landed=frt!=null&&item.fob?(item.fob+frt):null;
+                    const frtWarning=frt!=null&&frt>150;
                     const ageLabel=item.quoteDate&&typeof miAgeLabel==='function'?miAgeLabel(item.quoteDate):'';
                     const showAge=ageLabel&&ageLabel!=='Today';
                     return`<tr data-idx="${idx}">
@@ -1486,7 +1493,7 @@ function render(){
                       <td style="text-align:right;font-size:10px"><span style="color:var(--muted)">${item.cost?'$'+item.cost:'—'}</span></td>
                       <td><input type="number" value="${item.marginAdj||0}" onchange="updateQuoteMargin(${idx},this.value)" placeholder="0" style="width:45px;text-align:center"></td>
                       <td style="text-align:right;font-size:10px;font-weight:600"><span style="color:var(--accent)">${item.fob?'$'+item.fob:'—'}</span></td>
-                      <td style="text-align:right;font-size:10px;font-weight:600">${landed!=null?'<span style="color:var(--positive)">$'+landed+'</span>':'<span style="color:var(--muted)">—</span>'}</td>
+                      <td style="text-align:right;font-size:10px;font-weight:600" title="${frt!=null?'Freight: $'+frt+'/MBF ('+destMiles+' mi)':'No destination selected'}">${landed!=null?`<span style="color:${frtWarning?'var(--negative)':'var(--positive)'}">${frtWarning?'⚠️ ':''}$${landed}</span>`:'<span style="color:var(--muted)">—</span>'}</td>
                       <td><button class="quote-del-btn" onclick="removeQuoteItem(${idx})">×</button></td>
                     </tr>`;
                   }).join(''):'<tr><td colspan="10" class="empty-state">No items yet. Click "Smart Source" or "+ Add" to start.</td></tr>'}
@@ -1551,7 +1558,7 @@ function render(){
               </div>
               <div style="max-height:120px;overflow-y:auto;font-size:9px">
                 <table style="width:100%;border-collapse:collapse"><thead><tr style="color:var(--muted)"><th style="text-align:left;padding:2px 4px">Origin</th><th style="text-align:left;padding:2px 4px">Dest</th><th style="text-align:right;padding:2px 4px">Miles</th><th></th></tr></thead><tbody>
-                ${S.lanes.map((l,i)=>`<tr style="border-top:1px solid var(--border)"><td style="padding:2px 4px">${l.origin}</td><td style="padding:2px 4px">${l.dest}</td><td style="text-align:right;padding:2px 4px">${l.miles}</td><td style="padding:2px"><button onclick="S.lanes.splice(${i},1);save('lanes',S.lanes);render()" style="background:none;border:none;color:var(--negative);cursor:pointer;font-size:9px">×</button></td></tr>`).join('')}
+                ${S.lanes.map((l,i)=>{const warn=l.miles>1500;return`<tr style="border-top:1px solid var(--border)"><td style="padding:2px 4px">${l.origin}</td><td style="padding:2px 4px">${l.dest}</td><td style="text-align:right;padding:2px 4px;${warn?'color:var(--warn)':''}" title="${warn?'Long haul - verify mileage is correct':''}">${warn?'⚠️ ':''}${l.miles}</td><td style="padding:2px"><button onclick="S.lanes.splice(${i},1);save('lanes',S.lanes);render()" style="background:none;border:none;color:var(--negative);cursor:pointer;font-size:9px">×</button></td></tr>`;}).join('')}
                 </tbody></table>
               </div>
             </div>`:''}

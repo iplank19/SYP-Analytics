@@ -70,6 +70,37 @@ function toggleAllQuoteItems(checked){
   render();
 }
 
+// Apply universal profit adder to all selected items
+function applyProfitAdder(){
+  const input=document.getElementById('profit-adder');
+  const adj=parseFloat(input?.value)||0;
+  if(adj===0){
+    showToast('Enter an amount to adjust (e.g. +20 or -5)','warn');
+    return;
+  }
+
+  const selectedItems=S.quoteItems.filter(i=>i.selected!==false&&i.fob);
+  if(!selectedItems.length){
+    showToast('No items with FOB prices to adjust','warn');
+    return;
+  }
+
+  selectedItems.forEach(item=>{
+    item.fob=Math.round((item.fob||0)+adj);
+    // Also update marginAdj to reflect the change
+    item.marginAdj=(item.marginAdj||0)+adj;
+  });
+
+  save('quoteItems',S.quoteItems);
+  saveCurrentProfileSelections();
+
+  // Clear input after applying
+  if(input)input.value='';
+
+  showToast(`Adjusted ${selectedItems.length} items by ${adj>0?'+':''}$${adj}/MBF`,'positive');
+  render();
+}
+
 function clearQuoteItems(){
   if(confirm('Clear all quote items?')){
     S.quoteItems=[];
@@ -333,19 +364,19 @@ function getLaneMiles(origin,dest){
 // Formula: (Base + Miles × StateRate) / MBF per TL
 function calcFreightPerMBF(miles,origin,isMSR=false){
   if(!miles)return 0;
-  
+
   const mbfPerTL=isMSR?20:(S.quoteMBFperTL||23);
   const originState=extractState(origin);
-  
-  // Get state rate (required)
-  const stateRate=originState&&S.stateRates?S.stateRates[originState]||0:0;
-  
-  // Base + (Miles × StateRate)
-  const base=S.freightBase||0;
+
+  // Get state rate - default to reasonable rate if not set
+  const stateRate=originState&&S.stateRates?S.stateRates[originState]||2.25:2.25;
+
+  // Base + (Miles × StateRate) - default base to 450
+  const base=S.freightBase||450;
   const freightTotal=base+(miles*stateRate);
-  
+
   const freightPerMBF=Math.round(freightTotal/mbfPerTL);
-  
+
   // Apply floor
   const floor=S.shortHaulFloor||0;
   return Math.max(floor,freightPerMBF);
@@ -821,18 +852,24 @@ const geoCache={};
 
 async function geocodeLocation(location){
   if(!location)return null;
-  
+
   const key=location.toLowerCase().trim();
   if(geoCache[key])return geoCache[key];
-  
+
   try{
-    const res=await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(location)}&format=json&limit=1&countrycodes=us`,{
+    // Request multiple results so we can prefer cities over counties
+    const res=await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(location)}&format=json&limit=5&countrycodes=us`,{
       headers:{'User-Agent':'SYP-Analytics/1.0'}
     });
     const data=await res.json();
-    
+
     if(data?.length){
-      const coords={lat:parseFloat(data[0].lat),lon:parseFloat(data[0].lon)};
+      // Prefer city/town/village over county - counties often have same name as cities
+      const cityTypes=['city','town','village','hamlet','suburb','neighbourhood'];
+      const cityResult=data.find(r=>cityTypes.includes(r.type)||cityTypes.includes(r.addresstype));
+      const best=cityResult||data[0];
+
+      const coords={lat:parseFloat(best.lat),lon:parseFloat(best.lon)};
       geoCache[key]=coords;
       return coords;
     }
