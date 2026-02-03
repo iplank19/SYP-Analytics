@@ -2073,21 +2073,24 @@ def mi_submit_quotes():
     conn = get_mi_db()
     created = []
 
-    # Auto-replace: delete old quotes for same mill + same date before inserting
-    cleared_keys = set()
+    # Auto-replace: For each mill+product+length combo being uploaded, delete existing quotes
+    # This ensures uploaded quotes always show as "today" even if price unchanged
+    today_date = datetime.now().strftime('%Y-%m-%d')
+    cleared_combos = set()
     for q in quotes:
         mill_name = q.get('mill', '').strip()
-        quote_date = q.get('date', datetime.now().strftime('%Y-%m-%d'))
-        if mill_name and quote_date:
-            key = (mill_name.upper(), quote_date)
-            if key not in cleared_keys:
-                cleared_keys.add(key)
+        product = q.get('product', '').strip()
+        length = q.get('length', 'RL').strip()
+        if mill_name and product:
+            key = (mill_name.upper(), product.upper(), length.upper())
+            if key not in cleared_combos:
+                cleared_combos.add(key)
                 deleted = conn.execute(
-                    "DELETE FROM mill_quotes WHERE UPPER(mill_name)=? AND date=?",
-                    (mill_name.upper(), quote_date)
+                    "DELETE FROM mill_quotes WHERE UPPER(mill_name)=? AND UPPER(product)=? AND UPPER(COALESCE(length,'RL'))=?",
+                    (mill_name.upper(), product.upper(), length.upper() if length else 'RL')
                 ).rowcount
                 if deleted:
-                    app.logger.info(f"Replaced {deleted} old quotes for {mill_name} on {quote_date}")
+                    app.logger.info(f"Replaced existing quote for {mill_name} {product} {length}")
 
     for q in quotes:
         mill_name = q.get('mill', '').strip()
@@ -2137,7 +2140,7 @@ def mi_submit_quotes():
             (mill_id, mill_name, product, price_val,
              q.get('length', 'RL'), float(q.get('volume', 0)), int(q.get('tls', 0)),
              q.get('shipWindow', q.get('ship_window', '')) or 'Prompt', q.get('notes', ''),
-             q.get('date', datetime.now().strftime('%Y-%m-%d')),
+             today_date,  # Always use today's date for uploads
              q.get('trader', 'Unknown'), q.get('source', 'manual'), q.get('raw_text', ''))
         )
         created.append(q)

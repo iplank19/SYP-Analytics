@@ -1088,16 +1088,13 @@ PRODUCT FORMAT GUIDE:
 - Product string format: "{dim}{grade}" e.g. "2x4#2", "2x6#1", "2x10 CLEAR"
 
 PCS_PER_UNIT (pieces per unit/bundle):
-- 2x4: 208 pcs/unit
-- 2x6: 128 pcs/unit
-- 2x8: 96 pcs/unit
-- 2x10: 80 pcs/unit
-- 2x12: 64 pcs/unit
+${Object.entries(S.ppu||{'2x4':208,'2x6':128,'2x8':96,'2x10':80,'2x12':64}).map(([dim,ppu])=>`- ${dim}: ${ppu} pcs/unit`).join('\n')}
 - Timbers (4x4+): flat 20 MBF per order regardless of tally
 
 MBF CALCULATION:
 - MBF = (totalPieces × thick × wide × lengthFt) / 12 / 1000
 - totalPieces = units × pcsPerUnit
+- IMPORTANT: Return the raw "units" value and we will recalculate MBF on our end
 
 REGION MAPPINGS:
 - West: TX, AR, LA, OK, NM, CO, AZ, UT, NV, CA, OR, WA, ID, MT, WY
@@ -1194,5 +1191,23 @@ RULES:
   }
 
   if(!Array.isArray(orders))throw new Error('AI response is not an array of orders.');
+
+  // Post-process: recalculate MBF using app's calcMBFFromUnits for consistency
+  orders.forEach(order=>{
+    ['buy','sell'].forEach(side=>{
+      if(order[side]&&order[side].items){
+        order[side].items.forEach(item=>{
+          if(item.units&&item.product&&item.length){
+            // Use the app's MBF calculation function if available
+            if(typeof calcMBFFromUnits==='function'){
+              const recalcMBF=calcMBFFromUnits(item.product,item.length,item.units);
+              if(recalcMBF>0)item.volume=recalcMBF;
+            }
+          }
+        });
+      }
+    });
+  });
+
   return orders;
 }
