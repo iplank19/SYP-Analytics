@@ -61,10 +61,21 @@
     .toast-positive{background:var(--positive);color:#fff}
     .toast-warn{background:var(--warn);color:#000}
     @keyframes slideIn{from{transform:translateY(20px);opacity:0}to{transform:translateY(0);opacity:1}}
+    .loading-overlay{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(30,30,46,0.85);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:9998}
+    .loading-overlay .spinner{width:40px;height:40px;border-width:4px;margin-bottom:16px}
+    .loading-overlay .loading-text{color:var(--accent);font-size:14px;font-weight:500}
+    .loading-overlay .loading-sub{color:var(--muted);font-size:11px;margin-top:4px}
   </style>
 </head>
 <body>
   <div id="app">
+    <!-- Loading Overlay -->
+    <div id="loading-overlay" class="loading-overlay" style="display:none">
+      <div class="spinner"></div>
+      <div class="loading-text">Loading pricing data...</div>
+      <div class="loading-sub">This may take a moment</div>
+    </div>
+
     <!-- Login Screen -->
     <div id="login-screen" class="login-container">
       <div class="login-card">
@@ -261,6 +272,20 @@
 
     if(sessionStorage.getItem('pricing_auth')==='1') showMain();
 
+    // ========== LOADING OVERLAY ==========
+    function showLoading(text,subtext){
+      const overlay=document.getElementById('loading-overlay');
+      if(overlay){
+        overlay.querySelector('.loading-text').textContent=text||'Loading pricing data...';
+        overlay.querySelector('.loading-sub').textContent=subtext||'This may take a moment';
+        overlay.style.display='flex';
+      }
+    }
+    function hideLoading(){
+      const overlay=document.getElementById('loading-overlay');
+      if(overlay)overlay.style.display='none';
+    }
+
     // ========== TABS ==========
     function switchTab(tab){
       _activeTab=tab;
@@ -275,11 +300,13 @@
     async function loadMatrix(){
       const el=document.getElementById('matrix-body');
       el.innerHTML='<div class="spinner"></div>';
+      showLoading('Loading pricing matrix...','Fetching latest mill quotes');
       try{
         if(_detail==='length') await renderGranularMatrix(el);
         else await renderSummaryMatrix(el);
         document.getElementById('last-updated').textContent='Updated '+new Date().toLocaleTimeString();
       }catch(e){el.innerHTML='<div class="empty-state">Error loading matrix: '+e.message+'</div>';}
+      finally{hideLoading();}
     }
 
     function renderControls(products,colCount,totalCols,millCount,totalMills){
@@ -495,6 +522,7 @@
       _quoteLoading=true;
       document.getElementById('q-build-btn').disabled=true;
       document.getElementById('q-build-btn').innerHTML='<span class="spinner" style="width:14px;height:14px;margin:0;display:inline-block;vertical-align:middle;border-width:2px"></span> Building...';
+      showLoading('Building smart quote...','Fetching pricing and calculating routes');
 
       try{
         // Fetch matrix data + mills in parallel
@@ -607,6 +635,7 @@
         _quoteLoading=false;
         document.getElementById('q-build-btn').disabled=false;
         document.getElementById('q-build-btn').innerHTML='Build Smart Quote';
+        hideLoading();
       }
     }
 

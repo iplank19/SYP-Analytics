@@ -467,6 +467,7 @@ def init_mi_db():
         CREATE INDEX IF NOT EXISTS idx_mq_date ON mill_quotes(date);
         CREATE INDEX IF NOT EXISTS idx_mq_trader ON mill_quotes(trader);
         CREATE INDEX IF NOT EXISTS idx_mq_composite ON mill_quotes(mill_name, product, date);
+        CREATE INDEX IF NOT EXISTS idx_mq_matrix ON mill_quotes(mill_name, product, length, id DESC);
 
         CREATE TABLE IF NOT EXISTS customers (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -619,6 +620,32 @@ def mi_get_distance(origin_coords, dest_coords):
 # Shared geocode + distance caches (populated from CRM mills on startup)
 geo_cache = {}
 distance_cache = {}
+
+# Matrix response cache (short TTL to handle concurrent requests)
+_matrix_cache = {}
+_matrix_cache_ttl = 30  # seconds
+
+def get_cached_matrix(cache_key):
+    """Get cached matrix response if still valid."""
+    if cache_key in _matrix_cache:
+        data, timestamp = _matrix_cache[cache_key]
+        if time.time() - timestamp < _matrix_cache_ttl:
+            return data
+        del _matrix_cache[cache_key]
+    return None
+
+def set_cached_matrix(cache_key, data):
+    """Cache matrix response."""
+    _matrix_cache[cache_key] = (data, time.time())
+    # Cleanup old entries (keep cache size reasonable)
+    if len(_matrix_cache) > 20:
+        oldest_key = min(_matrix_cache.keys(), key=lambda k: _matrix_cache[k][1])
+        del _matrix_cache[oldest_key]
+
+def invalidate_matrix_cache():
+    """Clear matrix cache (call when quotes are added/updated)."""
+    global _matrix_cache
+    _matrix_cache = {}
 
 def warm_geo_cache():
     """Pre-load geo_cache from CRM mills that have lat/lon stored."""
@@ -2146,6 +2173,7 @@ def mi_submit_quotes():
         created.append(q)
     conn.commit()
     conn.close()
+    invalidate_matrix_cache()  # Clear cached matrix data
     return jsonify({'created': len(created), 'quotes': created}), 201
 
 @app.route('/api/mi/quotes/<int:quote_id>', methods=['DELETE'])
@@ -2154,6 +2182,7 @@ def mi_delete_quote(quote_id):
     conn.execute("DELETE FROM mill_quotes WHERE id=?", (quote_id,))
     conn.commit()
     conn.close()
+    invalidate_matrix_cache()  # Clear cached matrix data
     return jsonify({'deleted': quote_id})
 
 @app.route('/api/mi/quotes/rename-mill', methods=['POST'])
@@ -2207,6 +2236,13 @@ def mi_quote_matrix():
     detail = request.args.get('detail', '')
     filter_product = request.args.get('product', '')
     filter_since = request.args.get('since', '')
+
+    # Check cache first (30s TTL to handle concurrent users)
+    cache_key = f"matrix:{detail}:{filter_product}:{filter_since}"
+    cached = get_cached_matrix(cache_key)
+    if cached:
+        return jsonify(cached)
+
     conn = get_mi_db()
 
     if detail == 'length':
@@ -2275,14 +2311,16 @@ def mi_quote_matrix():
         sorted_cols = sorted(columns, key=col_sort)
         unique_products = sorted(set(c.rsplit(' ', 1)[0] for c in columns))
 
-        return jsonify({
+        result = {
             'matrix': matrix,
             'mills': sorted(mills),
             'columns': sorted_cols,
             'products': unique_products,
             'best_by_col': best_by_col,
             'detail': 'length'
-        })
+        }
+        set_cached_matrix(cache_key, result)
+        return jsonify(result)
     else:
         sql = """
             SELECT mq.mill_name, mq.product, mq.price, mq.date, mq.volume, mq.ship_window,
@@ -2324,12 +2362,14 @@ def mi_quote_matrix():
             if prod not in best_by_product or r['price'] < best_by_product[prod]:
                 best_by_product[prod] = r['price']
 
-        return jsonify({
+        result = {
             'matrix': matrix,
             'mills': sorted(mills),
             'products': sorted(products),
             'best_by_product': best_by_product
-        })
+        }
+        set_cached_matrix(cache_key, result)
+        return jsonify(result)
 
 @app.route('/api/mi/quotes/history', methods=['GET'])
 def mi_quote_history():
