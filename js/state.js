@@ -527,14 +527,14 @@ function normalizeMillQuotes(){
   if(changed)save('millQuotes',S.millQuotes)
 }
 
-const NAV=[{id:'dashboard',icon:'📊',label:'Dashboard'},{id:'leaderboard',icon:'🏆',label:'Leaderboard'},{id:'insights',icon:'🎯',label:'Daily Briefing'},{id:'blotter',icon:'📋',label:'Trade Blotter'},{id:'pnl-calendar',icon:'📅',label:'P&L Calendar'},{id:'benchmark',icon:'🎯',label:'vs Market'},{id:'risk',icon:'⚠️',label:'Risk'},{id:'quotes',icon:'💰',label:'Quote Engine'},{id:'mi-intake',icon:'📥',label:'Mill Intake'},{id:'mi-prices',icon:'📊',label:'All Prices'},{id:'mi-intel',icon:'🧠',label:'Intelligence'},{id:'products',icon:'📦',label:'By Product'},{id:'crm',icon:'🏢',label:'CRM'},{id:'rldata',icon:'📈',label:'RL Data'},{id:'settings',icon:'⚙️',label:'Settings'}];
+const NAV=[{id:'dashboard',icon:'📊',label:'Dashboard'},{id:'leaderboard',icon:'🏆',label:'Leaderboard'},{id:'insights',icon:'🎯',label:'Daily Briefing'},{id:'blotter',icon:'📋',label:'Trade Blotter'},{id:'pnl-calendar',icon:'📅',label:'P&L Calendar'},{id:'benchmark',icon:'🎯',label:'vs Market'},{id:'risk',icon:'⚠️',label:'Risk'},{id:'quotes',icon:'💰',label:'Quote Engine'},{id:'pricing-model',icon:'🧠',label:'Pricing Model'},{id:'mi-intake',icon:'📥',label:'Mill Intake'},{id:'mi-prices',icon:'📊',label:'All Prices'},{id:'mi-intel',icon:'🧠',label:'Intelligence'},{id:'products',icon:'📦',label:'By Product'},{id:'crm',icon:'🏢',label:'CRM'},{id:'rldata',icon:'📈',label:'RL Data'},{id:'settings',icon:'⚙️',label:'Settings'}];
 
 // Nav groups for collapsible sidebar
 const NAV_GROUPS=[
   {label:'Trading',items:['dashboard','leaderboard','blotter','pnl-calendar','quotes']},
   {label:'Mill Intel',items:['mi-intake','mi-prices','mi-intel']},
   {label:'Relationships',items:['crm','products']},
-  {label:'Analytics',items:['insights','benchmark','risk','rldata']},
+  {label:'Analytics',items:['insights','benchmark','risk','rldata','pricing-model']},
   {label:'System',items:['settings']}
 ];
 
