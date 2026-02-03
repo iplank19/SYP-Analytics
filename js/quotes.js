@@ -32,7 +32,14 @@ function removeQuoteItem(idx){
 
 function updateQuoteItem(idx,field,value){
   if(S.quoteItems[idx]){
-    S.quoteItems[idx][field]=value;
+    // Normalize values based on field type
+    let normalizedValue = value;
+    if(field === 'cost' || field === 'fob' || field === 'marginAdj') normalizedValue = normalizePrice(value);
+    else if(field === 'tls' || field === 'volume') normalizedValue = normalizeVolume(value);
+    else if(field === 'product') normalizedValue = normalizeProduct(value);
+    else if(field === 'origin') normalizedValue = normalizeLocation(value).display || value;
+
+    S.quoteItems[idx][field] = normalizedValue;
     save('quoteItems',S.quoteItems);
     saveCurrentProfileSelections();
     // Only re-render stats if needed

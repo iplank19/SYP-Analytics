@@ -167,13 +167,13 @@ function parseMillQuoteCSV(text){
     quotes.push({
       mill:mill,
       product:normalizeMillProduct(product),
-      price:price,
-      length:colMap.length>=0?row[colMap.length]||'RL':'RL',
-      volume:colMap.volume>=0?parseFloat(row[colMap.volume])||0:0,
-      tls:colMap.tls>=0?parseInt(row[colMap.tls])||0:0,
-      shipWindow:colMap.shipWindow>=0?row[colMap.shipWindow]||'':'',
+      price:normalizePrice(price),
+      length:normalizeLength(colMap.length>=0?row[colMap.length]||'RL':'RL'),
+      volume:normalizeVolume(colMap.volume>=0?parseFloat(row[colMap.volume])||0:0),
+      tls:normalizeVolume(colMap.tls>=0?parseInt(row[colMap.tls])||0:0),
+      ship_window:normalizeShipWindow(colMap.shipWindow>=0?row[colMap.shipWindow]||'':''),
       notes:colMap.notes>=0?row[colMap.notes]||'':'',
-      date:colMap.date>=0?row[colMap.date]||today():today(),
+      date:normalizeDate(colMap.date>=0?row[colMap.date]||today():today()),
       source:'csv'
     });
   });
@@ -420,11 +420,13 @@ function mpSaveManualRows(){
     const price=parseFloat(tr.querySelector('.mp-price')?.value)||0;
     if(!mill||!product||!price)return;
     quotes.push({
-      mill,product,price,
-      length:tr.querySelector('.mp-length')?.value||'RL',
-      volume:parseFloat(tr.querySelector('.mp-volume')?.value)||0,
-      tls:parseInt(tr.querySelector('.mp-tls')?.value)||0,
-      shipWindow:tr.querySelector('.mp-ship')?.value||'',
+      mill:mill,
+      product:normalizeMillProduct(product),
+      price:normalizePrice(price),
+      length:normalizeLength(tr.querySelector('.mp-length')?.value||'RL'),
+      volume:normalizeVolume(tr.querySelector('.mp-volume')?.value),
+      tls:normalizeVolume(tr.querySelector('.mp-tls')?.value),
+      ship_window:normalizeShipWindow(tr.querySelector('.mp-ship')?.value||''),
       notes:tr.querySelector('.mp-notes')?.value||'',
       source:'manual'
     });

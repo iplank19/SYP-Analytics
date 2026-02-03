@@ -1,5 +1,9 @@
 // SYP Analytics - Utility Functions
 
+// ============================================================
+// SAFE DOM & PARSING HELPERS
+// ============================================================
+
 // Safe innerHTML setter - prevents null reference errors
 function setHTML(id, html) {
   const el = document.getElementById(id);
@@ -20,6 +24,164 @@ function safeJSONParse(str, fallback = null) {
     console.warn('safeJSONParse failed:', e.message);
     return fallback;
   }
+}
+
+// ============================================================
+// DATA NORMALIZATION FUNCTIONS
+// ============================================================
+
+// Normalize price to 2 decimal places, ensure number type
+function normalizePrice(val) {
+  if (val === null || val === undefined || val === '') return 0;
+  const num = typeof val === 'string' ? parseFloat(val.replace(/[$,]/g, '')) : parseFloat(val);
+  return isNaN(num) ? 0 : Math.round(num * 100) / 100;
+}
+
+// Normalize volume to 2 decimal places (MBF)
+function normalizeVolume(val) {
+  if (val === null || val === undefined || val === '') return 0;
+  const num = parseFloat(val);
+  return isNaN(num) ? 0 : Math.round(num * 100) / 100;
+}
+
+// Normalize date to YYYY-MM-DD format
+function normalizeDate(d) {
+  if (!d) return today();
+  // Handle ISO strings and date objects
+  const date = new Date(d);
+  if (isNaN(date.getTime())) return today();
+  return date.toISOString().split('T')[0];
+}
+
+// Normalize region to lowercase (west/central/east)
+function normalizeRegion(raw) {
+  if (!raw) return 'central';
+  const lower = String(raw).toLowerCase().trim();
+  return ['west', 'central', 'east'].includes(lower) ? lower : 'central';
+}
+
+// Normalize product name format (handles spacing, case)
+function normalizeProduct(raw) {
+  if (!raw) return raw;
+  let p = String(raw).trim();
+
+  // Try exact match first against known products
+  if (typeof PRODUCTS !== 'undefined' && PRODUCTS.includes(p)) return p;
+  if (typeof MI_PRODUCTS !== 'undefined' && MI_PRODUCTS.includes(p)) return p;
+
+  // Normalize case: "2X4#2" → "2x4#2"
+  p = p.replace(/^(\d+)X(\d+)/i, (m, a, b) => `${a}x${b}`);
+
+  // Normalize MSR spacing: "2x4MSR" or "2x4  MSR" → "2x4 MSR"
+  p = p.replace(/(\d)\s*MSR\b/i, '$1 MSR');
+
+  // Normalize grade spacing: "2x4 #2" → "2x4#2" (no space before #)
+  p = p.replace(/(\d)\s+#/g, '$1#');
+
+  // Check again after normalization
+  if (typeof PRODUCTS !== 'undefined' && PRODUCTS.includes(p)) return p;
+  if (typeof MI_PRODUCTS !== 'undefined' && MI_PRODUCTS.includes(p)) return p;
+
+  return p;
+}
+
+// Normalize length format (strips quotes, handles RL)
+function normalizeLength(len) {
+  if (!len) return '';
+  const s = String(len).trim().replace(/['"′″]+$/, '').trim();
+  if (s.toLowerCase() === 'rl' || s.toLowerCase() === 'random') return 'RL';
+  const num = parseInt(s, 10);
+  return isNaN(num) ? s : String(num);
+}
+
+// Normalize location to "City, ST" format
+function normalizeLocation(raw) {
+  if (!raw) return { city: '', state: '', display: '' };
+  const s = String(raw).trim();
+
+  // Split on comma
+  const parts = s.split(',').map(p => p.trim());
+  let city = parts[0] || '';
+  let state = (parts[1] || '').toUpperCase().replace(/[^A-Z]/g, '').slice(0, 2);
+
+  // Title case city
+  city = city.split(' ').map(w =>
+    w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()
+  ).join(' ');
+
+  // Handle special cases like "DeQuincy", "El Dorado"
+  city = city.replace(/^De([a-z])/g, (m, c) => 'De' + c.toUpperCase());
+  city = city.replace(/^El ([a-z])/g, (m, c) => 'El ' + c.toUpperCase());
+  city = city.replace(/^Mc([a-z])/g, (m, c) => 'Mc' + c.toUpperCase());
+
+  const display = state ? `${city}, ${state}` : city;
+  return { city, state, display };
+}
+
+// Normalize ship window to standard values
+function normalizeShipWindow(ship) {
+  if (!ship) return '1-2 Weeks';
+  const s = String(ship).toLowerCase().trim();
+  if (['prompt', 'immediate', 'spot', 'now', 'asap'].includes(s)) return 'Prompt';
+  if (s.includes('day') && !s.includes('7')) return 'Prompt';
+  return '1-2 Weeks';
+}
+
+// Normalize order object (buy or sell) - call before saving
+function normalizeOrder(order, type = 'buy') {
+  if (!order) return order;
+  return {
+    ...order,
+    price: normalizePrice(order.price),
+    volume: normalizeVolume(order.volume),
+    date: normalizeDate(order.date),
+    region: normalizeRegion(order.region),
+    product: normalizeProduct(order.product),
+    length: normalizeLength(order.length),
+    mill: type === 'buy' && typeof normalizeMillCompany === 'function'
+      ? normalizeMillCompany(order.mill)
+      : order.mill,
+    customer: type === 'sell' && typeof normalizeCustomerName === 'function'
+      ? normalizeCustomerName(order.customer)
+      : order.customer,
+    freight: normalizePrice(order.freight || 0),
+    trader: typeof normalizeTrader === 'function' ? normalizeTrader(order.trader) : order.trader
+  };
+}
+
+// Normalize quote item - call before saving
+function normalizeQuoteItem(item) {
+  if (!item) return item;
+  return {
+    ...item,
+    product: normalizeProduct(item.product),
+    length: normalizeLength(item.length),
+    fob: normalizePrice(item.fob),
+    landed: normalizePrice(item.landed),
+    origin: item.origin ? normalizeLocation(item.origin).display : item.origin,
+    volume: normalizeVolume(item.volume || 0)
+  };
+}
+
+// Normalize mill quote (from pricing intake)
+function normalizeMillQuote(q) {
+  if (!q) return q;
+  const millResult = typeof normalizeMillName === 'function'
+    ? normalizeMillName(q.mill || q.mill_name)
+    : { name: q.mill || q.mill_name };
+  return {
+    ...q,
+    mill: millResult.name,
+    mill_name: millResult.name,
+    product: normalizeProduct(q.product),
+    length: normalizeLength(q.length),
+    price: normalizePrice(q.price),
+    volume: normalizeVolume(q.volume || 0),
+    tls: normalizeVolume(q.tls || 0),
+    date: normalizeDate(q.date),
+    region: normalizeRegion(q.region || millResult.state && MI_STATE_REGIONS?.[millResult.state.toUpperCase()]),
+    ship_window: normalizeShipWindow(q.ship_window || q.ship)
+  };
 }
 
 // Leaderboard time period helpers

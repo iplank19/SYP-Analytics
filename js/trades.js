@@ -125,16 +125,16 @@ async function saveBuy(id){
   const b={
     orderNum:orderNum,
     po:orderNum, // Keep for backward compatibility
-    date:document.getElementById('m-date').value,
+    date:normalizeDate(document.getElementById('m-date').value),
     mill:mill,
-    origin:origin,
-    region:document.getElementById('m-region').value,
-    product:splitProduct||product, // Use combined product name for split loads
-    length:document.getElementById('m-length').value,
+    origin:normalizeLocation(origin).display || origin,
+    region:normalizeRegion(document.getElementById('m-region').value),
+    product:normalizeProduct(splitProduct||product), // Use combined product name for split loads
+    length:normalizeLength(document.getElementById('m-length').value),
     units:parseFloat(document.getElementById('m-units')?.value)||0,
     ppu:parseInt(document.getElementById('m-ppu')?.value)||0,
-    price:price,
-    volume:volume, // Use calculated volume
+    price:normalizePrice(price),
+    volume:normalizeVolume(volume), // Use calculated volume
     shipWeek:document.getElementById('m-shipWeek')?.value||'',
     notes:document.getElementById('m-notes').value,
     trader:S.trader==='Admin'?(document.getElementById('m-trader')?.value||'Ian P'):S.trader, // Admin assigns to trader, otherwise current trader
@@ -143,8 +143,8 @@ async function saveBuy(id){
     rate:0,
     freight:0,
     // MSR fields
-    basePrice:isMSR?parseFloat(document.getElementById('m-basePrice').value)||0:null,
-    msrPremium:isMSR?parseFloat(document.getElementById('m-msrPremium').value)||0:null,
+    basePrice:isMSR?normalizePrice(document.getElementById('m-basePrice').value):null,
+    msrPremium:isMSR?normalizePrice(document.getElementById('m-msrPremium').value):null,
     // Tally
     tally:tally
   };
@@ -281,25 +281,25 @@ async function saveSell(id){
     orderNum:orderNum,
     linkedPO:orderNum, // Keep for backward compatibility
     oc:orderNum, // Keep for backward compatibility
-    date:document.getElementById('m-date').value,
+    date:normalizeDate(document.getElementById('m-date').value),
     customer:customer,
-    destination:destination,
-    region:document.getElementById('m-region').value,
+    destination:normalizeLocation(destination).display || destination,
+    region:normalizeRegion(document.getElementById('m-region').value),
     miles:parseFloat(document.getElementById('m-miles').value)||0,
     rate:parseFloat(document.getElementById('m-rate').value)||S.flatRate||3.50,
-    product:splitProduct||product,// Use combined product name for split loads
-    length:document.getElementById('m-length').value,
+    product:normalizeProduct(splitProduct||product),// Use combined product name for split loads
+    length:normalizeLength(document.getElementById('m-length').value),
     units:parseFloat(document.getElementById('m-units')?.value)||0,
     ppu:parseInt(document.getElementById('m-ppu')?.value)||0,
-    price:price,
-    freight:parseFloat(document.getElementById('m-freight').value)||0,
-    volume:volume, // Use calculated volume (from tally or field)
+    price:normalizePrice(price),
+    freight:normalizePrice(document.getElementById('m-freight').value),
+    volume:normalizeVolume(volume), // Use calculated volume (from tally or field)
     shipWeek:document.getElementById('m-shipWeek')?.value||'',
     notes:document.getElementById('m-notes').value,
     delivered:document.getElementById('m-delivered')?.checked||false,
     trader:S.trader==='Admin'?(document.getElementById('m-trader')?.value||'Ian P'):S.trader, // Admin assigns to trader, otherwise current trader
     // MSR fields
-    basePrice:isMSR?parseFloat(document.getElementById('m-basePrice').value)||0:null,
+    basePrice:isMSR?normalizePrice(document.getElementById('m-basePrice').value):null,
     msrPremium:isMSR?parseFloat(document.getElementById('m-msrPremium').value)||0:null,
     // Tally
     tally:tally

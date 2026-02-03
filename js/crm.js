@@ -116,12 +116,13 @@ function showProspectModal(p=null){
 }
 
 async function saveProspect(id){
+  const addressRaw = document.getElementById('p-address').value;
   const data={
     company_name:normalizeCustomerName(document.getElementById('p-company').value),
     contact_name:document.getElementById('p-contact').value,
     phone:document.getElementById('p-phone').value,
     email:document.getElementById('p-email').value,
-    address:document.getElementById('p-address').value,
+    address:normalizeLocation(addressRaw).display || addressRaw,
     status:document.getElementById('p-status').value,
     source:document.getElementById('p-source').value,
     notes:document.getElementById('p-notes').value,
