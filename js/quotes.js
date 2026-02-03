@@ -13,8 +13,10 @@ function addQuoteItem(isShort=null){
     tls:1,
     cost:isShort?null:0,
     fob:0,
+    marginAdj:0,
     isShort:isShort,
-    selected:true
+    selected:true,
+    quoteDate:''
   });
   save('quoteItems',S.quoteItems);
   saveCurrentProfileSelections();
@@ -34,9 +36,21 @@ function updateQuoteItem(idx,field,value){
     save('quoteItems',S.quoteItems);
     saveCurrentProfileSelections();
     // Only re-render stats if needed
-    if(field==='cost'||field==='fob'||field==='tls'||field==='selected'){
+    if(field==='cost'||field==='fob'||field==='tls'||field==='selected'||field==='marginAdj'){
       render();
     }
+  }
+}
+
+function updateQuoteMargin(idx,value){
+  if(S.quoteItems[idx]){
+    const adj=parseFloat(value)||0;
+    const cost=S.quoteItems[idx].cost||0;
+    S.quoteItems[idx].marginAdj=adj;
+    S.quoteItems[idx].fob=Math.round(cost+adj);
+    save('quoteItems',S.quoteItems);
+    saveCurrentProfileSelections();
+    render();
   }
 }
 
@@ -104,13 +118,15 @@ function loadFromInventory(){
     }
     S.quoteItems.push({
       id:genId(),
-      product:`${p.product} ${p.length!=='RL'?p.length+"'":'RL'}`,
+      product:formatProductLabel(p.product,p.length),
       origin:origin,
       tls:tls,
       cost:avgCost,
-      fob:avgCost+30,
+      fob:avgCost,
+      marginAdj:0,
       isShort:false,
-      selected:true
+      selected:true,
+      quoteDate:''
     });
   });
   
@@ -143,14 +159,16 @@ async function loadFromMillQuotes(){
           if(exists)return;
           S.quoteItems.push({
             id:genId(),
-            product:q.product,
+            product:formatProductLabel(q.product,q.length||'RL'),
             origin:origin,
             tls:q.tls||1,
             cost:q.price,
-            fob:q.price+30,
+            fob:q.price,
+            marginAdj:0,
             isShort:false,
             selected:true,
-            shipWeek:q.ship_window||''
+            shipWeek:q.ship_window||'',
+            quoteDate:q.date||''
           });
           added++;
         });
@@ -183,14 +201,16 @@ async function loadFromMillQuotes(){
       if(exists)return;
       S.quoteItems.push({
         id:genId(),
-        product:q.product+(q.length&&q.length!=='RL'?' '+q.length+"'":''),
+        product:formatProductLabel(q.product,q.length||'RL'),
         origin:origin||q.mill,
         tls:q.tls||1,
         cost:q.price,
-        fob:q.price+30,
+        fob:q.price,
+        marginAdj:0,
         isShort:false,
         selected:true,
-        shipWeek:q.shipWindow||''
+        shipWeek:q.shipWindow||'',
+        quoteDate:q.date||''
       });
       added++;
     });

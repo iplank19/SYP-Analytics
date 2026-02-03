@@ -155,6 +155,55 @@ function ageColor(dateStr) {
   return 'var(--muted)';
 }
 
+// Format product label: "2x4#2" + "16" → "2x4 16' #2"
+function formatProductLabel(product, length) {
+  if (!product) return '';
+  const p = product.trim();
+  let dimension, grade;
+  const hashMatch = p.match(/^(\d+x\d+)(#\d+)$/i);
+  if (hashMatch) {
+    dimension = hashMatch[1];
+    grade = hashMatch[2];
+  } else {
+    const spaceMatch = p.match(/^(\d+x\d+)\s+(.+)$/i);
+    if (spaceMatch) {
+      dimension = spaceMatch[1];
+      grade = spaceMatch[2];
+    } else {
+      return length && length !== 'RL' ? `${p} ${length}'` : (length === 'RL' ? `${p} RL` : p);
+    }
+  }
+  const lengthPart = (!length || length === 'RL') ? 'RL' : length + "'";
+  return `${dimension} ${lengthPart} ${grade}`;
+}
+
+// Format product header for matrix rows: "2x4#2" → "2x4 #2"
+function formatProductHeader(product) {
+  if (!product) return '';
+  const p = product.trim();
+  const hashMatch = p.match(/^(\d+x\d+)(#\d+)$/i);
+  if (hashMatch) return `${hashMatch[1]} ${hashMatch[2]}`;
+  return p;
+}
+
+// Age badge background color
+function ageBadgeBg(dateStr) {
+  if (!dateStr) return 'transparent';
+  const age = Math.floor((new Date() - new Date(dateStr)) / (1000 * 60 * 60 * 24));
+  if (age === 0) return 'rgba(166,227,161,0.15)';
+  if (age === 1) return 'rgba(249,226,175,0.2)';
+  return 'rgba(243,139,168,0.15)';
+}
+
+// Age badge text color
+function ageBadgeColor(dateStr) {
+  if (!dateStr) return 'var(--muted)';
+  const age = Math.floor((new Date() - new Date(dateStr)) / (1000 * 60 * 60 * 24));
+  if (age === 0) return 'var(--positive)';
+  if (age === 1) return 'var(--warn)';
+  return 'var(--negative)';
+}
+
 function extractState(location) {
   if (!location) return '';
   const parts = location.trim().split(',');

@@ -131,3 +131,55 @@ function miGetRegionFromState(st) {
 const MI_PPU={'2x4':208,'2x6':128,'2x8':96,'2x10':80,'2x12':64,'2x3':294,'2x14':52,'1x4':416,'1x6':256,'1x8':192,'1x10':160,'1x12':128,'4x4':64,'4x6':42,'6x6':24};
 
 const MI_STATE_RATES={AR:2.25,LA:2.25,TX:2.50,MS:2.25,AL:2.50,FL:2.75,GA:2.50,SC:2.50,NC:2.50,TN:2.25,KY:2.25,VA:2.50,OH:2.50,IN:2.50,IL:2.50,MO:2.25,WI:2.50,MI:2.50,MN:2.50,IA:2.50};
+
+// Format product label: "2x4#2" + "16" → "2x4 16' #2"
+function formatProductLabel(product, length) {
+  if (!product) return '';
+  const p = product.trim();
+  let dimension, grade;
+  // Parse "2x4#2" → dimension="2x4", grade="#2"
+  const hashMatch = p.match(/^(\d+x\d+)(#\d+)$/i);
+  if (hashMatch) {
+    dimension = hashMatch[1];
+    grade = hashMatch[2];
+  } else {
+    // Parse "2x4 MSR" → dimension="2x4", grade="MSR"
+    const spaceMatch = p.match(/^(\d+x\d+)\s+(.+)$/i);
+    if (spaceMatch) {
+      dimension = spaceMatch[1];
+      grade = spaceMatch[2];
+    } else {
+      // Can't parse - return basic concatenation
+      return length && length !== 'RL' ? `${p} ${length}'` : (length === 'RL' ? `${p} RL` : p);
+    }
+  }
+  const lengthPart = (!length || length === 'RL') ? 'RL' : length + "'";
+  return `${dimension} ${lengthPart} ${grade}`;
+}
+
+// Format product header for matrix rows: "2x4#2" → "2x4 #2"
+function formatProductHeader(product) {
+  if (!product) return '';
+  const p = product.trim();
+  const hashMatch = p.match(/^(\d+x\d+)(#\d+)$/i);
+  if (hashMatch) return `${hashMatch[1]} ${hashMatch[2]}`;
+  return p; // "2x4 MSR" already has a space
+}
+
+// Age badge background color
+function miAgeBadgeBg(dateStr) {
+  if (!dateStr) return 'transparent';
+  const age = Math.floor((new Date() - new Date(dateStr)) / (1000 * 60 * 60 * 24));
+  if (age === 0) return 'rgba(166,227,161,0.15)';   // positive bg
+  if (age === 1) return 'rgba(249,226,175,0.2)';    // warn bg
+  return 'rgba(243,139,168,0.15)';                   // negative bg
+}
+
+// Age badge text color
+function miAgeBadgeColor(dateStr) {
+  if (!dateStr) return 'var(--muted)';
+  const age = Math.floor((new Date() - new Date(dateStr)) / (1000 * 60 * 60 * 24));
+  if (age === 0) return 'var(--positive)';
+  if (age === 1) return 'var(--warn)';
+  return 'var(--negative)';
+}

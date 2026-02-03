@@ -1187,7 +1187,7 @@ function render(){
             ${bestBuys.length?bestBuys.map(b=>`
               <div class="activity-item">
                 <div>
-                  <div class="activity-main">${b.product} ${b.length||'RL'}</div>
+                  <div class="activity-main">${typeof formatProductLabel==='function'?formatProductLabel(b.product,b.length):b.product+' '+(b.length||'RL')}</div>
                   <div class="activity-sub">${b.mill||'—'} • ${fmtD(b.date)}</div>
                 </div>
                 <div class="activity-right">
@@ -1204,7 +1204,7 @@ function render(){
             ${worstBuys.filter(b=>b.diff>0).length?worstBuys.filter(b=>b.diff>0).map(b=>`
               <div class="activity-item">
                 <div>
-                  <div class="activity-main">${b.product} ${b.length||'RL'}</div>
+                  <div class="activity-main">${typeof formatProductLabel==='function'?formatProductLabel(b.product,b.length):b.product+' '+(b.length||'RL')}</div>
                   <div class="activity-sub">${b.mill||'—'} • ${fmtD(b.date)}</div>
                 </div>
                 <div class="activity-right">
@@ -1464,7 +1464,8 @@ function render(){
                   <th style="width:55px">Ship Wk</th>
                   <th style="width:45px">TLs</th>
                   <th style="width:70px" title="Mill FOB cost">Cost</th>
-                  <th style="width:70px">FOB Sell</th>
+                  <th style="width:55px" title="Margin adjustment $/MBF">±Adj</th>
+                  <th style="width:70px" title="Cost + Margin">FOB Sell</th>
                   <th style="width:70px" title="FOB Sell + freight to destination">Landed</th>
                   <th class="col-act"></th>
                 </tr></thead>
@@ -1474,18 +1475,21 @@ function render(){
                     const destMiles=_qeDest?getLaneMiles(item.origin,_qeDest):null;
                     const frt=destMiles?calcFreightPerMBF(destMiles,item.origin,isMSR):null;
                     const landed=frt!=null&&item.fob?(item.fob+frt):null;
+                    const ageLabel=item.quoteDate&&typeof miAgeLabel==='function'?miAgeLabel(item.quoteDate):'';
+                    const showAge=ageLabel&&ageLabel!=='Today';
                     return`<tr data-idx="${idx}">
                       <td><input type="checkbox" ${item.selected!==false?'checked':''} onchange="toggleQuoteItem(${idx},this.checked)"></td>
-                      <td><input type="text" value="${item.product||''}" onchange="updateQuoteItem(${idx},'product',this.value)" placeholder="2x4 #2 16'"></td>
+                      <td><input type="text" value="${item.product||''}" onchange="updateQuoteItem(${idx},'product',this.value)" placeholder="2x4 16' #2">${showAge?`<div style="font-size:8px;color:${typeof miAgeColor==='function'?miAgeColor(item.quoteDate):'var(--warn)'}">${ageLabel}</div>`:''}</td>
                       <td><input type="text" value="${item.origin||''}" onchange="updateQuoteItem(${idx},'origin',this.value)" placeholder="City, ST" list="origin-list"></td>
                       <td><input type="text" value="${item.shipWeek||''}" onchange="updateQuoteItem(${idx},'shipWeek',this.value)" placeholder="W1" style="width:45px;text-align:center"></td>
                       <td><input type="number" value="${item.tls||1}" onchange="updateQuoteItem(${idx},'tls',+this.value)" min="1" style="width:40px;text-align:center"></td>
                       <td style="text-align:right;font-size:10px"><span style="color:var(--muted)">${item.cost?'$'+item.cost:'—'}</span></td>
-                      <td><input type="number" value="${item.fob||''}" onchange="updateQuoteItem(${idx},'fob',+this.value)" placeholder="$" style="width:60px"></td>
+                      <td><input type="number" value="${item.marginAdj||0}" onchange="updateQuoteMargin(${idx},this.value)" placeholder="0" style="width:45px;text-align:center"></td>
+                      <td style="text-align:right;font-size:10px;font-weight:600"><span style="color:var(--accent)">${item.fob?'$'+item.fob:'—'}</span></td>
                       <td style="text-align:right;font-size:10px;font-weight:600">${landed!=null?'<span style="color:var(--positive)">$'+landed+'</span>':'<span style="color:var(--muted)">—</span>'}</td>
                       <td><button class="quote-del-btn" onclick="removeQuoteItem(${idx})">×</button></td>
                     </tr>`;
-                  }).join(''):'<tr><td colspan="9" class="empty-state">No items yet. Click "Smart Source" or "+ Add" to start.</td></tr>'}
+                  }).join(''):'<tr><td colspan="10" class="empty-state">No items yet. Click "Smart Source" or "+ Add" to start.</td></tr>'}
                 </tbody>
               </table>
               <datalist id="origin-list">

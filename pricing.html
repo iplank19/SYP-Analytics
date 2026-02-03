@@ -185,6 +185,47 @@
     const SHORT_HAUL_FLOOR=0;
     const MBF_PER_TL=23;
 
+    // Product format utilities (inline copy)
+    function formatProductLabel(product,length){
+      if(!product)return '';
+      const p=product.trim();
+      let dimension,grade;
+      const hashMatch=p.match(/^(\d+x\d+)(#\d+)$/i);
+      if(hashMatch){dimension=hashMatch[1];grade=hashMatch[2];}
+      else{const spaceMatch=p.match(/^(\d+x\d+)\s+(.+)$/i);if(spaceMatch){dimension=spaceMatch[1];grade=spaceMatch[2];}else{return length&&length!=='RL'?p+' '+length+"'":length==='RL'?p+' RL':p;}}
+      const lengthPart=(!length||length==='RL')?'RL':length+"'";
+      return dimension+' '+lengthPart+' '+grade;
+    }
+    function formatProductHeader(product){
+      if(!product)return '';
+      const p=product.trim();
+      const hashMatch=p.match(/^(\d+x\d+)(#\d+)$/i);
+      if(hashMatch)return hashMatch[1]+' '+hashMatch[2];
+      return p;
+    }
+    // Age helpers
+    function pAgeLabel(dateStr){
+      if(!dateStr)return '—';
+      const age=Math.floor((new Date()-new Date(dateStr))/(1000*60*60*24));
+      if(age===0)return 'Today';
+      if(age===1)return 'Yesterday';
+      return age+'d ago';
+    }
+    function pAgeBadgeBg(dateStr){
+      if(!dateStr)return 'transparent';
+      const age=Math.floor((new Date()-new Date(dateStr))/(1000*60*60*24));
+      if(age===0)return 'rgba(166,227,161,0.15)';
+      if(age===1)return 'rgba(249,226,175,0.2)';
+      return 'rgba(243,139,168,0.15)';
+    }
+    function pAgeBadgeColor(dateStr){
+      if(!dateStr)return 'var(--muted)';
+      const age=Math.floor((new Date()-new Date(dateStr))/(1000*60*60*24));
+      if(age===0)return 'var(--positive)';
+      if(age===1)return 'var(--warn)';
+      return 'var(--negative)';
+    }
+
     // ========== STATE ==========
     let _detail='length',_product='',_hideEmpty=true,_hideMills=true,_density='compact';
     let _activeTab='matrix';
@@ -280,7 +321,7 @@
       const colGroups=[];let currentProd=null,currentGroup=[];
       columns.forEach(c=>{const prod=colProduct(c);if(prod!==currentProd){if(currentGroup.length)colGroups.push({product:currentProd,cols:currentGroup});currentProd=prod;currentGroup=[c];}else{currentGroup.push(c);}});
       if(currentGroup.length)colGroups.push({product:currentProd,cols:currentGroup});
-      const productHeaderCells=colGroups.map((g,gi)=>'<th colspan="'+g.cols.length+'" class="'+(gi>0?'group-start':'')+'" style="text-align:center;background:var(--panel-alt);border-bottom:2px solid var(--accent);font-size:11px;padding:6px 4px">'+g.product+'</th>').join('');
+      const productHeaderCells=colGroups.map((g,gi)=>'<th colspan="'+g.cols.length+'" class="'+(gi>0?'group-start':'')+'" style="text-align:center;background:var(--panel-alt);border-bottom:2px solid var(--accent);font-size:11px;padding:6px 4px">'+formatProductHeader(g.product)+'</th>').join('');
       const lengthHeaderCells=columns.map((c,idx)=>{const length=c.split(/\s/).pop();const prod=colProduct(c);const prevProd=idx>0?colProduct(columns[idx-1]):null;const gs=prod!==prevProd?' group-start':'';return'<th class="'+gs+'" style="text-align:center;font-weight:400;color:var(--muted);min-width:48px">'+length+'</th>';}).join('');
       const bodyRows=mills.map(m=>{
         const cells=columns.map((col,idx)=>{const d=matrix[m]&&matrix[m][col];const prod=colProduct(col);const prevProd=idx>0?colProduct(columns[idx-1]):null;const gs=prod!==prevProd?' group-start':'';
@@ -289,8 +330,8 @@
           const vol=d.volume?d.volume+' MBF':'';const tls=d.tls?d.tls+' TL':'';const tip=[vol,tls,d.ship_window,age+'d ago'].filter(Boolean).join(' &middot; ');
           let heatBg='';const minP=best_by_col[col]||d.price;const maxP=max_by_col[col]||d.price;
           if(maxP>minP){const pct=(d.price-minP)/(maxP-minP);const hue=120-(pct*120);heatBg='background:hsla('+hue+',45%,45%,0.12);';}else{heatBg='background:hsla(120,45%,45%,0.12);';}
-          const fade=age>3?'opacity:0.5;':'';const bestStyle=isBest?'color:var(--positive);font-weight:700;':'';
-          return'<td class="mono'+gs+'" style="text-align:center;'+heatBg+bestStyle+fade+'" title="'+tip+'">$'+d.price+'</td>';
+          const fade=age>3?'opacity:0.5;':'';const bestStyle=isBest?'color:var(--positive);font-weight:700;':'';const dayPriorBorder=age>0?'border-bottom:2px solid '+(age===1?'var(--warn)':'var(--negative)')+';':'';
+          return'<td class="mono'+gs+'" style="text-align:center;'+heatBg+bestStyle+fade+dayPriorBorder+'" title="'+tip+'">$'+d.price+'</td>';
         }).join('');
         return'<tr><td class="mill-cell">'+m+'</td>'+cells+'</tr>';
       }).join('');
@@ -307,7 +348,7 @@
       const data=await res.json();
       const{matrix,mills,products,best_by_product}=data;
       if(!mills.length){el.innerHTML='<div class="empty-state">No mill quotes available.</div>';renderControls(products);return;}
-      const headerCells=products.map(p=>'<th style="writing-mode:vertical-lr;text-align:center;padding:8px 4px;font-size:10px;white-space:nowrap">'+p+'</th>').join('');
+      const headerCells=products.map(p=>'<th style="writing-mode:vertical-lr;text-align:center;padding:8px 4px;font-size:10px;white-space:nowrap">'+formatProductHeader(p)+'</th>').join('');
       const bodyRows=mills.map(m=>{
         const cells=products.map(p=>{const d=matrix[m]&&matrix[m][p];if(!d)return'<td style="text-align:center;color:var(--muted)">-</td>';
           const isBest=d.price===best_by_product[p];const age=Math.floor((new Date()-new Date(d.date))/(1000*60*60*24));
@@ -542,7 +583,7 @@
           const best=options[0]||null;
           _quoteResults.push({
             product:combo.product,length:combo.length,
-            label:combo.length==='RL'?`${combo.product} RL`:`${combo.product} ${combo.length}'`,
+            label:formatProductLabel(combo.product,combo.length),
             destination,best,options
           });
         }
@@ -585,13 +626,19 @@
             <th style="text-align:right;padding:4px 6px">Price</th>
             <th style="text-align:center;padding:4px 6px">Qty</th>
             <th style="text-align:right;padding:4px 6px">Ship</th>
+            <th style="text-align:center;padding:4px 6px">Age</th>
           </tr></thead><tbody>
-          ${_quoteResults.filter(r=>r.best).map(r=>`<tr>
+          ${_quoteResults.filter(r=>r.best).map(r=>{
+            const ageLabel=pAgeLabel(r.best.date);
+            const ageBg=pAgeBadgeBg(r.best.date);
+            const ageColor=pAgeBadgeColor(r.best.date);
+            return `<tr>
             <td style="padding:4px 6px;font-weight:600;color:var(--accent)">${r.label}</td>
             <td style="padding:4px 6px;text-align:right;font-weight:600;color:var(--positive)" class="mono">${r.best.landedCost!=null?fmt(r.best.landedCost):fmt(r.best.fobPrice)}</td>
             <td style="padding:4px 6px;text-align:center" class="mono">${r.best.tls||1} TL</td>
             <td style="padding:4px 6px;text-align:right;color:var(--muted)">${r.best.shipWindow||'Prompt'}</td>
-          </tr>`).join('')}
+            <td style="padding:4px 6px;text-align:center"><span style="font-size:9px;padding:2px 6px;border-radius:8px;background:${ageBg};color:${ageColor}">${ageLabel}</span></td>
+          </tr>`;}).join('')}
           </tbody></table>`;
       }
 
@@ -606,15 +653,18 @@
         html+=`<details style="margin-bottom:8px">
           <summary style="cursor:pointer;font-size:11px;font-weight:600;color:var(--muted);padding:4px 0">${r.label} — ${r.options.length} sources</summary>
           <table style="font-size:10px;margin-top:4px">
-            <thead><tr><th>Mill</th><th style="text-align:right">FOB</th><th style="text-align:right">Freight</th><th style="text-align:right">Landed</th><th style="text-align:right">Miles</th><th>Ship</th></tr></thead>
-            <tbody>${r.options.map((o,i)=>`<tr${i===0?' style="color:var(--positive);font-weight:600"':''}>
+            <thead><tr><th>Mill</th><th style="text-align:right">FOB</th><th style="text-align:right">Freight</th><th style="text-align:right">Landed</th><th style="text-align:right">Miles</th><th>Ship</th><th style="text-align:center">Age</th></tr></thead>
+            <tbody>${r.options.map((o,i)=>{
+              const oAgeColor=pAgeBadgeColor(o.date);
+              return `<tr${i===0?' style="color:var(--positive);font-weight:600"':''}>
               <td style="padding:3px 6px">${o.mill}</td>
               <td style="padding:3px 6px;text-align:right" class="mono">${fmt(o.fobPrice)}</td>
               <td style="padding:3px 6px;text-align:right" class="mono">${o.freightPerMBF!=null?fmt(o.freightPerMBF):'--'}</td>
               <td style="padding:3px 6px;text-align:right" class="mono">${o.landedCost!=null?fmt(o.landedCost):'--'}</td>
               <td style="padding:3px 6px;text-align:right" class="mono">${o.miles||'--'}</td>
               <td style="padding:3px 6px">${o.shipWindow||'--'}</td>
-            </tr>`).join('')}</tbody>
+              <td style="padding:3px 6px;text-align:center;color:${oAgeColor};font-size:9px">${pAgeLabel(o.date)}</td>
+            </tr>`;}).join('')}</tbody>
           </table>
         </details>`;
       });

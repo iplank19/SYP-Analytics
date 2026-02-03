@@ -203,7 +203,7 @@ async function miRenderGranularMatrix(el) {
   if (currentGroup.length) colGroups.push({product: currentProd, cols: currentGroup});
 
   const productHeaderCells = colGroups.map((g, gi) =>
-    `<th colspan="${g.cols.length}" class="${gi>0?'group-start':''}" style="text-align:center;background:var(--panel-alt);border-bottom:2px solid var(--accent);font-size:11px;padding:6px 4px">${g.product}</th>`
+    `<th colspan="${g.cols.length}" class="${gi>0?'group-start':''}" style="text-align:center;background:var(--panel-alt);border-bottom:2px solid var(--accent);font-size:11px;padding:6px 4px">${typeof formatProductHeader==='function'?formatProductHeader(g.product):g.product}</th>`
   ).join('');
 
   const lengthHeaderCells = columns.map((c, idx) => {
@@ -242,8 +242,9 @@ async function miRenderGranularMatrix(el) {
 
       const fade = age > 3 ? 'opacity:0.5;' : '';
       const bestStyle = isBest ? 'color:var(--positive);font-weight:700;' : '';
+      const dayPriorBorder = age > 0 ? `border-bottom:2px solid ${age===1?'var(--warn)':'var(--negative)'};` : '';
 
-      return `<td class="mono${gs}" style="text-align:center;${heatBg}${bestStyle}${fade}" title="${tip}">$${d.price}</td>`;
+      return `<td class="mono${gs}" style="text-align:center;${heatBg}${bestStyle}${fade}${dayPriorBorder}" title="${tip}">$${d.price}</td>`;
     }).join('');
     return `<tr><td class="mill-cell" style="white-space:nowrap;font-weight:500;font-size:11px;padding:4px 8px;position:sticky;left:0;background:var(--panel);z-index:1">${m}</td>${cells}</tr>`;
   }).join('');
@@ -277,7 +278,7 @@ async function miRenderSummaryMatrix(el) {
   }
 
   const headerCells = products.map(p =>
-    `<th style="writing-mode:vertical-lr;text-align:center;padding:8px 4px;font-size:10px;white-space:nowrap">${p}</th>`
+    `<th style="writing-mode:vertical-lr;text-align:center;padding:8px 4px;font-size:10px;white-space:nowrap">${typeof formatProductHeader==='function'?formatProductHeader(p):p}</th>`
   ).join('');
 
   const bodyRows = mills.map(m => {

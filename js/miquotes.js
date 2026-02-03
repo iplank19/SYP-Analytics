@@ -279,7 +279,7 @@ async function _miRenderSmartQuotesInto(c) {
         <td style="white-space:nowrap;padding:3px 6px;font-size:11px;font-weight:600">
           <label style="cursor:pointer;display:flex;align-items:center;gap:4px">
             <input type="checkbox" id="mi-mx-row-${pid}" onchange="miToggleRow('${p}')">
-            ${p}
+            ${formatProductHeader(p)}
           </label>
         </td>
         ${cells}
@@ -533,7 +533,7 @@ async function miBuildSmartQuote() {
 
       _miQuoteResults.push({
         product: combo.product, length: combo.length,
-        label: combo.length === 'RL' ? `${combo.product} RL` : `${combo.product} ${combo.length}'`,
+        label: formatProductLabel(combo.product, combo.length),
         destination, customerName,
         recommendation: rec, best, options,
         marginRange, suggestedSellPrice
@@ -560,7 +560,7 @@ function miSendToQuoteEngine() {
   _miQuoteResults.forEach(r => {
     if (!r.best) return;
 
-    const productLabel = r.length && r.length !== 'RL' ? `${r.product} ${r.length}` : r.product;
+    const productLabel = formatProductLabel(r.product, r.length);
 
     // Skip duplicates (same product+length+origin already in quoteItems)
     const exists = S.quoteItems.find(i =>
@@ -574,10 +574,12 @@ function miSendToQuoteEngine() {
       origin: r.best.origin,
       tls: r.best.tls || 1,
       cost: r.best.fobPrice,
-      fob: r.suggestedSellPrice ? Math.round(r.suggestedSellPrice) : Math.round((r.best.landedCost || r.best.fobPrice) + 28),
+      fob: Math.round(r.best.fobPrice),
+      marginAdj: 0,
       isShort: false,
       selected: true,
-      shipWeek: r.best.shipWindow || ''
+      shipWeek: r.best.shipWindow || '',
+      quoteDate: r.best.date || ''
     });
     added++;
 
@@ -710,12 +712,12 @@ function miRenderQuoteResults() {
       </tr></thead>
       <tbody>
         ${_miQuoteResults.filter(r => r.best).map(r => isMatrixMode ? `<tr style="border-bottom:1px solid var(--border)">
-          <td style="padding:4px 6px;font-weight:600;color:var(--accent)">${r.label}</td>
+          <td style="padding:4px 6px;font-weight:600;color:var(--accent)">${r.label}${r.best.date && miAgeLabel(r.best.date) !== 'Today' ? `<span style="font-size:9px;padding:1px 5px;border-radius:3px;margin-left:6px;background:${miAgeBadgeBg(r.best.date)};color:${miAgeBadgeColor(r.best.date)}">${miAgeLabel(r.best.date)}</span>` : ''}</td>
           <td style="padding:4px 6px;text-align:right;font-weight:600;color:var(--positive)" class="mono">${r.best.landedCost != null ? fmt(r.best.landedCost) : fmt(r.best.fobPrice)}</td>
           <td style="padding:4px 6px;text-align:center" class="mono">${r.best.tls || 1} TL</td>
           <td style="padding:4px 6px;text-align:right;color:var(--muted)">${r.best.shipWindow || 'Prompt'}</td>
         </tr>` : `<tr style="border-bottom:1px solid var(--border)">
-          <td style="padding:4px 6px;font-weight:600;color:var(--accent)">${r.label}</td>
+          <td style="padding:4px 6px;font-weight:600;color:var(--accent)">${r.label}${r.best.date && miAgeLabel(r.best.date) !== 'Today' ? `<span style="font-size:9px;padding:1px 5px;border-radius:3px;margin-left:6px;background:${miAgeBadgeBg(r.best.date)};color:${miAgeBadgeColor(r.best.date)}">${miAgeLabel(r.best.date)}</span>` : ''}</td>
           <td style="padding:4px 6px">${r.best.mill}</td>
           <td style="padding:4px 6px;text-align:right" class="mono">${fmt(r.best.fobPrice)}</td>
           <td style="padding:4px 6px;text-align:right" class="mono">${r.best.freightPerMBF != null ? fmt(r.best.freightPerMBF) : '—'}</td>
@@ -753,7 +755,7 @@ function miRenderQuoteResults() {
             ${!isMatrixMode && rec ? `<span style="font-weight:600;color:var(--${actionClass});font-size:10px">${rec.action}</span>` : ''}
           </summary>
           <table style="font-size:10px;margin-top:4px;width:100%">
-            <thead><tr><th>Mill</th><th>FOB</th><th>Freight</th><th>Landed</th><th>Mi</th><th>Ship</th></tr></thead>
+            <thead><tr><th>Mill</th><th>FOB</th><th>Freight</th><th>Landed</th><th>Mi</th><th>Ship</th><th>Age</th></tr></thead>
             <tbody>
               ${r.options.map((o, i) => `<tr style="${i === 0 ? 'background:rgba(74,158,110,0.08)' : ''}">
                 <td>${o.mill}</td>
@@ -762,6 +764,7 @@ function miRenderQuoteResults() {
                 <td class="mono" style="font-weight:600">${o.landedCost != null ? fmt(o.landedCost) : '—'}</td>
                 <td>${o.miles || '—'}</td>
                 <td>${o.shipWindow || '—'}</td>
+                <td style="color:${miAgeColor(o.date)}">${miAgeLabel(o.date)}</td>
               </tr>`).join('')}
             </tbody>
           </table>
