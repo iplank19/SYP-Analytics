@@ -224,6 +224,8 @@ async function miRenderGranularMatrix(el) {
     return `<th class="${gs}" style="text-align:center;font-weight:400;color:var(--muted);min-width:48px">${length}</th>`;
   }).join('');
 
+  const isPortal = sessionStorage.getItem('syp_matrix_only');
+
   const bodyRows = mills.map(m => {
     const cells = columns.map((col, idx) => {
       const d = matrix[m]?.[col];
@@ -265,7 +267,6 @@ async function miRenderGranularMatrix(el) {
 
   const densityClass = `matrix-${_miMatrixDensity}`;
 
-  const isPortal = sessionStorage.getItem('syp_matrix_only');
   const controls = isPortal ? `<div style="display:flex;gap:12px;align-items:center;font-size:10px;color:var(--muted);margin-bottom:8px"><span>${mills.length} mills · ${columns.length} columns</span><span>Green→Red = cheap→expensive</span></div>` : miMatrixControls(products, columns.length, allColumns.length, mills.length, allMills.length);
 
   const delHeader = isPortal ? '' : '<th rowspan="2" style="position:sticky;right:0;background:var(--panel);z-index:3;width:24px"></th>';

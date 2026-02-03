@@ -2188,15 +2188,6 @@ def mi_submit_quotes():
     invalidate_matrix_cache()  # Clear cached matrix data
     return jsonify({'created': len(created), 'quotes': created}), 201
 
-@app.route('/api/mi/quotes/<int:quote_id>', methods=['DELETE'])
-def mi_delete_quote(quote_id):
-    conn = get_mi_db()
-    conn.execute("DELETE FROM mill_quotes WHERE id=?", (quote_id,))
-    conn.commit()
-    conn.close()
-    invalidate_matrix_cache()  # Clear cached matrix data
-    return jsonify({'deleted': quote_id})
-
 @app.route('/api/mi/quotes/by-mill', methods=['DELETE'])
 def mi_delete_mill_quotes():
     """Delete all quotes for a specific mill."""
@@ -2209,6 +2200,15 @@ def mi_delete_mill_quotes():
     conn.close()
     invalidate_matrix_cache()
     return jsonify({'deleted': cur.rowcount, 'mill': mill_name})
+
+@app.route('/api/mi/quotes/<int:quote_id>', methods=['DELETE'])
+def mi_delete_quote(quote_id):
+    conn = get_mi_db()
+    conn.execute("DELETE FROM mill_quotes WHERE id=?", (quote_id,))
+    conn.commit()
+    conn.close()
+    invalidate_matrix_cache()  # Clear cached matrix data
+    return jsonify({'deleted': quote_id})
 
 @app.route('/api/mi/quotes/rename-mill', methods=['POST'])
 def mi_rename_mill_quotes():
