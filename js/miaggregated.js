@@ -146,15 +146,22 @@ function miMatrixControls(products, colCount, totalCols, millCount, totalMills) 
     <label><input type="checkbox" ${_miMatrixHideEmpty?'checked':''} onchange="_miMatrixHideEmpty=this.checked;SS('miMatrixHideEmpty',_miMatrixHideEmpty);renderMiAggregated()"> Hide empty cols</label>` : '';
   const hideMillsChk = _miMatrixDetail === 'length' ? `
     <label><input type="checkbox" ${_miMatrixHideMills?'checked':''} onchange="_miMatrixHideMills=this.checked;SS('miMatrixHideMills',_miMatrixHideMills);renderMiAggregated()"> Hide empty mills</label>` : '';
+  // Default to 2 days max age if not explicitly set
+  const effectiveMaxAge = _miMatrixMaxAge !== '' ? _miMatrixMaxAge : '2';
   const ageFilter = `
     <select onchange="_miMatrixMaxAge=this.value;SS('miMatrixMaxAge',_miMatrixMaxAge);renderMiAggregated()" style="padding:4px 8px;font-size:11px;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:var(--radius)">
-      <option value=""${_miMatrixMaxAge===''?' selected':''}>All Ages</option>
+      <option value="99"${_miMatrixMaxAge==='99'?' selected':''}>All Ages</option>
       <option value="0"${_miMatrixMaxAge==='0'?' selected':''}>Today Only</option>
       <option value="1"${_miMatrixMaxAge==='1'?' selected':''}>≤1 Day</option>
-      <option value="2"${_miMatrixMaxAge==='2'?' selected':''}>≤2 Days</option>
+      <option value="2"${effectiveMaxAge==='2'&&_miMatrixMaxAge!=='99'?' selected':''}>≤2 Days (default)</option>
       <option value="3"${_miMatrixMaxAge==='3'?' selected':''}>≤3 Days</option>
       <option value="7"${_miMatrixMaxAge==='7'?' selected':''}>≤1 Week</option>
     </select>`;
+  const ageLegend = `<span style="font-size:9px;display:flex;gap:8px;align-items:center">
+    <span style="display:inline-block;width:14px;height:10px;background:var(--panel);border:1px solid var(--positive)"></span>Today
+    <span style="display:inline-block;width:14px;height:10px;background:rgba(242,186,49,0.25);border-bottom:2px solid var(--warn)"></span>1d old
+    <span style="color:var(--negative)">2d+ → archived</span>
+  </span>`;
   const densityBtns = `
     <button class="btn btn-sm ${_miMatrixDensity==='compact'?'btn-primary':'btn-default'}" onclick="_miMatrixDensity='compact';SS('miMatrixDensity','compact');renderMiAggregated()">◼</button>
     <button class="btn btn-sm ${_miMatrixDensity==='comfortable'?'btn-primary':'btn-default'}" onclick="_miMatrixDensity='comfortable';SS('miMatrixDensity','comfortable');renderMiAggregated()">◻</button>`;
@@ -165,7 +172,7 @@ function miMatrixControls(products, colCount, totalCols, millCount, totalMills) 
     <div style="display:flex;gap:2px;margin-left:4px">${densityBtns}</div>
     <span style="margin-left:auto;display:flex;gap:12px;align-items:center">
       ${stats}
-      <span style="color:var(--muted);font-size:10px">Green→Red = cheap→expensive</span>
+      ${ageLegend}
     </span>
   </div>`;
 }
@@ -250,10 +257,10 @@ async function miRenderGranularMatrix(el) {
       const gs = prod !== prevProd ? ' group-start' : '';
 
       const age = d ? Math.floor((new Date() - new Date(d.date)) / (1000*60*60*24)) : null;
-      const maxAge = _miMatrixMaxAge !== '' ? parseInt(_miMatrixMaxAge, 10) : null;
+      const maxAge = _miMatrixMaxAge !== '' ? parseInt(_miMatrixMaxAge, 10) : 2; // Default: auto-expire after 2 days
 
-      // Filter by max age if set
-      if (!d || (maxAge !== null && age > maxAge)) return `<td class="empty-cell${gs}"></td>`;
+      // Filter by max age - quotes older than 2 days are auto-hidden (still in log for data)
+      if (!d || age > maxAge) return `<td class="empty-cell${gs}"></td>`;
 
       // Apply portal margin if in portal mode
       const displayPrice = isPortal ? d.price + _miPortalMargin : d.price;
@@ -274,11 +281,13 @@ async function miRenderGranularMatrix(el) {
         heatBg = 'background:hsla(120,45%,45%,0.12);';
       }
 
-      const fade = age > 3 ? 'opacity:0.5;' : '';
+      // Quote aging: 1 day old = yellow background, 2+ days = auto-hidden from matrix
+      // Note: quotes 2+ days old are filtered out earlier via _miMatrixMaxAge or auto-expiry
+      const staleStyle = age === 1 ? 'background:rgba(242,186,49,0.25);' : ''; // Yellow tint for 1-day old
       const bestStyle = isBest ? 'color:var(--positive);font-weight:700;' : '';
       const dayPriorBorder = age > 0 ? `border-bottom:2px solid ${age===1?'var(--warn)':'var(--negative)'};` : '';
 
-      return `<td class="mono${gs}" style="text-align:center;${heatBg}${bestStyle}${fade}${dayPriorBorder}" title="${tip}" data-base-price="${d.price}" data-ship="${shipNorm}">$${displayPrice}</td>`;
+      return `<td class="mono${gs}" style="text-align:center;${heatBg}${staleStyle}${bestStyle}${dayPriorBorder}" title="${tip}" data-base-price="${d.price}" data-ship="${shipNorm}">$${displayPrice}</td>`;
     }).join('');
     const delBtn = isPortal ? '' : `<td style="padding:2px;position:sticky;right:0;background:var(--panel);z-index:1"><button onclick="miDeleteMillQuotes('${m.replace(/'/g, "\\'")}');event.stopPropagation()" style="background:none;border:none;color:var(--negative);cursor:pointer;font-size:11px;padding:2px 6px;opacity:0.5" title="Delete all quotes for ${m}" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=0.5">×</button></td>`;
     return `<tr><td class="mill-cell" style="white-space:nowrap;font-weight:500;font-size:11px;padding:4px 8px;position:sticky;left:0;background:var(--panel);z-index:1">${m}</td>${cells}${delBtn}</tr>`;
@@ -455,35 +464,66 @@ async function miRenderAggLog() {
     since.setDate(since.getDate() - (S.miFilterDays || 7));
     const quotes = await miLoadAllQuotes({since: since.toISOString().split('T')[0], limit: 200});
 
-    const rows = quotes.map(q => `
-      <tr>
-        <td style="color:var(--muted);font-size:10px">${q.date}</td>
-        <td>${q.trader}</td>
+    // Separate active (0-2 days) from expired (3+ days) quotes
+    const today = new Date();
+    const getAge = (dateStr) => Math.floor((today - new Date(dateStr)) / (1000*60*60*24));
+    const maxAge = _miMatrixMaxAge !== '' ? parseInt(_miMatrixMaxAge, 10) : 2;
+
+    const activeQuotes = quotes.filter(q => getAge(q.date) <= maxAge);
+    const expiredQuotes = quotes.filter(q => getAge(q.date) > maxAge);
+
+    const makeRow = (q, isExpired) => `
+      <tr style="${isExpired ? 'opacity:0.6;' : ''}">
+        <td style="color:var(--muted);font-size:10px">${q.date}${isExpired ? ` <span style="color:var(--negative);font-size:9px">(${getAge(q.date)}d)</span>` : ''}</td>
+        <td>${q.trader || '-'}</td>
         <td>${q.mill_name}</td>
-        <td><strong>${q.product}</strong></td>
+        <td><strong>${q.product}</strong>${q.length ? ` ${q.length}'` : ''}</td>
         <td class="mono">${fmt(q.price)}</td>
         <td>${q.volume || '-'}</td>
         <td>${q.ship_window || '-'}</td>
-        <td><span class="badge badge-info">${q.source}</span></td>
+        <td><span class="badge badge-info">${q.source || 'manual'}</span></td>
       </tr>
-    `).join('');
+    `;
+
+    const activeRows = activeQuotes.map(q => makeRow(q, false)).join('');
+    const expiredRows = expiredQuotes.map(q => makeRow(q, true)).join('');
 
     el.innerHTML = `<div class="card-body">
-      <div style="display:flex;gap:8px;margin-bottom:12px;align-items:center">
+      <div style="display:flex;gap:8px;margin-bottom:12px;align-items:center;flex-wrap:wrap">
         <select onchange="S.miFilterDays=parseInt(this.value);renderMiAggregated()" style="padding:4px 8px;font-size:11px;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:var(--radius)">
           <option value="3"${S.miFilterDays===3?' selected':''}>Last 3 days</option>
           <option value="7"${S.miFilterDays===7?' selected':''}>Last 7 days</option>
           <option value="14"${S.miFilterDays===14?' selected':''}>Last 14 days</option>
           <option value="30"${S.miFilterDays===30?' selected':''}>Last 30 days</option>
         </select>
-        <span style="color:var(--muted);font-size:11px">${quotes.length} submissions</span>
+        <span style="color:var(--muted);font-size:11px">${quotes.length} total submissions</span>
+        <span style="color:var(--positive);font-size:11px">● ${activeQuotes.length} active (≤${maxAge}d)</span>
+        <span style="color:var(--negative);font-size:11px">● ${expiredQuotes.length} expired (>${maxAge}d)</span>
       </div>
-      <div style="overflow-x:auto">
-        <table style="font-size:11px">
-          <thead><tr><th>Date</th><th>Trader</th><th>Mill</th><th>Product</th><th>FOB $</th><th>Vol</th><th>Ship</th><th>Source</th></tr></thead>
-          <tbody>${rows || '<tr><td colspan="8" class="empty-state">No recent submissions</td></tr>'}</tbody>
-        </table>
-      </div>
+
+      ${activeQuotes.length ? `
+      <div style="margin-bottom:16px">
+        <div style="font-weight:600;font-size:12px;margin-bottom:8px;color:var(--positive)">📊 Active Quotes (showing in matrix)</div>
+        <div style="overflow-x:auto">
+          <table style="font-size:11px">
+            <thead><tr><th>Date</th><th>Trader</th><th>Mill</th><th>Product</th><th>FOB $</th><th>Vol</th><th>Ship</th><th>Source</th></tr></thead>
+            <tbody>${activeRows}</tbody>
+          </table>
+        </div>
+      </div>` : ''}
+
+      ${expiredQuotes.length ? `
+      <div>
+        <div style="font-weight:600;font-size:12px;margin-bottom:8px;color:var(--negative)">📁 Expired Quotes (archived from matrix)</div>
+        <div style="overflow-x:auto;max-height:300px;overflow-y:auto">
+          <table style="font-size:11px">
+            <thead><tr><th>Date</th><th>Trader</th><th>Mill</th><th>Product</th><th>FOB $</th><th>Vol</th><th>Ship</th><th>Source</th></tr></thead>
+            <tbody>${expiredRows}</tbody>
+          </table>
+        </div>
+      </div>` : ''}
+
+      ${!quotes.length ? '<div class="empty-state">No submissions in selected period</div>' : ''}
     </div>`;
   } catch (e) {
     el.innerHTML = `<div class="card-body empty-state">Error: ${e.message}</div>`;
