@@ -830,11 +830,18 @@ function parseOrderCSV(csvText){
     else if(/#2/i.test(desc))grade='#2';
 
     const dimMatch=(detail||'').match(/(\d+)\s*X\s*(\d+)/i);
-    const lenMatch=(detail||'').match(/(\d+)'/);
+    // Match foot lengths (16'), stud lengths (104-5/8"), or plain numbers
+    const lenMatch=(detail||'').match(/(\d+)'/)||// Standard: 16'
+                   (detail||'').match(/(\d+)-\d+\/\d+"?/)||// Stud: 104-5/8" → 104 (treat as ~8.67')
+                   (detail||'').match(/(\d+)"/);// Inch only: 104"
     const thick=dimMatch?parseInt(dimMatch[1]):2;
     const wide=dimMatch?parseInt(dimMatch[2]):4;
     const dim=`${thick}x${wide}`;
-    const length=lenMatch?lenMatch[1]:'';
+    let length=lenMatch?lenMatch[1]:'';
+    // If length is in inches (>20), convert to feet (stud lengths like 104-5/8")
+    if(length&&parseInt(length)>20){
+      length=String(Math.round(parseInt(length)/12*100)/100);// 104 → 8.67
+    }
     const product=grade==='CLEAR'?`${dim} CLEAR`:`${dim}${grade}`;
     const isTimber=thick>=4;// 4x4, 4x6, 6x6, etc.
     return{product,length,dim,thick,wide,isTimber};
@@ -880,6 +887,24 @@ function parseOrderCSV(csvText){
 
   function parsePrice(val){
     return parseFloat((val||'').replace(/[$,]/g,''))||0;
+  }
+
+  // Convert per-piece price to MBF price if detected
+  // Piece prices are typically $2-$20, MBF prices are typically $300-$800
+  function piecePriceToMBF(price,thick,wide,lengthFt){
+    if(!price||!lengthFt)return price;
+    // Board feet per piece = (thick * wide * length) / 12
+    const bfPerPiece=(thick*wide*parseFloat(lengthFt))/12;
+    // MBF price = piece price * 1000 / bf per piece
+    return Math.round(price*1000/bfPerPiece);
+  }
+
+  function isPiecePrice(price,thick,wide,lengthFt){
+    if(!price||price<=0)return false;
+    // Heuristic: if price < $50 and would convert to reasonable MBF ($200-$1200), it's per-piece
+    if(price>=50)return false;// Likely already MBF
+    const asInMBF=piecePriceToMBF(price,thick,wide,parseFloat(lengthFt)||12);
+    return asInMBF>=200&&asInMBF<=1200;// Reasonable MBF range for SYP
   }
 
   function parseCSVRow(line){
@@ -963,6 +988,15 @@ function parseOrderCSV(csvText){
     const{product,length,dim,thick,wide,isTimber}=parseProduct(productDesc,productDetail);
     const units=parseTally(tally);
     const mbf=unitsToMBF(units,dim,length,isTimber);
+
+    // Detect and convert per-piece prices to MBF (e.g., $5.76/pc → ~$576/MBF for 2x6 12')
+    const lengthNum=parseFloat(length)||12;
+    if(isPiecePrice(sellPrice,thick,wide,lengthNum)){
+      sellPrice=piecePriceToMBF(sellPrice,thick,wide,lengthNum);
+    }
+    if(isPiecePrice(buyPrice,thick,wide,lengthNum)){
+      buyPrice=piecePriceToMBF(buyPrice,thick,wide,lengthNum);
+    }
 
     // Normalize entity names (handles ALL-CAPS, aliases, suffix stripping)
     if(customer&&typeof normalizeCustomerName==='function')customer=normalizeCustomerName(customer);
@@ -1086,6 +1120,19 @@ PRODUCT FORMAT GUIDE:
 - Grades: #1, #2, #3, CLEAR — written as 2x4#2, 2x6#1, 2x8 CLEAR, etc.
 - MSR/MEL: e.g. "2x4 MSR 2400f", "2x6 MSR 1650f" — include the full designation
 - Product string format: "{dim}{grade}" e.g. "2x4#2", "2x6#1", "2x10 CLEAR"
+
+LENGTH FORMAT GUIDE:
+- Standard: 10', 12', 16', 20' (foot mark)
+- Stud lengths: "104-5/8"" or "92-5/8"" — convert to feet: 104.625" ≈ 8.72', 92.625" ≈ 7.72'
+- If length is in inches (>20), divide by 12 to get feet
+
+PRICE FORMAT DETECTION:
+- MBF prices are typically $200-$900 (e.g., 450, 575, 680)
+- Per-piece prices are typically $2-$20 (e.g., 5.76, 8.32, 12.50)
+- CRITICAL: If you see prices under $50, check if they're per-piece and CONVERT to MBF:
+  MBF_price = piece_price × 1000 / ((thick × wide × length_ft) / 12)
+  Example: $5.76/pc for 2x6 12' → 5.76 × 1000 / (2×6×12/12) = 5.76 × 1000 / 12 = $480/MBF
+- Always output prices in $/MBF format
 
 PCS_PER_UNIT (pieces per unit/bundle):
 ${Object.entries(S.ppu||{'2x4':208,'2x6':128,'2x8':96,'2x10':80,'2x12':64}).map(([dim,ppu])=>`- ${dim}: ${ppu} pcs/unit`).join('\n')}
