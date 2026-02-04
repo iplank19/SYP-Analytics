@@ -283,7 +283,12 @@ async function miRunAIParse(text) {
     }
     for (const q of quotes) {
       q.mill = miNormalizeMillName(q.mill);
-      if (!q.city && q.mill) q.city = miInferMillCity(q.mill);
+      // Always use MILL_DIRECTORY for authoritative city (AI often gets this wrong)
+      if (q.mill) {
+        const dirCity = miInferMillCity(q.mill);
+        if (dirCity) q.city = dirCity;
+        else if (!q.city) q.city = '';
+      }
       if (!q.length) q.length = 'RL';
     }
     _miPreviewQuotes = quotes;
@@ -325,7 +330,12 @@ async function miRunAIParseImages(images) {
     }
     for (const q of quotes) {
       q.mill = miNormalizeMillName(q.mill);
-      if (!q.city && q.mill) q.city = miInferMillCity(q.mill);
+      // Always use MILL_DIRECTORY for authoritative city (AI often gets this wrong)
+      if (q.mill) {
+        const dirCity = miInferMillCity(q.mill);
+        if (dirCity) q.city = dirCity;
+        else if (!q.city) q.city = '';
+      }
       if (!q.length) q.length = 'RL';
     }
     _miPreviewQuotes = quotes;

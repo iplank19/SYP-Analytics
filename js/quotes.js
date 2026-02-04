@@ -72,7 +72,13 @@ async function showBestCosts(){
           const best=filtered.reduce((a,b)=>a.price<b.price?a:b);
           bestMillCost=best.price;
           bestMill=best.mill_name||best.mill||'';
-          bestMillOrigin=best.city&&best.state?`${best.city}, ${best.state}`:best.city||'';
+          // Use MILL_DIRECTORY as authoritative source for mill locations
+          const dirEntry=typeof MILL_DIRECTORY!=='undefined'?MILL_DIRECTORY[bestMill]:null;
+          if(dirEntry){
+            bestMillOrigin=`${dirEntry.city}, ${dirEntry.state}`;
+          }else{
+            bestMillOrigin=best.city&&best.state?`${best.city}, ${best.state}`:best.city||'';
+          }
           bestMillRegion=best.region||'central';
         }
       }catch(e){console.warn('MI lookup failed:',e);}
@@ -84,8 +90,14 @@ async function showBestCosts(){
       if(local){
         bestMillCost=local.price;
         bestMill=local.mill||'';
-        const mill=S.mills?.find(m=>m.name===local.mill);
-        bestMillOrigin=mill?.location||'';
+        // Use MILL_DIRECTORY as authoritative source
+        const dirEntry=typeof MILL_DIRECTORY!=='undefined'?MILL_DIRECTORY[bestMill]:null;
+        if(dirEntry){
+          bestMillOrigin=`${dirEntry.city}, ${dirEntry.state}`;
+        }else{
+          const mill=S.mills?.find(m=>m.name===local.mill);
+          bestMillOrigin=mill?.location||'';
+        }
       }
     }
 

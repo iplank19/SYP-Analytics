@@ -78,13 +78,14 @@ function miNormalizeMillName(raw) {
 
 function miInferMillCity(millName) {
   if (!millName || typeof millName !== 'string') return '';
-  const lower = millName.toLowerCase();
-  for (const [city, st] of Object.entries(MI_MILL_CITIES)) {
-    if (lower.includes(city)) {
-      const capCity = city.replace(/\b\w/g, c => c.toUpperCase());
-      return `${capCity}, ${st}`;
-    }
+
+  // First check MILL_DIRECTORY for authoritative location
+  if (typeof MILL_DIRECTORY !== 'undefined' && MILL_DIRECTORY[millName]) {
+    const entry = MILL_DIRECTORY[millName];
+    return `${entry.city}, ${entry.state}`;
   }
+
+  // Check if mill name has "Company - Location" format and try directory lookup
   const dashParts = millName.split(' - ');
   if (dashParts.length >= 2) {
     const loc = dashParts[dashParts.length - 1].trim().toLowerCase();
@@ -93,6 +94,16 @@ function miInferMillCity(millName) {
       return `${capCity}, ${MI_MILL_CITIES[loc]}`;
     }
   }
+
+  // Fallback to searching for city names in the mill name
+  const lower = millName.toLowerCase();
+  for (const [city, st] of Object.entries(MI_MILL_CITIES)) {
+    if (lower.includes(city)) {
+      const capCity = city.replace(/\b\w/g, c => c.toUpperCase());
+      return `${capCity}, ${st}`;
+    }
+  }
+
   return '';
 }
 
