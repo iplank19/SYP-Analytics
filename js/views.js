@@ -2546,12 +2546,6 @@ function render(){
   else if(S.view==='mi-prices'){
     renderMiAggregated();
   }
-  else if(S.view==='mi-intel'){
-    renderMiIntelligence();
-  }
-  else if(S.view==='pricing-model'){
-    renderPricingModel();
-  }
   else if(S.view==='mi-quotes'){
     renderMiSmartQuotes();
   }
