@@ -1,4 +1,199 @@
 // SYP Analytics - Quote Engine Functions
+
+// ============================================================
+// QUICK QUOTE BUILDER FUNCTIONS
+// ============================================================
+
+// Parse products from textarea input
+function parseQuoteProducts(){
+  const input=document.getElementById('qb-products-input');
+  if(!input)return;
+
+  const lines=input.value.split('\n').map(l=>l.trim()).filter(Boolean);
+  if(!lines.length){
+    showToast('Enter some products first','warn');
+    return;
+  }
+
+  // Clear existing items and create new ones from parsed lines
+  S.quoteItems=lines.map(line=>({
+    id:genId(),
+    product:line,
+    selected:true
+  }));
+
+  save('quoteItems',S.quoteItems);
+  showToast(`Parsed ${lines.length} products`,'positive');
+  render();
+}
+
+// Main function: Show best costs for all products
+async function showBestCosts(){
+  const items=S.quoteItems||[];
+  if(!items.length){
+    showToast('Add some products first','warn');
+    return;
+  }
+
+  // Get destination
+  const customDest=document.getElementById('qb-custom-dest')?.value?.trim();
+  const customerSelect=document.getElementById('qb-customer-select');
+  const selectedCustomer=customerSelect?.value?myCustomers().find(c=>c.name===customerSelect.value):null;
+  const dest=customDest||selectedCustomer?.locations?.[0]||selectedCustomer?.destination||'';
+
+  if(!dest){
+    showToast('Select a customer or enter a destination city','warn');
+    return;
+  }
+
+  showToast('Fetching best costs...','info');
+  const latestRL=S.rl.length?S.rl[S.rl.length-1]:null;
+
+  for(const item of items){
+    const parsed=parseProductString(item.product);
+    if(!parsed.base)continue;
+
+    // 1. Find best mill cost from Mill Intel or local quotes
+    let bestMillCost=null;
+    let bestMill='';
+    let bestMillRegion='central';
+    let bestMillOrigin='';
+
+    // Try Mill Intel
+    if(typeof miLoadLatestQuotes==='function'){
+      try{
+        const quotes=await miLoadLatestQuotes({product:parsed.base});
+        // Filter by length if specified
+        const filtered=quotes.filter(q=>{
+          if(!parsed.length)return true;
+          return !q.length||q.length==='RL'||normalizeLength(q.length)===parsed.length;
+        });
+        if(filtered.length){
+          const best=filtered.reduce((a,b)=>a.price<b.price?a:b);
+          bestMillCost=best.price;
+          bestMill=best.mill_name||best.mill||'';
+          bestMillOrigin=best.city&&best.state?`${best.city}, ${best.state}`:best.city||'';
+          bestMillRegion=best.region||'central';
+        }
+      }catch(e){console.warn('MI lookup failed:',e);}
+    }
+
+    // Fallback to local mill quotes
+    if(bestMillCost===null&&typeof getBestPrice==='function'){
+      const local=getBestPrice(parsed.base);
+      if(local){
+        bestMillCost=local.price;
+        bestMill=local.mill||'';
+        const mill=S.mills?.find(m=>m.name===local.mill);
+        bestMillOrigin=mill?.location||'';
+      }
+    }
+
+    // 2. Calculate freight
+    let freight=null;
+    let miles=null;
+
+    // Get miles from cache or API
+    if(bestMillOrigin&&dest){
+      miles=getLaneMiles(bestMillOrigin,dest);
+      if(!miles){
+        // Try to lookup via API
+        try{
+          await lookupMileageWithAPI([{origin:bestMillOrigin,dest:dest}]);
+          miles=getLaneMiles(bestMillOrigin,dest);
+        }catch(e){console.warn('Mileage lookup failed:',e);}
+      }
+    }
+
+    if(miles){
+      const isMSR=item.product?.toUpperCase().includes('MSR');
+      freight=calcFreightPerMBF(miles,bestMillOrigin,isMSR);
+    }
+
+    // 3. Calculate landed cost
+    const landed=bestMillCost&&freight?Math.round(bestMillCost+freight):null;
+
+    // 4. Update item
+    item.bestMillCost=bestMillCost;
+    item.bestMill=bestMill;
+    item.bestMillOrigin=bestMillOrigin;
+    item.bestMillRegion=bestMillRegion;
+    item.freight=freight;
+    item.landed=landed;
+    item.miles=miles;
+  }
+
+  save('quoteItems',S.quoteItems);
+  showToast('Costs loaded!','positive');
+  render();
+}
+
+// Update sell delivered price for an item
+function updateQuoteSellDlvd(idx,value){
+  if(S.quoteItems[idx]){
+    S.quoteItems[idx].sellDlvd=value||null;
+    save('quoteItems',S.quoteItems);
+    render();
+  }
+}
+
+// Apply margin to all items that have landed costs
+function applyAllMargin(){
+  const marginInput=document.getElementById('qb-margin-input');
+  const margin=parseFloat(marginInput?.value)||0;
+  if(!margin){
+    showToast('Enter a margin amount (e.g. 25)','warn');
+    return;
+  }
+
+  let updated=0;
+  S.quoteItems.forEach(item=>{
+    if(item.landed){
+      item.sellDlvd=Math.round(item.landed+margin);
+      updated++;
+    }
+  });
+
+  if(updated){
+    save('quoteItems',S.quoteItems);
+    showToast(`Applied $${margin} margin to ${updated} items`,'positive');
+    render();
+  }else{
+    showToast('No items with landed costs to update','warn');
+  }
+}
+
+// Copy the quick quote to clipboard
+function copyQuickQuote(){
+  const items=S.quoteItems.filter(i=>i.sellDlvd);
+  if(!items.length){
+    showToast('No priced items to copy','warn');
+    return;
+  }
+
+  const customerSelect=document.getElementById('qb-customer-select');
+  const customerName=customerSelect?.value||'Customer';
+  const customDest=document.getElementById('qb-custom-dest')?.value?.trim();
+  const dest=customDest||'';
+
+  let text=`Quote for ${customerName}${dest?' - '+dest:''}\n`;
+  text+=`${new Date().toLocaleDateString()}\n\n`;
+
+  items.forEach(item=>{
+    text+=`${item.product}: $${item.sellDlvd} delivered\n`;
+  });
+
+  text+=`\nAll prices per MBF, delivered.\n`;
+
+  navigator.clipboard.writeText(text).then(()=>{
+    showToast('Quote copied!','positive');
+  });
+}
+
+// ============================================================
+// LEGACY FUNCTIONS (kept for compatibility)
+// ============================================================
+
 function setQuoteMode(mode){
   S.quoteMode=mode;
   render();
@@ -174,6 +369,21 @@ function loadFromInventory(){
 }
 
 async function loadFromMillQuotes(){
+  const latestRL=S.rl.length?S.rl[S.rl.length-1]:null;
+
+  // Helper to suggest FOB price based on RL spread
+  function suggestFOB(cost,product,length,region){
+    if(!latestRL)return{fob:Math.round(cost+25),margin:25};
+    const parsed=parseProductString(product)||{base:product,length:length};
+    const rlPrice=getRLPrice(latestRL,parsed.base,parsed.length||length,region);
+    if(rlPrice){
+      const spread=rlPrice-cost;
+      const margin=spread>0?Math.max(20,Math.round(spread*0.3)):25;
+      return{fob:Math.round(cost+margin),margin};
+    }
+    return{fob:Math.round(cost+25),margin:25};
+  }
+
   // Try Mill Intel DB first (has richer data with city/location)
   let loaded=false;
   if(typeof miLoadLatestQuotes==='function'){
@@ -193,16 +403,23 @@ async function loadFromMillQuotes(){
           // Build origin as "City, ST" for accurate mileage geocoding
           const qOrigin=q.city&&q.city.includes(',')?q.city:q.city&&q.state?q.city+', '+q.state:q.city||'';
           const origin=millLocations[q.mill_name]||qOrigin||q.mill_name;
-          const exists=S.quoteItems.find(i=>i.product===q.product&&i.origin===origin);
+          const productLabel=formatProductLabel(q.product,q.length||'RL');
+          const exists=S.quoteItems.find(i=>i.product===productLabel&&i.origin===origin);
           if(exists)return;
+
+          // Determine region for RL lookup
+          const state=extractState(origin);
+          const region=state&&typeof MI_STATE_REGIONS!=='undefined'?MI_STATE_REGIONS[state]||'central':'central';
+          const{fob,margin}=suggestFOB(q.price,q.product,q.length,region);
+
           S.quoteItems.push({
             id:genId(),
-            product:formatProductLabel(q.product,q.length||'RL'),
+            product:productLabel,
             origin:origin,
             tls:q.tls||1,
             cost:q.price,
-            fob:q.price,
-            marginAdj:0,
+            fob:fob,
+            marginAdj:margin,
             isShort:false,
             selected:true,
             shipWeek:q.ship_window||'',
@@ -214,7 +431,7 @@ async function loadFromMillQuotes(){
           save('quoteItems',S.quoteItems);
           saveCurrentProfileSelections();
           render();
-          showToast(`Loaded ${added} items from Mill Intel DB`,'positive');
+          showToast(`Loaded ${added} items with suggested margins`,'positive');
         }else{
           showToast('All mill quote products already in quote items','info');
         }
@@ -235,16 +452,23 @@ async function loadFromMillQuotes(){
       let origin='';
       const mill=S.mills.find(m=>m.name===q.mill);
       if(mill&&mill.location)origin=mill.location;
-      const exists=S.quoteItems.find(i=>i.product===q.product&&i.origin===origin);
+      const productLabel=formatProductLabel(q.product,q.length||'RL');
+      const exists=S.quoteItems.find(i=>i.product===productLabel&&i.origin===origin);
       if(exists)return;
+
+      // Determine region for RL lookup
+      const state=extractState(origin||q.mill);
+      const region=state&&typeof MI_STATE_REGIONS!=='undefined'?MI_STATE_REGIONS[state]||'central':'central';
+      const{fob,margin}=suggestFOB(q.price,q.product,q.length,region);
+
       S.quoteItems.push({
         id:genId(),
-        product:formatProductLabel(q.product,q.length||'RL'),
+        product:productLabel,
         origin:origin||q.mill,
         tls:q.tls||1,
         cost:q.price,
-        fob:q.price,
-        marginAdj:0,
+        fob:fob,
+        marginAdj:margin,
         isShort:false,
         selected:true,
         shipWeek:q.shipWindow||'',
@@ -256,11 +480,118 @@ async function loadFromMillQuotes(){
       save('quoteItems',S.quoteItems);
       saveCurrentProfileSelections();
       render();
-      showToast(`Loaded ${added} items from mill quotes`,'positive');
+      showToast(`Loaded ${added} items with suggested margins`,'positive');
     }else{
       showToast('All mill quote products already in quote items','info');
     }
   }
+}
+
+// Refresh pricing for selected items from Mill Intel or local mill quotes
+// Also suggests FOB sell price based on RL spreads
+async function refreshPricingForSelected(){
+  const selected=S.quoteItems.filter(i=>i.selected!==false);
+  if(!selected.length){
+    showToast('No items selected to refresh','warn');
+    return;
+  }
+
+  let updated=0;
+  const latestRL=S.rl.length?S.rl[S.rl.length-1]:null;
+
+  for(const item of selected){
+    // Parse product to get base (e.g., "2x4#2") and length (e.g., "16")
+    const parsed=parseProductString(item.product);
+    if(!parsed.base)continue;
+
+    // Determine region from origin
+    let region='central';
+    if(item.origin){
+      const state=extractState(item.origin);
+      if(state&&typeof MI_STATE_REGIONS!=='undefined'){
+        region=MI_STATE_REGIONS[state]||'central';
+      }
+    }
+
+    // Try Mill Intel first
+    let bestPrice=null;
+    let priceSource='';
+
+    if(typeof miLoadLatestQuotes==='function'){
+      try{
+        const quotes=await miLoadLatestQuotes({product:parsed.base});
+        // Filter by length if specified
+        const filtered=quotes.filter(q=>{
+          if(!parsed.length||parsed.length==='RL')return true;
+          return !q.length||q.length==='RL'||normalizeLength(q.length)===parsed.length;
+        });
+        if(filtered.length){
+          // Find best (cheapest) price, prefer matching origin
+          const matchOrigin=filtered.find(q=>
+            q.city&&item.origin&&item.origin.toLowerCase().includes(q.city.toLowerCase())
+          );
+          const best=matchOrigin||filtered.reduce((a,b)=>a.price<b.price?a:b);
+          bestPrice=best.price;
+          priceSource='MI';
+        }
+      }catch(e){console.warn('MI lookup failed:',e);}
+    }
+
+    // Fallback to local mill quotes
+    if(bestPrice===null&&typeof getBestPrice==='function'){
+      const local=getBestPrice(parsed.base);
+      if(local){
+        bestPrice=local.price;
+        priceSource='Local';
+      }
+    }
+
+    if(bestPrice!==null){
+      const oldCost=item.cost;
+      item.cost=bestPrice;
+      item.quoteDate=today();
+
+      // Suggest FOB sell price using RL spread
+      let suggestedFOB=bestPrice;
+      if(latestRL){
+        const rlPrice=getRLPrice(latestRL,parsed.base,parsed.length,region);
+        if(rlPrice){
+          // Calculate typical spread: RL - mill cost, then add target margin
+          // If mill cost is below RL, use (RL - cost) as base margin
+          // Add a small buffer (e.g., $5-10) for profit
+          const spread=rlPrice-bestPrice;
+          const targetMargin=spread>0?Math.max(20,spread*0.3):25; // At least $20 or 30% of spread
+          suggestedFOB=Math.round(bestPrice+targetMargin);
+        }else{
+          // No RL data, default margin
+          suggestedFOB=Math.round(bestPrice+25);
+        }
+      }else{
+        suggestedFOB=Math.round(bestPrice+25);
+      }
+
+      item.fob=suggestedFOB;
+      item.marginAdj=suggestedFOB-bestPrice;
+      updated++;
+    }
+  }
+
+  if(updated){
+    save('quoteItems',S.quoteItems);
+    saveCurrentProfileSelections();
+    render();
+    showToast(`Refreshed pricing for ${updated} items with suggested margins`,'positive');
+  }else{
+    showToast('No pricing found for selected products','warn');
+  }
+}
+
+// Get mill quote key for deduplication
+function getMillQuoteKey(q){
+  const prod=normalizeProduct(q.product||'');
+  const mill=(q.mill||q.mill_name||'').toLowerCase().trim();
+  const len=normalizeLength(q.length);
+  return `${mill}|${prod}|${len}`;
 }
 
 function addLane(){

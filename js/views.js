@@ -1395,22 +1395,12 @@ function render(){
     }
 
     const latestRL=S.rl.length?S.rl[S.rl.length-1]:null;
-    const mills=myMills().length?myMills():MILL_COMPANIES.map(c=>({name:c,location:getMillLocations(c).map(l=>l.label).join(', ')}));
-    const defaultOrigins=['Warren, AR','Gurdon, AR','Camden, AR','Monticello, AR','Clarendon, NC','Huttig, AR','DeQuincy, LA'];
-    const origins=[...new Set([...defaultOrigins,...mills.map(m=>m.location||m.city||'').filter(Boolean)])];
-
-    // Get customers for current profile (filtered to current trader)
-    const currentProfile=S.quoteProfile||'default';
-    const profiles=S.quoteProfiles||{default:{name:'Default',customers:[]}};
-    const profileCustomerIds=profiles[currentProfile]?.customers||[];
     const customers=myCustomers().filter(c=>c.type!=='mill');
-
-    // Calculate stats
     const items=S.quoteItems||[];
-    const selectedItems=items.filter(i=>i.selected!==false);
-    const totalTLs=selectedItems.reduce((s,i)=>s+(i.tls||0),0);
-    // Determine current destination for landed cost calc
-    const _qeDest=S.specificCity||S.singleQuoteCustomer&&(()=>{const c=customers.find(x=>x.name===S.singleQuoteCustomer);return c?.locations?.[0]||c?.destination||'';})() ||'';
+
+    // Get selected customer destination
+    const selectedCustomer=S.qbCustomer?customers.find(c=>c.name===S.qbCustomer):null;
+    const customerDest=selectedCustomer?.locations?.[0]||selectedCustomer?.destination||'';
 
     c.innerHTML=`
       <div style="display:flex;gap:0;margin-bottom:16px">
@@ -1418,236 +1408,180 @@ function render(){
         <button class="btn ${_qeTab==='build'?'btn-primary':'btn-default'}" style="border-radius:0 var(--radius) var(--radius) 0" onclick="S.quoteTab='build';render()">📋 BUILD${items.length?' <span style=\"background:var(--accent);color:var(--bg);border-radius:8px;padding:1px 6px;font-size:9px;margin-left:4px\">'+items.length+'</span>':''}</button>
       </div>
       ${S.trader==='Admin'?`<div style="margin-bottom:12px;padding:8px 12px;background:rgba(232,115,74,0.1);border:1px solid #e8734a;border-radius:4px;font-size:11px;color:#e8734a">🔑 <strong>Admin View</strong> — This is the Admin quote engine. Each trader has their own separate quote items and profiles.</div>`:''}
-      <!-- Profile Selector -->
-      <div class="card" style="margin-bottom:12px;padding:10px">
-        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
-          <span style="font-weight:600;color:var(--accent)">📁 Profile:</span>
-          <select id="quote-profile-select" onchange="switchQuoteProfile(this.value)" style="padding:6px 10px;min-width:150px">
-            ${Object.entries(profiles).map(([id,p])=>`<option value="${id}" ${id===currentProfile?'selected':''}>${p.name}</option>`).join('')}
-          </select>
-          <button class="btn btn-default btn-sm" onclick="showNewProfileModal()">+ New Profile</button>
-          <button class="btn btn-default btn-sm" onclick="editCurrentProfile()">✏️ Edit</button>
-          ${currentProfile!=='default'?'<button class="btn btn-default btn-sm" onclick="deleteCurrentProfile()" style="color:var(--negative)">🗑️</button>':''}
-          <div style="flex:1"></div>
-          <span style="font-size:10px;color:var(--muted)">${profiles[currentProfile]?.items?.length||items.length} products • ${profileCustomerIds.length||customers.filter(c=>c.quoteSelected).length} customers</span>
-        </div>
-      </div>
-      
-      <div class="quote-grid">
-        <div>
-          <div class="quote-toolbar">
-            <span style="font-weight:600;color:var(--accent)">📋 Quote Builder</span>
-            <div style="flex:1"></div>
-            <button class="btn btn-primary btn-sm" onclick="S.quoteTab='source';render()" title="Find best sources from Mill Intel">💡 Smart Source</button>
-            <button class="btn btn-warn btn-sm" onclick="showQuickEntryModal()" title="Spreadsheet-style rapid entry">Quick Entry</button>
-            <button class="btn btn-success btn-sm" onclick="addQuoteItem(false)">+ Add</button>
-            <button class="btn btn-default btn-sm" onclick="loadFromMillQuotes()" title="Load current mill offers from Mill Intel DB">🏭 Mill Quotes</button>
-            <button class="btn btn-default btn-sm" onclick="clearQuoteItems()">Clear</button>
-          </div>
-          
-          <div class="card">
-            <div class="quote-stats">
-              <div class="quote-stat"><span class="quote-stat-val">${selectedItems.length}</span><span class="quote-stat-lbl">Items</span></div>
-              <div class="quote-stat"><span class="quote-stat-val">${totalTLs}</span><span class="quote-stat-lbl">TLs</span></div>
-              <div class="quote-stat"><span class="quote-stat-val">${S.lanes.length}</span><span class="quote-stat-lbl">Lanes</span></div>
-              <div style="flex:1"></div>
-              <div style="display:flex;align-items:center;gap:6px;padding:4px 8px;background:var(--bg);border-radius:4px">
-                <span style="font-size:10px;color:var(--muted)">Adjust All FOB:</span>
-                <input type="number" id="profit-adder" placeholder="±" style="width:55px;padding:4px;font-size:11px;text-align:center" title="Enter amount to add/subtract from all FOB prices">
-                <button class="btn btn-success btn-sm" onclick="applyProfitAdder()" title="Apply adjustment to all selected items" style="padding:4px 8px;font-size:10px">Apply</button>
-              </div>
-            </div>
-            <div style="overflow-x:auto;max-height:400px;overflow-y:auto">
-              <table class="quote-table">
-                <thead><tr>
-                  <th class="col-cb"><input type="checkbox" ${selectedItems.length===items.length?'checked':''} onchange="toggleAllQuoteItems(this.checked)"></th>
-                  <th class="col-prod">Product</th>
-                  <th class="col-origin">Origin</th>
-                  <th style="width:55px">Ship Wk</th>
-                  <th style="width:45px">TLs</th>
-                  <th style="width:70px" title="Mill FOB cost">Cost</th>
-                  <th style="width:55px" title="Margin adjustment $/MBF">±Adj</th>
-                  <th style="width:70px" title="Cost + Margin">FOB Sell</th>
-                  <th style="width:70px" title="FOB Sell + freight to destination">Landed</th>
-                  <th class="col-act"></th>
-                </tr></thead>
-                <tbody id="quote-items-body">
-                  ${items.length?items.map((item,idx)=>{
-                    const isMSR=item.product?.toUpperCase().includes('MSR')||item.product?.toUpperCase().includes('2400');
-                    const destMiles=_qeDest?getLaneMiles(item.origin,_qeDest):null;
-                    const frt=destMiles?calcFreightPerMBF(destMiles,item.origin,isMSR):null;
-                    const landed=frt!=null&&item.fob?(item.fob+frt):null;
-                    const frtWarning=frt!=null&&frt>150;
-                    const ageLabel=item.quoteDate&&typeof miAgeLabel==='function'?miAgeLabel(item.quoteDate):'';
-                    const showAge=ageLabel&&ageLabel!=='Today';
-                    return`<tr data-idx="${idx}">
-                      <td><input type="checkbox" ${item.selected!==false?'checked':''} onchange="toggleQuoteItem(${idx},this.checked)"></td>
-                      <td><input type="text" value="${item.product||''}" onchange="updateQuoteItem(${idx},'product',this.value)" placeholder="2x4 16' #2">${showAge?`<div style="font-size:8px;color:${typeof miAgeColor==='function'?miAgeColor(item.quoteDate):'var(--warn)'}">${ageLabel}</div>`:''}</td>
-                      <td><input type="text" value="${item.origin||''}" onchange="updateQuoteItem(${idx},'origin',this.value)" placeholder="City, ST" list="origin-list"></td>
-                      <td><input type="text" value="${item.shipWeek||''}" onchange="updateQuoteItem(${idx},'shipWeek',this.value)" placeholder="W1" style="width:45px;text-align:center"></td>
-                      <td><input type="number" value="${item.tls||1}" onchange="updateQuoteItem(${idx},'tls',+this.value)" min="1" style="width:40px;text-align:center"></td>
-                      <td style="text-align:right;font-size:10px"><span style="color:var(--muted)">${item.cost?'$'+item.cost:'—'}</span></td>
-                      <td><input type="number" value="${item.marginAdj||0}" onchange="updateQuoteMargin(${idx},this.value)" placeholder="0" style="width:45px;text-align:center"></td>
-                      <td style="text-align:right;font-size:10px;font-weight:600"><span style="color:var(--accent)">${item.fob?'$'+item.fob:'—'}</span></td>
-                      <td style="text-align:right;font-size:10px;font-weight:600" title="${frt!=null?'Freight: $'+frt+'/MBF ('+destMiles+' mi)':'No destination selected'}">${landed!=null?`<span style="color:${frtWarning?'var(--negative)':'var(--positive)'}">${frtWarning?'⚠️ ':''}$${landed}</span>`:'<span style="color:var(--muted)">—</span>'}</td>
-                      <td><button class="quote-del-btn" onclick="removeQuoteItem(${idx})">×</button></td>
-                    </tr>`;
-                  }).join(''):'<tr><td colspan="10" class="empty-state">No items yet. Click "Smart Source" or "+ Add" to start.</td></tr>'}
-                </tbody>
-              </table>
-              <datalist id="origin-list">
-                ${[...new Set([...origins,...S.lanes.map(l=>l.origin)])].filter(Boolean).sort().map(o=>`<option value="${o}">`).join('')}
-              </datalist>
-          </div>
-        </div>
-        
-        <div>
-          <!-- Freight Panel with Base + State Rate Model -->
-          <div class="freight-panel">
-            <div class="freight-title">🚚 Freight Calculator</div>
-            
-            <!-- Base and Floor -->
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">
-              <div>
-                <label style="font-size:9px;color:var(--muted);display:block;margin-bottom:2px">Base $/Load</label>
-                <input type="number" value="${S.freightBase||450}" step="25" style="width:100%;padding:4px;font-size:11px" onchange="S.freightBase=+this.value;save('freightBase',S.freightBase);render()">
-              </div>
-              <div>
-                <label style="font-size:9px;color:var(--muted);display:block;margin-bottom:2px">Floor $/MBF</label>
-                <input type="number" value="${S.shortHaulFloor||0}" step="5" style="width:100%;padding:4px;font-size:11px" onchange="S.shortHaulFloor=+this.value;save('shortHaulFloor',S.shortHaulFloor);render()">
-              </div>
-            </div>
-            
-            <!-- State Rates ($/mi by origin) -->
-            <div style="margin-bottom:10px">
-              <label style="font-size:9px;color:var(--muted);display:block;margin-bottom:4px">State $/mi Rates (by origin)</label>
-              <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px">
-                ${['AR','LA','TX','MS','AL','FL','GA','SC','NC'].map(st=>`<div style="display:flex;align-items:center;gap:4px">
-                  <span style="font-size:10px;color:var(--muted);width:22px">${st}</span>
-                  <input type="number" value="${S.stateRates?.[st]||''}" step="0.05" placeholder="0" style="width:50px;padding:4px;font-size:10px" onchange="updateStateRate('${st}',+this.value||0)">
-                </div>`).join('')}
-              </div>
-            </div>
-            
-            <div style="font-size:9px;color:var(--muted);margin-bottom:8px;padding:6px;background:var(--bg);border-radius:4px">
-              <strong>Formula:</strong> (Base + Miles × StateRate) ÷ MBF/TL<br>
-              <span style="color:var(--accent)">AR 150mi:</span> ($${S.freightBase||450} + 150 × $${S.stateRates?.AR||0}) ÷ ${S.quoteMBFperTL||23} = <strong>$${Math.round(((S.freightBase||450) + 150*(S.stateRates?.AR||0))/(S.quoteMBFperTL||23))}/MBF</strong>
-              &nbsp;|&nbsp;
-              <span style="color:var(--warn)">AR 400mi:</span> <strong>$${Math.round(((S.freightBase||450) + 400*(S.stateRates?.AR||0))/(S.quoteMBFperTL||23))}/MBF</strong>
-            </div>
-            
-            <div style="display:flex;gap:12px;align-items:center;padding-top:8px;border-top:1px solid var(--border);flex-wrap:wrap">
-              <div style="display:flex;align-items:center;gap:6px">
-                <label class="freight-lbl" style="margin:0">Std MBF/TL:</label>
-                <input type="number" value="${S.quoteMBFperTL||23}" style="width:45px;padding:4px;font-size:10px" onchange="S.quoteMBFperTL=+this.value;render()">
-              </div>
-              <div style="display:flex;align-items:center;gap:6px">
-                <label class="freight-lbl" style="margin:0;color:var(--warn)">MSR:</label>
-                <span style="font-size:10px;color:var(--warn)">20 MBF/TL</span>
-              </div>
-            </div>
 
-            ${S.lanes.length?`<div style="margin-top:10px;border-top:1px solid var(--border);padding-top:8px">
-              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-                <label style="font-size:9px;color:var(--muted)">Cached Lanes (${S.lanes.length})</label>
-                <button class="btn btn-default" style="font-size:9px;padding:2px 8px" onclick="S.lanes=[];save('lanes',S.lanes);render();showToast('Lanes cleared — will re-lookup on next quote','info')">Clear All</button>
-              </div>
-              <div style="max-height:120px;overflow-y:auto;font-size:9px">
-                <table style="width:100%;border-collapse:collapse"><thead><tr style="color:var(--muted)"><th style="text-align:left;padding:2px 4px">Origin</th><th style="text-align:left;padding:2px 4px">Dest</th><th style="text-align:right;padding:2px 4px">Miles</th><th></th></tr></thead><tbody>
-                ${S.lanes.map((l,i)=>{const warn=l.miles>1500;return`<tr style="border-top:1px solid var(--border)"><td style="padding:2px 4px">${l.origin}</td><td style="padding:2px 4px">${l.dest}</td><td style="text-align:right;padding:2px 4px;${warn?'color:var(--warn)':''}" title="${warn?'Long haul - verify mileage is correct':''}">${warn?'⚠️ ':''}${l.miles}</td><td style="padding:2px"><button onclick="S.lanes.splice(${i},1);save('lanes',S.lanes);render()" style="background:none;border:none;color:var(--negative);cursor:pointer;font-size:9px">×</button></td></tr>`;}).join('')}
-                </tbody></table>
-              </div>
-            </div>`:''}
-          </div>
-          
-          <!-- RL Reference -->
-          ${latestRL?`<div style="padding:10px;background:var(--card);border:1px solid var(--border);border-radius:6px;margin-bottom:12px">
-            <div style="font-size:10px;color:var(--muted);margin-bottom:6px">📰 RL ${latestRL.date}</div>
-            <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:4px;font-size:10px">
-              <div><span style="color:var(--accent)">W:</span> $${latestRL.west?.['2x4#2']||'—'}</div>
-              <div><span style="color:var(--warn)">C:</span> $${latestRL.central?.['2x4#2']||'—'}</div>
-              <div><span style="color:var(--info)">E:</span> $${latestRL.east?.['2x4#2']||'—'}</div>
-            </div>
-          </div>`:''}
-          
-          <!-- Specific City Quote -->
-          <div class="card" style="margin-bottom:14px">
-            <div class="card-header"><span class="card-title">📍 Quote to City</span></div>
-            <div style="padding:10px">
-              <div style="display:flex;gap:8px;margin-bottom:8px">
-                <input type="text" id="specific-city" placeholder="City, ST" style="flex:1;padding:8px;font-size:12px" value="${S.specificCity||''}">
-                <button class="btn btn-primary btn-sm" onclick="generateSpecificCityQuote()">Generate</button>
-              </div>
-              <div style="font-size:9px;color:var(--muted)">Enter any city to get a one-off quote</div>
-            </div>
-          </div>
-          
-          <!-- Recipients (Bulk) -->
-          <div class="card" style="margin-bottom:14px">
-            <div class="card-header"><span class="card-title">📋 Bulk Quote</span><span style="font-size:9px;color:var(--accent)">${customers.filter(c=>c.quoteSelected).length} selected</span></div>
-            <div style="padding:0">
-              <div class="customer-list">
-                ${customers.length?customers.map((cust,i)=>{
-                  const locs=cust.locations||[cust.destination].filter(Boolean);
-                  const locCount=locs.length;
-                  const locsDisplay=locs.slice(0,2).map(l=>{
-                    const lane=S.lanes.find(ln=>ln.dest.toLowerCase().includes(l.split(',')[0].toLowerCase()));
-                    return`<span style="display:inline-flex;align-items:center;gap:4px">📍 ${l}${lane?' <span style="color:var(--muted);font-size:9px">('+lane.miles+' mi)</span>':''}</span>`;
-                  }).join('<br>');
-                  const moreCount=locCount>2?locCount-2:0;
-                  return`<div class="customer-item" style="align-items:flex-start">
-                    <input type="checkbox" ${cust.quoteSelected?'checked':''} onchange="toggleQuoteCustomer(${i},this.checked)" style="margin-top:4px">
-                    <div class="customer-info" style="flex:1">
-                      <div class="customer-name">${cust.name}${locCount>1?' <span style="background:var(--info);color:var(--bg);padding:1px 5px;border-radius:8px;font-size:8px;margin-left:4px">'+locCount+' locs</span>':''}</div>
-                      <div class="customer-dest" style="font-size:10px;line-height:1.5">${locsDisplay}${moreCount?' <span style="color:var(--muted)">+'+moreCount+' more</span>':''}</div>
-                    </div>
-                  </div>`;
-                }).join(''):'<div class="empty-state">No customers in CRM</div>'}
-              </div>
-            </div>
-            <div style="padding:8px 10px;border-top:1px solid var(--border);display:flex;gap:8px">
-              <button class="btn btn-default btn-sm" onclick="uncheckAllQuoteCustomers()">Uncheck All</button>
-              <button class="btn btn-default btn-sm" onclick="checkAllQuoteCustomers()">Check All</button>
-            </div>
-          </div>
-          
-          <!-- Market Blurb -->
+      <div class="quote-grid">
+        <!-- LEFT COLUMN: Products + Results -->
+        <div>
+          <!-- Step 1: Enter Products -->
           <div class="card" style="margin-bottom:12px">
-            <div class="card-header"><span class="card-title">📝 Market Blurb</span><span style="font-size:9px;color:var(--muted)">Optional message above quote</span></div>
-            <div style="padding:10px">
-              <textarea id="market-blurb" placeholder="Add market commentary, notes, or greeting here..." style="width:100%;height:60px;padding:8px;font-size:11px;resize:vertical;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text)" onchange="saveMarketBlurb()">${S.marketBlurb||''}</textarea>
-            </div>
-          </div>
-          
-          <!-- Generate Actions -->
-          <div class="card" style="margin-bottom:12px">
-            <div style="padding:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-              <button class="btn btn-success" onclick="generateAllQuotes()" style="flex:1">📋 Copy All (${customers.filter(c=>c.quoteSelected).reduce((sum,c)=>{const locs=c.locations||[c.destination].filter(Boolean);return sum+(locs.length||1)},0)} quotes)</button>
-            </div>
-          </div>
-          
-          <!-- Single Quote Preview -->
-          <div class="card">
-            <div class="card-header"><span class="card-title">Single Quote</span>
+            <div class="card-header">
+              <span class="card-title">1️⃣ Enter Products</span>
               <div style="display:flex;gap:6px">
-                <button class="btn btn-default btn-sm" onclick="copyQuoteOutput()">📋 Copy</button>
-                <button class="btn btn-primary btn-sm" onclick="createSingleDraft()">✉️ Draft</button>
+                <button class="btn btn-default btn-sm" onclick="loadFromMillQuotes()" title="Load from Mill Intel">🏭 Load Mill Quotes</button>
+                <button class="btn btn-default btn-sm" onclick="clearQuoteItems()">Clear</button>
               </div>
             </div>
-            <div style="padding:10px;border-bottom:1px solid var(--border)">
-              <select id="single-quote-customer" onchange="S.singleQuoteCustomer=this.value;render()" style="width:100%;padding:8px;font-size:12px">
+            <div style="padding:12px">
+              <textarea id="qb-products-input" placeholder="Enter products (one per line):&#10;2x4#2 16'&#10;2x6#2 RL&#10;2x8#1 20'" style="width:100%;height:100px;padding:10px;font-size:12px;font-family:var(--mono);border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);resize:vertical">${items.map(i=>i.product).join('\n')}</textarea>
+              <div style="margin-top:8px;display:flex;gap:8px;align-items:center">
+                <button class="btn btn-primary" onclick="parseQuoteProducts()">Parse Products</button>
+                <span style="font-size:10px;color:var(--muted)">${items.length} products loaded</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Step 2: Select Customer -->
+          <div class="card" style="margin-bottom:12px">
+            <div class="card-header">
+              <span class="card-title">2️⃣ Select Customer</span>
+              ${customerDest?`<span style="font-size:10px;color:var(--muted)">📍 ${customerDest}</span>`:''}
+            </div>
+            <div style="padding:12px">
+              <select id="qb-customer-select" onchange="S.qbCustomer=this.value;save('qbCustomer',S.qbCustomer);render()" style="width:100%;padding:10px;font-size:13px">
                 <option value="">Select customer...</option>
                 ${customers.map(c=>{
-                  const locs=c.locations||[c.destination].filter(Boolean);
-                  return`<option value="${c.name}" ${S.singleQuoteCustomer===c.name?'selected':''}>${c.name} (${locs.length} location${locs.length!==1?'s':''})</option>`;
+                  const dest=c.locations?.[0]||c.destination||'';
+                  return`<option value="${c.name}" ${S.qbCustomer===c.name?'selected':''}>${c.name}${dest?' — '+dest:''}</option>`;
                 }).join('')}
               </select>
-            </div>
-            <div id="quote-status" style="padding:4px 10px;font-size:10px;color:var(--warn);min-height:16px"></div>
-            <div style="padding:10px;padding-top:0">
-              <div class="output-preview" id="quote-output">${generateMultiLocationPreview(selectedItems,S.singleQuoteCustomer?customers.find(c=>c.name===S.singleQuoteCustomer):customers[0])}</div>
+              <div style="margin-top:8px">
+                <input type="text" id="qb-custom-dest" placeholder="Or enter city: Dallas, TX" style="width:100%;padding:8px;font-size:12px" value="${S.qbCustomDest||''}" onchange="S.qbCustomDest=this.value;save('qbCustomDest',S.qbCustomDest)">
+              </div>
             </div>
           </div>
+
+          <!-- Step 3: Show Best Costs -->
+          <div class="card" style="margin-bottom:12px">
+            <div class="card-header">
+              <span class="card-title">3️⃣ Get Pricing</span>
+              <button class="btn btn-success" onclick="showBestCosts()">💰 Show Best Costs</button>
+            </div>
+          </div>
+
+          <!-- Results Table -->
+          <div class="card">
+            <div class="card-header">
+              <span class="card-title">📊 Quote Builder</span>
+              <span style="font-size:10px;color:var(--muted)">${items.filter(i=>i.sellDlvd).length} priced</span>
+            </div>
+            <div style="overflow-x:auto">
+              <table class="quote-table" style="font-size:11px">
+                <thead><tr>
+                  <th style="min-width:100px">Product</th>
+                  <th style="width:70px;text-align:right" title="Random Lengths Print">RL Print</th>
+                  <th style="width:80px;text-align:right" title="Best mill FOB cost">Mill Cost</th>
+                  <th style="width:70px;text-align:right" title="Freight to customer">Freight</th>
+                  <th style="width:80px;text-align:right" title="Mill Cost + Freight">Landed</th>
+                  <th style="width:90px;text-align:center" title="Your delivered sell price">Sell Dlvd</th>
+                  <th style="width:70px;text-align:right" title="Sell - Landed">Margin</th>
+                  <th style="width:30px"></th>
+                </tr></thead>
+                <tbody>
+                  ${items.length?items.map((item,idx)=>{
+                    const parsed=typeof parseProductString==='function'?parseProductString(item.product):{base:item.product,length:null};
+                    const region=item.bestMillRegion||'central';
+                    const rlPrice=latestRL?getRLPrice(latestRL,parsed.base,parsed.length,region):null;
+                    const landed=item.landed||null;
+                    const margin=item.sellDlvd&&landed?(item.sellDlvd-landed):null;
+                    const marginColor=margin===null?'var(--muted)':margin>=25?'var(--positive)':margin>=0?'var(--warn)':'var(--negative)';
+                    return`<tr>
+                      <td style="font-weight:500">${item.product||'—'}</td>
+                      <td style="text-align:right;color:var(--muted)">${rlPrice?'$'+rlPrice:'—'}</td>
+                      <td style="text-align:right">${item.bestMillCost?`<span style="color:var(--positive)">$${item.bestMillCost}</span><div style="font-size:9px;color:var(--muted)">${item.bestMill||''}</div>`:'<span style="color:var(--muted)">—</span>'}</td>
+                      <td style="text-align:right;color:var(--muted)">${item.freight?'$'+item.freight:'—'}</td>
+                      <td style="text-align:right;font-weight:600">${landed?'$'+landed:'<span style="color:var(--muted)">—</span>'}</td>
+                      <td style="text-align:center"><input type="number" value="${item.sellDlvd||''}" placeholder="$" style="width:70px;padding:4px;text-align:center;font-weight:600" onchange="updateQuoteSellDlvd(${idx},+this.value)"></td>
+                      <td style="text-align:right;font-weight:600;color:${marginColor}">${margin!==null?'$'+margin:'—'}</td>
+                      <td><button class="quote-del-btn" onclick="removeQuoteItem(${idx})">×</button></td>
+                    </tr>`;
+                  }).join(''):`<tr><td colspan="8" class="empty-state">Enter products above and click "Show Best Costs"</td></tr>`}
+                </tbody>
+                ${items.length&&items.some(i=>i.sellDlvd)?`<tfoot style="border-top:2px solid var(--border)">
+                  <tr style="font-weight:600">
+                    <td>TOTALS</td>
+                    <td></td>
+                    <td></td>
+                    <td></td>
+                    <td></td>
+                    <td></td>
+                    <td style="text-align:right;color:${items.reduce((s,i)=>(i.sellDlvd&&i.landed)?s+(i.sellDlvd-i.landed):s,0)>=0?'var(--positive)':'var(--negative)'}">$${items.reduce((s,i)=>(i.sellDlvd&&i.landed)?s+(i.sellDlvd-i.landed):s,0)}/MBF avg</td>
+                    <td></td>
+                  </tr>
+                </tfoot>`:''}
+              </table>
+            </div>
+            ${items.some(i=>i.sellDlvd)?`<div style="padding:12px;border-top:1px solid var(--border);display:flex;gap:8px">
+              <button class="btn btn-primary" onclick="copyQuickQuote()">📋 Copy Quote</button>
+              <button class="btn btn-default" onclick="applyAllMargin()">Apply Margin to All</button>
+              <input type="number" id="qb-margin-input" placeholder="+$25" style="width:70px;padding:6px;text-align:center">
+            </div>`:''}
+          </div>
+        </div>
+
+        <!-- RIGHT COLUMN: Freight + Reference -->
+        <div>
+          <!-- Freight Settings (collapsed by default) -->
+          <details class="card" style="margin-bottom:12px" ${S.qbShowFreight?'open':''}>
+            <summary class="card-header" style="cursor:pointer" onclick="S.qbShowFreight=!S.qbShowFreight;save('qbShowFreight',S.qbShowFreight)">
+              <span class="card-title">🚚 Freight Settings</span>
+            </summary>
+            <div style="padding:12px">
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">
+                <div>
+                  <label style="font-size:9px;color:var(--muted);display:block;margin-bottom:2px">Base $/Load</label>
+                  <input type="number" value="${S.freightBase||300}" step="25" style="width:100%;padding:4px;font-size:11px" onchange="S.freightBase=+this.value;save('freightBase',S.freightBase)">
+                </div>
+                <div>
+                  <label style="font-size:9px;color:var(--muted);display:block;margin-bottom:2px">MBF/TL</label>
+                  <input type="number" value="${S.quoteMBFperTL||23}" style="width:100%;padding:4px;font-size:11px" onchange="S.quoteMBFperTL=+this.value;save('quoteMBFperTL',S.quoteMBFperTL)">
+                </div>
+              </div>
+              <div style="margin-bottom:8px">
+                <label style="font-size:9px;color:var(--muted);display:block;margin-bottom:4px">State $/mi Rates</label>
+                <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:4px">
+                  ${['AR','LA','TX','MS','AL','NC'].map(st=>`<div style="display:flex;align-items:center;gap:4px">
+                    <span style="font-size:9px;color:var(--muted);width:20px">${st}</span>
+                    <input type="number" value="${S.stateRates?.[st]||''}" step="0.05" placeholder="0" style="width:45px;padding:3px;font-size:10px" onchange="updateStateRate('${st}',+this.value||0)">
+                  </div>`).join('')}
+                </div>
+              </div>
+            </div>
+          </details>
+
+          <!-- RL Reference -->
+          ${latestRL?`<div class="card" style="margin-bottom:12px">
+            <div class="card-header"><span class="card-title">📰 RL Print ${latestRL.date}</span></div>
+            <div style="padding:12px">
+              <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;font-size:11px">
+                <div style="text-align:center;padding:8px;background:var(--bg);border-radius:4px">
+                  <div style="color:var(--accent);font-weight:700;font-size:14px">$${latestRL.west?.['2x4#2']||'—'}</div>
+                  <div style="font-size:9px;color:var(--muted)">West</div>
+                </div>
+                <div style="text-align:center;padding:8px;background:var(--bg);border-radius:4px">
+                  <div style="color:var(--warn);font-weight:700;font-size:14px">$${latestRL.central?.['2x4#2']||'—'}</div>
+                  <div style="font-size:9px;color:var(--muted)">Central</div>
+                </div>
+                <div style="text-align:center;padding:8px;background:var(--bg);border-radius:4px">
+                  <div style="color:var(--info);font-weight:700;font-size:14px">$${latestRL.east?.['2x4#2']||'—'}</div>
+                  <div style="font-size:9px;color:var(--muted)">East</div>
+                </div>
+              </div>
+            </div>
+          </div>`:'<div class="card" style="margin-bottom:12px;padding:12px;text-align:center;color:var(--muted);font-size:11px">No RL data loaded. Import from RL Data page.</div>'}
+
+          <!-- Cached Lanes -->
+          ${S.lanes.length?`<div class="card">
+            <div class="card-header">
+              <span class="card-title">📍 Cached Lanes (${S.lanes.length})</span>
+              <button class="btn btn-default btn-sm" onclick="S.lanes=[];save('lanes',S.lanes);render()">Clear</button>
+            </div>
+            <div style="max-height:200px;overflow-y:auto;padding:8px">
+              <table style="width:100%;font-size:10px;border-collapse:collapse">
+                ${S.lanes.slice(0,10).map(l=>`<tr style="border-bottom:1px solid var(--border)"><td style="padding:4px">${l.origin}</td><td style="padding:4px">→</td><td style="padding:4px">${l.dest}</td><td style="padding:4px;text-align:right;color:var(--accent)">${l.miles} mi</td></tr>`).join('')}
+                ${S.lanes.length>10?`<tr><td colspan="4" style="padding:4px;color:var(--muted);text-align:center">+${S.lanes.length-10} more</td></tr>`:''}
+              </table>
+            </div>
+          </div>`:''}
         </div>
       </div>`;
   }
@@ -2675,6 +2609,14 @@ function render(){
         </div>
         <div style="border-top:1px solid var(--border);padding-top:16px">
           <button class="btn btn-danger" onclick="clearAll()">🗑️ Clear All Data</button>
+        </div>
+      </div></div>
+
+      <div class="card"><div class="card-header"><span class="card-title">KEYBOARD SHORTCUTS</span></div><div class="card-body">
+        <div style="display:grid;grid-template-columns:auto 1fr;gap:8px 16px;font-size:11px">
+          <kbd style="background:var(--bg);padding:4px 8px;border-radius:2px;font-family:var(--mono)">Ctrl+K</kbd><span>Universal Search</span>
+          <kbd style="background:var(--bg);padding:4px 8px;border-radius:2px;font-family:var(--mono)">Esc</kbd><span>Close modals/panels</span>
+          <kbd style="background:var(--bg);padding:4px 8px;border-radius:2px;font-family:var(--mono)">Double-click</kbd><span>Inline edit table cells</span>
         </div>
       </div></div>`;
   }
