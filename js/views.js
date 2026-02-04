@@ -347,7 +347,7 @@ function render(){
       </div>`;
 
     _sections['info-row']=`
-      <div class="grid-3" style="margin-bottom:20px">
+      <div class="grid-2" style="margin-bottom:20px">
         <div class="card"><div class="card-header"><span class="card-title">POSITION vs RL</span><button class="card-expand-btn" onclick="expandCard(this)" title="Expand">&#x26F6;</button></div><div class="card-body">
           <div style="display:flex;justify-content:space-between;margin-bottom:12px"><span style="color:var(--muted)">Avg vs Market</span><span style="font-size:18px;font-weight:700;color:${a.avgVsRL<=0?'var(--positive)':'var(--negative)'}">${a.avgVsRL<=0?'&#9660;':'&#9650;'} ${fmt(Math.abs(a.avgVsRL))}</span></div>
           <div style="display:flex;justify-content:space-between"><span style="color:var(--muted)">Total Impact</span><span style="font-weight:600;color:${a.totVsRL<=0?'var(--positive)':'var(--negative)'}">${fmt(Math.abs(Math.round(a.totVsRL)))} ${a.totVsRL<=0?'saved':'over'}</span></div>
@@ -355,10 +355,6 @@ function render(){
         <div class="card"><div class="card-header"><span class="card-title">INVENTORY</span><button class="card-expand-btn" onclick="expandCard(this)" title="Expand">&#x26F6;</button></div><div class="card-body">
           <div style="display:flex;justify-content:space-between;margin-bottom:12px"><span style="color:var(--muted)">Open Volume</span><span style="font-size:18px;font-weight:700;color:${a.inv>0?'var(--warn)':'var(--text)'}">${fmtN(a.inv)} MBF</span></div>
           <div style="display:flex;justify-content:space-between"><span style="color:var(--muted)">Est. Value</span><span style="font-weight:600">${fmt(Math.round(a.inv*a.avgB))}</span></div>
-        </div></div>
-        <div class="card"><div class="card-header"><span class="card-title warn">FREIGHT</span><button class="card-expand-btn" onclick="expandCard(this)" title="Expand">&#x26F6;</button></div><div class="card-body">
-          <div style="display:flex;justify-content:space-between;margin-bottom:12px"><span style="color:var(--muted)">Avg per MBF</span><span style="font-size:18px;font-weight:700;color:var(--warn)">${fmt(Math.round(a.avgFr))}</span></div>
-          <div style="display:flex;justify-content:space-between"><span style="color:var(--muted)">Total Cost</span><span style="font-weight:600">${fmt(Math.round(a.avgFr*a.sVol))}</span></div>
         </div></div>
       </div>`;
 
