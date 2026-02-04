@@ -92,7 +92,9 @@ async function saveBuy(id){
   }
   
   const rawMill=document.getElementById('m-mill').value;
-  const mill=normalizeMillCompany(rawMill);// Store canonical company name
+  // First normalize to canonical company, then check CRM for existing match
+  const millCompany=normalizeMillCompany(rawMill);
+  const mill=typeof normalizeMillCRM==='function'?normalizeMillCRM(millCompany):millCompany;
   const origin=document.getElementById('m-origin').value;
   const orderNum=document.getElementById('m-orderNum').value;
 

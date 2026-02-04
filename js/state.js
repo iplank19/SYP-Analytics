@@ -429,6 +429,77 @@ function normalizeMillCompany(raw){
   return extractMillCompany(trimmed)
 }
 
+// Mill aliases for CRM deduplication (lowercase → canonical)
+const _MILL_CRM_ALIASES={
+  'binderholz':'Binderholz','binderholz timber llc':'Binderholz','binderholz timber':'Binderholz',
+  'canfor':'Canfor','canfor southern pine inc':'Canfor','canfor southern pine':'Canfor','canfor southern':'Canfor',
+  'gp':'GP','georgia pacific':'GP','georgia-pacific':'GP','georgia pacific llc':'GP',
+  'interfor':'Interfor','interfor pacific':'Interfor','interfor pacific inc':'Interfor','interfor pacific, inc.':'Interfor',
+  'potlatch':'PotlatchDeltic','potlatchdeltic':'PotlatchDeltic','potlatch - warren':'PotlatchDeltic','potlatchdeltic waldo':'PotlatchDeltic','potlatchdeltic - waldo':'PotlatchDeltic','potlatchdeltic - warren':'PotlatchDeltic','potlatchdeltic - ola':'PotlatchDeltic',
+  'rex lumber':'Rex Lumber','rex lumber bristol llc':'Rex Lumber','rex lumber bristol':'Rex Lumber',
+  'west fraser':'West Fraser','west fraser inc':'West Fraser','west fraser timber':'West Fraser',
+  'weyerhaeuser':'Weyerhaeuser','weyerhaeuser company':'Weyerhaeuser','weyerhaeuser nr company':'Weyerhaeuser',
+  'hunt forest':'Hunt Forest Products','hunt forest products':'Hunt Forest Products',
+  'anthony timberlands':'Anthony Timberlands','anthony timber':'Anthony Timberlands',
+  'big river forest':'Big River Forest Products','big river forest products':'Big River Forest Products',
+  'beasley forest':'Beasley Forest Products','beasley forest products':'Beasley Forest Products',
+  'ida forest':'Idaho Forest Group','idaho forest':'Idaho Forest Group','idaho forest group':'Idaho Forest Group',
+  'vicksburg forest':'Vicksburg Forest Products','vicksburg forest products':'Vicksburg Forest Products'
+};
+
+// Normalize mill name for CRM - matches existing mills to prevent duplicates
+function normalizeMillCRM(raw){
+  if(!raw)return raw
+  const trimmed=raw.trim()
+  if(!trimmed)return trimmed
+
+  // 1. Exact case-insensitive match against existing mills
+  const exactMatch=S.mills.find(m=>m.name&&m.name.toLowerCase()===trimmed.toLowerCase())
+  if(exactMatch)return exactMatch.name
+
+  // 2. Alias dictionary lookup
+  const lower=trimmed.toLowerCase().replace(/[_\-–—]+/g,' ').replace(/\s+/g,' ').trim()
+  const sortedAliases=Object.entries(_MILL_CRM_ALIASES).sort((a,b)=>b[0].length-a[0].length)
+  for(const[alias,canonical]of sortedAliases){
+    if(lower===alias||lower.startsWith(alias+' ')){
+      // Check if an existing mill maps to this same canonical form
+      const existingWithSameCanonical=S.mills.find(m=>{
+        if(!m.name)return false
+        const mLower=m.name.toLowerCase().replace(/[_\-–—]+/g,' ').replace(/\s+/g,' ').trim()
+        for(const[a2,can2]of sortedAliases){
+          if((mLower===a2||mLower.startsWith(a2+' '))&&can2===canonical)return true
+        }
+        return mLower===canonical.toLowerCase()
+      })
+      if(existingWithSameCanonical)return existingWithSameCanonical.name
+      return canonical
+    }
+  }
+
+  // 3. Fuzzy match: check existing mills with normalized company names
+  const company=extractMillCompany(trimmed)
+  if(company){
+    for(const m of S.mills){
+      if(!m.name)continue
+      const mCompany=extractMillCompany(m.name)
+      if(mCompany&&mCompany.toLowerCase()===company.toLowerCase())return m.name
+    }
+  }
+
+  // 4. Suffix-stripped matching
+  const stripped=lower.replace(/\b(inc\.?|llc\.?|co\.?|corp\.?|corporation|company|enterprises|ltd\.?|limited|lumber|timber|forest products)\s*\.?\s*$/i,'').trim()
+  if(stripped){
+    for(const m of S.mills){
+      if(!m.name)continue
+      const mStripped=m.name.toLowerCase().replace(/\b(inc\.?|llc\.?|co\.?|corp\.?|corporation|company|enterprises|ltd\.?|limited|lumber|timber|forest products)\s*\.?\s*$/i,'').trim()
+      if(stripped===mStripped)return m.name
+    }
+  }
+
+  // 5. No match — return trimmed original
+  return trimmed
+}
+
 // One-time migration: normalize existing entity names in trades and CRM
 function migrateEntityNames(){
   let changed=false

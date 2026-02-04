@@ -1592,13 +1592,14 @@ async function createPOFromOC(){
     });
   }
 
-  const customer=document.getElementById('m-cust')?.value||'';
+  const rawCustomer=document.getElementById('m-cust')?.value||'';
+  const customer=typeof normalizeCustomerName==='function'?normalizeCustomerName(rawCustomer):rawCustomer;
   const destination=document.getElementById('m-dest')?.value||'';
   const oc=document.getElementById('m-oc')?.value||'';
-  
+
   if(!oc){alert('Enter OC # first');return}
   if(!product||!price){alert('Enter product and price first');return}
-  
+
   // Save customer to CRM if new
   if(customer&&!S.customers.find(c=>c.name===customer)){
     S.customers.push({name:customer,destination:destination,addedDate:today()});
@@ -1666,18 +1667,19 @@ async function createOCFromPO(){
     });
   }
 
-  const mill=document.getElementById('m-mill')?.value||'';
+  const rawMill=document.getElementById('m-mill')?.value||'';
+  const mill=typeof normalizeMillCRM==='function'?normalizeMillCRM(rawMill):rawMill;
   const origin=document.getElementById('m-origin')?.value||'';
   const po=document.getElementById('m-po')?.value||'';
-  
+
   if(!po){alert('Enter PO # first');return}
   if(!product||!price){alert('Enter product and price first');return}
-  
+
   // Save mill to CRM if new
   if(mill&&!S.mills.find(m=>m.name===mill)){
     S.mills.push({name:mill,origin:origin,addedDate:today()});
   }
-  
+
   const b={
     id:genId(),
     po:po,
@@ -2977,7 +2979,8 @@ async function confirmImportOrders(){
     }
     if(o.buy&&o.buy.mill){
       const trader=mapTrader(o.buy.trader);
-      const name=o.buy.mill;
+      // Re-normalize the mill name to handle cases where it might match an existing mill with a different variation
+      const name=typeof normalizeMillCRM==='function'?normalizeMillCRM(o.buy.mill):o.buy.mill;
       if(!S.mills.find(m=>m.name===name)&&!newMills.has(name)){
         newMills.set(name,{name,location:o.buy.origin||'',trader,contact:'',phone:'',email:'',products:[o.buy.origin||''].filter(Boolean),notes:''});
       }
