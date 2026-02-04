@@ -438,6 +438,7 @@ async function loadAllLocal(){
 // Sync pulled customers/mills into SQLite so loadCRMData finds them
 async function syncCustomersToServer(customers){
   if(!customers||!customers.length)return;
+  let synced=false;
   try{
     // Check against ALL server customers (no trader filter) to prevent cross-trader dupes
     const res=await fetch('/api/crm/customers');
@@ -446,14 +447,23 @@ async function syncCustomersToServer(customers){
     // Insert any customers not already in SQLite
     for(const c of customers){
       if(c.name&&!existingNames.has(c.name)){
-        await fetch('/api/crm/customers',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(c)});
+        const r=await fetch('/api/crm/customers',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(c)});
+        if(r.ok){
+          const created=await r.json();
+          // Update local customer with server ID
+          const local=S.customers.find(x=>x.name===c.name);
+          if(local&&created.id)local.id=created.id;
+          synced=true;
+        }
       }
     }
   }catch(e){console.error('syncCustomersToServer error:',e)}
+  return synced;
 }
 
 async function syncMillsToServer(mills){
   if(!mills||!mills.length)return;
+  let synced=false;
   try{
     // Check against ALL server mills (no trader filter) to prevent cross-trader dupes
     const res=await fetch('/api/crm/mills');
@@ -461,10 +471,18 @@ async function syncMillsToServer(mills){
     const existingNames=new Set(existing.map(m=>m.name));
     for(const m of mills){
       if(m.name&&!existingNames.has(m.name)){
-        await fetch('/api/crm/mills',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(m)});
+        const r=await fetch('/api/crm/mills',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(m)});
+        if(r.ok){
+          const created=await r.json();
+          // Update local mill with server ID
+          const local=S.mills.find(x=>x.name===m.name);
+          if(local&&created.id)local.id=created.id;
+          synced=true;
+        }
       }
     }
   }catch(e){console.error('syncMillsToServer error:',e)}
+  return synced;
 }
 
 // Enhanced save function that saves to IndexedDB

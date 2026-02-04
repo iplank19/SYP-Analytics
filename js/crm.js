@@ -51,9 +51,9 @@ async function loadCRMData(){
     const extraMills=(S.mills||[]).filter(m=>m.name&&!serverMillNames.has(m.name));
     S.customers=uniqueServerCusts.concat(extraCusts);
     S.mills=uniqueServerMills.concat(extraMills);
-    // Sync any missing entries back to server
-    if(extraCusts.length&&typeof syncCustomersToServer==='function')syncCustomersToServer(extraCusts);
-    if(extraMills.length&&typeof syncMillsToServer==='function')syncMillsToServer(extraMills);
+    // Sync any missing entries back to server and update local IDs
+    if(extraCusts.length&&typeof syncCustomersToServer==='function')await syncCustomersToServer(extraCusts);
+    if(extraMills.length&&typeof syncMillsToServer==='function')await syncMillsToServer(extraMills);
     render();
   }catch(e){console.error('CRM load error:',e)}
 }

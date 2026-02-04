@@ -346,14 +346,20 @@ async function saveCust(oldName){
   if(!c.name){showToast('Enter name','warn');return}
   try{
     const existing=S.customers.find(x=>x.name===oldName);
+    let res;
     if(existing?.id){
       // Update existing customer via API
       c.trader=S.trader==='Admin'?assignedTrader:(existing.trader||S.trader);
-      await fetch('/api/crm/customers/'+existing.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(c)});
+      res=await fetch('/api/crm/customers/'+existing.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(c)});
     }else{
       // Create new customer via API
-      await fetch('/api/crm/customers',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(c)});
+      res=await fetch('/api/crm/customers',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(c)});
     }
+    if(!res.ok){
+      const err=await res.json().catch(()=>({}));
+      throw new Error(err.error||'Server error '+res.status);
+    }
+    showToast('Customer saved','positive');
     closeModal();loadCRMData();
   }catch(e){showToast('Error saving customer: '+e.message,'negative')}
 }
@@ -409,14 +415,20 @@ async function saveMill(oldName){
   const m={name:millName,location:locStrings[0]||'',locations,city:firstLoc.city||'',state:firstLoc.state||'',region,contact:document.getElementById('m-contact').value,phone:document.getElementById('m-phone').value,notes:document.getElementById('m-notes').value,trader:assignedTrader};
   if(!m.name){showToast('Enter name','warn');return}
   try{
+    let res;
     if(existing?.id){
       // Update existing mill via API
       m.trader=S.trader==='Admin'?assignedTrader:(existing.trader||S.trader);
-      await fetch('/api/crm/mills/'+existing.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(m)});
+      res=await fetch('/api/crm/mills/'+existing.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(m)});
     }else{
       // Create new mill via API
-      await fetch('/api/crm/mills',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(m)});
+      res=await fetch('/api/crm/mills',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(m)});
     }
+    if(!res.ok){
+      const err=await res.json().catch(()=>({}));
+      throw new Error(err.error||'Server error '+res.status);
+    }
+    showToast('Mill saved','positive');
     closeModal();loadCRMData();
   }catch(e){showToast('Error saving mill: '+e.message,'negative')}
 }
