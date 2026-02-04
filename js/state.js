@@ -383,10 +383,30 @@ function normalizeCustomerName(raw){
   const lower=trimmed.toLowerCase().replace(/[_\-–—]+/g,' ').replace(/\s+/g,' ').trim()
   const sortedAliases=Object.entries(_CUSTOMER_ALIASES).sort((a,b)=>b[0].length-a[0].length)
   for(const[alias,canonical]of sortedAliases){
-    if(lower===alias)return canonical
+    if(lower===alias){
+      // Check if an existing customer maps to this same canonical form
+      const existingWithSameCanonical=S.customers.find(c=>{
+        if(!c.name)return false
+        const cLower=c.name.toLowerCase().replace(/[_\-–—]+/g,' ').replace(/\s+/g,' ').trim()
+        for(const[a2,can2]of sortedAliases){
+          if(cLower===a2&&can2===canonical)return true
+        }
+        return false
+      })
+      if(existingWithSameCanonical)return existingWithSameCanonical.name
+      return canonical
+    }
   }
 
-  // 3. Suffix-stripped matching against existing customers
+  // 3. Fuzzy match: normalize "&" <-> "and" and check existing customers
+  const fuzzyLower=lower.replace(/\s*&\s*/g,' and ').replace(/\s+/g,' ').trim()
+  for(const c of S.customers){
+    if(!c.name)continue
+    const cFuzzy=c.name.toLowerCase().replace(/[_\-–—]+/g,' ').replace(/\s*&\s*/g,' and ').replace(/\s+/g,' ').trim()
+    if(fuzzyLower===cFuzzy)return c.name
+  }
+
+  // 4. Suffix-stripped matching against existing customers
   const stripped=lower.replace(_CORP_SUFFIXES,'').trim()
   if(stripped){
     for(const c of S.customers){
@@ -396,7 +416,7 @@ function normalizeCustomerName(raw){
     }
   }
 
-  // 4. No match — return trimmed original
+  // 5. No match — return trimmed original
   return trimmed
 }
 

@@ -398,11 +398,43 @@ def normalize_customer_name(name):
     # 1. Alias dictionary lookup
     lower = re.sub(r'[_\-\u2013\u2014]+', ' ', trimmed.lower()).strip()
     lower = re.sub(r'\s+', ' ', lower)
-    for alias, canonical in sorted(CUSTOMER_ALIASES.items(), key=lambda x: -len(x[0])):
+    sorted_aliases = sorted(CUSTOMER_ALIASES.items(), key=lambda x: -len(x[0]))
+    for alias, canonical in sorted_aliases:
         if lower == alias:
+            # Check if an existing customer maps to this same canonical form
+            try:
+                conn = get_crm_db()
+                rows = conn.execute('SELECT DISTINCT name FROM customers').fetchall()
+                conn.close()
+                for row in rows:
+                    if row['name']:
+                        row_lower = re.sub(r'[_\-\u2013\u2014]+', ' ', row['name'].lower()).strip()
+                        row_lower = re.sub(r'\s+', ' ', row_lower)
+                        for a2, can2 in sorted_aliases:
+                            if row_lower == a2 and can2 == canonical:
+                                return row['name']
+            except Exception:
+                pass
             return canonical
 
-    # 2. Check existing customers in DB for suffix-stripped match
+    # 2. Fuzzy match: normalize "&" <-> "and" and check existing customers
+    fuzzy_lower = re.sub(r'\s*&\s*', ' and ', lower)
+    fuzzy_lower = re.sub(r'\s+', ' ', fuzzy_lower).strip()
+    try:
+        conn = get_crm_db()
+        rows = conn.execute('SELECT DISTINCT name FROM customers').fetchall()
+        conn.close()
+        for row in rows:
+            if row['name']:
+                row_fuzzy = re.sub(r'[_\-\u2013\u2014]+', ' ', row['name'].lower()).strip()
+                row_fuzzy = re.sub(r'\s*&\s*', ' and ', row_fuzzy)
+                row_fuzzy = re.sub(r'\s+', ' ', row_fuzzy).strip()
+                if fuzzy_lower == row_fuzzy:
+                    return row['name']
+    except Exception:
+        pass
+
+    # 3. Check existing customers in DB for suffix-stripped match
     try:
         conn = get_crm_db()
         rows = conn.execute('SELECT DISTINCT name FROM customers').fetchall()
@@ -417,7 +449,7 @@ def normalize_customer_name(name):
     except Exception:
         pass
 
-    # 3. No match - return trimmed original
+    # 4. No match - return trimmed original
     return trimmed
 
 def get_mi_db():
@@ -1389,12 +1421,18 @@ def list_customers():
 def create_customer():
     try:
         data = request.get_json()
+        normalized_name = normalize_customer_name(data.get('name'))
         conn = get_crm_db()
+        # Check if customer already exists with this normalized name
+        existing = conn.execute('SELECT * FROM customers WHERE name = ?', (normalized_name,)).fetchone()
+        if existing:
+            conn.close()
+            return jsonify(dict(existing)), 200  # Return existing customer instead of creating duplicate
         cursor = conn.execute('''
             INSERT INTO customers (name, contact, phone, email, destination, locations, notes, trader)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         ''', (
-            normalize_customer_name(data.get('name')),
+            normalized_name,
             data.get('contact'),
             data.get('phone'),
             data.get('email'),

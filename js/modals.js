@@ -2969,7 +2969,8 @@ async function confirmImportOrders(){
     const mapTrader=name=>{const m=TRADER_MAP[name];if(m)return m;if(TRADERS.includes(name))return name;return'Admin';};
     if(o.sell&&o.sell.customer){
       const trader=mapTrader(o.sell.trader);
-      const name=o.sell.customer;
+      // Re-normalize the customer name to handle cases where it might match an existing customer with a different variation
+      const name=typeof normalizeCustomerName==='function'?normalizeCustomerName(o.sell.customer):o.sell.customer;
       if(!S.customers.find(c=>c.name===name)&&!newCustomers.has(name)){
         newCustomers.set(name,{name,destination:o.sell.destination||'',trader,contact:'',phone:'',email:'',locations:[o.sell.destination||''].filter(Boolean),notes:''});
       }
