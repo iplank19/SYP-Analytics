@@ -453,6 +453,8 @@ async function deleteMill(name){
   try{
     const m=S.mills.find(x=>x.name===name);
     if(m?.id)await fetch('/api/crm/mills/'+m.id,{method:'DELETE'});
+    S.mills=S.mills.filter(x=>x.name!==name);
+    await save();
     loadCRMData();
   }catch(e){showToast('Error deleting mill: '+e.message,'negative')}
 }
