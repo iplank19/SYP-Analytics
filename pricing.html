@@ -118,50 +118,54 @@
 
       <!-- Quote Builder Tab -->
       <div class="content" id="view-quotes" style="display:none">
-        <!-- Destination -->
-        <div class="card" style="margin-bottom:16px">
-          <div class="card-body" style="padding:12px">
-            <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
-              <div style="flex:1;min-width:250px">
-                <label class="form-label">Destination</label>
-                <input type="text" id="q-dest" class="form-input" placeholder="City, ST" style="padding:10px;font-size:14px" oninput="renderQuoteBuilder()">
+        <div class="grid-2">
+          <!-- Left: Builder -->
+          <div>
+            <div class="card">
+              <div class="card-header">
+                <span class="card-title">Smart Quote Builder</span>
+              </div>
+              <div class="card-body">
+                <!-- Destination only -->
+                <div style="margin-bottom:16px">
+                  <label class="form-label">Destination</label>
+                  <input type="text" id="q-dest" class="form-input" placeholder="City, ST">
+                </div>
+
+                <!-- Matrix (no templates) -->
+                <div style="margin-bottom:12px">
+                  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+                    <label class="form-label" style="margin:0">Product x Length Matrix</label>
+                    <span id="q-combo-count" style="font-size:10px;color:var(--muted)"></span>
+                  </div>
+
+                  <!-- Checkbox Matrix -->
+                  <div style="overflow-x:auto">
+                    <table style="border-collapse:collapse;width:100%" id="q-matrix-table">
+                      <!-- Built by JS -->
+                    </table>
+                  </div>
+                </div>
+
+                <!-- Build Button -->
+                <button class="btn btn-primary" id="q-build-btn" onclick="buildSmartQuote()" style="width:100%;padding:8px">
+                  Build Smart Quote
+                </button>
               </div>
             </div>
           </div>
-        </div>
 
-        <!-- Mode Toggle + Product Selection -->
-        <div class="card" style="margin-bottom:16px">
-          <div class="card-header">
-            <span class="card-title">① SELECT PRODUCTS & LENGTHS</span>
-            <span id="q-combo-count" style="font-size:11px;color:var(--muted)">0 selected</span>
-          </div>
-          <div class="card-body" style="padding:12px">
-            <div id="q-mode-toggle" style="display:flex;gap:4px;margin-bottom:12px"></div>
-            <div id="q-product-section"></div>
-          </div>
-        </div>
-
-        <!-- Build Button -->
-        <div class="card" style="margin-bottom:16px">
-          <div class="card-body" style="padding:16px;display:flex;justify-content:space-between;align-items:center">
-            <div>
-              <div style="font-weight:600;font-size:14px">② GET BEST DELIVERED COSTS</div>
-              <div id="q-build-status" style="font-size:12px;color:var(--muted)">0 items selected</div>
+          <!-- Right: Results -->
+          <div>
+            <div class="card">
+              <div class="card-header">
+                <span class="card-title" style="color:var(--positive)">Quote Results</span>
+                <button class="btn btn-sm btn-success" id="q-copy-btn" style="display:none" onclick="copyQuoteResults()">Copy to Clipboard</button>
+              </div>
+              <div class="card-body" id="q-results">
+                <div class="empty-state">Enter a destination and check product/length combos, then click Build Smart Quote</div>
+              </div>
             </div>
-            <button class="btn btn-success" id="q-build-btn" style="padding:14px 28px;font-size:16px" onclick="buildSmartQuote()">
-              💰 GET COSTS
-            </button>
-          </div>
-        </div>
-
-        <!-- Results -->
-        <div class="card" id="q-results-card" style="display:none">
-          <div class="card-header">
-            <span class="card-title" style="color:var(--positive)">③ DELIVERED COSTS</span>
-            <button class="btn btn-sm btn-success" id="q-copy-btn" onclick="copyQuoteResults()">📋 Copy</button>
-          </div>
-          <div class="card-body" id="q-results">
           </div>
         </div>
       </div>
@@ -263,7 +267,7 @@
       document.getElementById('login-screen').style.display='none';
       document.getElementById('main-screen').style.display='';
       loadMatrix();
-      renderProductTable();
+      buildCheckboxMatrix();
     }
 
     if(sessionStorage.getItem('pricing_auth')==='1') showMain();
@@ -395,250 +399,93 @@
     }
 
     // ========== QUOTE BUILDER ==========
+    function _pid(p){return p.replace(/[^a-zA-Z0-9]/g,'_');}
     const fmt=v=>v!=null?'$'+Math.round(v):'--';
-    let _quoteProducts=[]; // [{product:'2x4#2', lengths:{8:true,10:true}, qty:'', ship:'1-2 Weeks'}]
-    let _quoteMode='entry'; // 'entry' = type to add, 'matrix' = checkbox matrix
 
-    function toggleQuoteMode(){
-      _quoteMode=_quoteMode==='entry'?'matrix':'entry';
-      renderQuoteBuilder();
-    }
+    // Build the checkbox matrix table
+    function buildCheckboxMatrix(){
+      const tbl=document.getElementById('q-matrix-table');
+      const colHeaders=QUOTE_LENGTHS.map(l=>
+        `<th style="text-align:center;padding:3px;font-size:10px;font-weight:600;min-width:28px">
+          <div>${l+"'"}</div>
+          <input type="checkbox" id="q-col-${l}" onchange="toggleCol('${l}')" style="margin-top:2px">
+        </th>`
+      ).join('');
 
-    function normalizeProduct(raw){
-      if(!raw)return raw;
-      let p=String(raw).trim();
-      p=p.replace(/^(\d+)X(\d+)/i,(m,a,b)=>`${a}x${b}`);
-      p=p.replace(/(\d)\s*MSR\b/i,'$1 MSR');
-      p=p.replace(/(\d)\s+#/g,'$1#');
-      return p;
-    }
-
-    function addQuoteProduct(){
-      const input=document.getElementById('q-product-input');
-      if(!input)return;
-      let product=input.value.trim();
-      if(!product){showToast('Enter a product','warn');return;}
-      product=normalizeProduct(product);
-      _quoteProducts.push({product,lengths:{},qty:'',ship:'1-2 Weeks'});
-      input.value='';
-      input.focus();
-      renderProductTable();
-    }
-
-    function removeQuoteProduct(idx){
-      _quoteProducts.splice(idx,1);
-      renderProductTable();
-    }
-
-    function toggleQuoteLength(idx,len){
-      if(!_quoteProducts[idx])return;
-      if(!_quoteProducts[idx].lengths)_quoteProducts[idx].lengths={};
-      _quoteProducts[idx].lengths[len]=!_quoteProducts[idx].lengths[len];
-      renderProductTable();
-    }
-
-    function selectAllLengths(idx){
-      if(!_quoteProducts[idx])return;
-      _quoteProducts[idx].lengths={};
-      QUOTE_LENGTHS.forEach(l=>_quoteProducts[idx].lengths[l]=true);
-      renderProductTable();
-    }
-
-    function updateProductField(idx,field,value){
-      if(!_quoteProducts[idx])return;
-      _quoteProducts[idx][field]=value;
-    }
-
-    function renderQuoteBuilder(){
-      const toggleEl=document.getElementById('q-mode-toggle');
-      const sectionEl=document.getElementById('q-product-section');
-      const dest=document.getElementById('q-dest')?.value||'';
-      const isEntryMode=_quoteMode==='entry';
-
-      // Render mode toggle
-      toggleEl.innerHTML=`
-        <button class="btn ${isEntryMode?'btn-primary':'btn-default'}" style="padding:6px 12px;font-size:11px" onclick="_quoteMode='entry';renderQuoteBuilder()">Type to Add</button>
-        <button class="btn ${!isEntryMode?'btn-primary':'btn-default'}" style="padding:6px 12px;font-size:11px" onclick="_quoteMode='matrix';renderQuoteBuilder()">Checkbox Matrix</button>`;
-
-      let totalSelected=0;
-
-      if(isEntryMode){
-        // Count selected in entry mode
-        _quoteProducts.forEach(p=>{
-          QUOTE_LENGTHS.forEach(l=>{if(p.lengths&&p.lengths[l])totalSelected++;});
-        });
-
-        document.getElementById('q-combo-count').textContent=totalSelected+' selected';
-        document.getElementById('q-build-status').textContent=totalSelected+' item'+(totalSelected!==1?'s':'')+' → '+(dest||'Enter destination');
-        document.getElementById('q-build-btn').disabled=!totalSelected||!dest;
-
-        if(!_quoteProducts.length){
-          sectionEl.innerHTML=`
-            <div style="display:flex;gap:8px;margin-bottom:16px">
-              <input type="text" id="q-product-input" placeholder="Type: 2x4#2, 2x6 #1, 2x8 MSR..." style="flex:1;padding:12px;font-size:14px;background:var(--surface);color:var(--text);border:2px solid var(--border);border-radius:var(--radius)" onkeydown="if(event.key==='Enter'){event.preventDefault();addQuoteProduct()}">
-              <button class="btn btn-primary" style="padding:12px 20px;font-size:14px" onclick="addQuoteProduct()">+ ADD</button>
-            </div>
-            <div style="text-align:center;padding:30px;color:var(--muted)">Type a product above (e.g., 2x4#2) and click ADD</div>`;
-          return;
-        }
-
-        let rows='';
-        for(let idx=0;idx<_quoteProducts.length;idx++){
-          const p=_quoteProducts[idx];
-          let lengthCells='';
-          for(let li=0;li<QUOTE_LENGTHS.length;li++){
-            const len=QUOTE_LENGTHS[li];
-            const isOn=p.lengths&&p.lengths[len];
-            const bgColor=isOn?'var(--accent)':'var(--bg)';
-            const txtColor=isOn?'var(--bg)':'var(--muted)';
-            lengthCells+=`<td style="padding:8px;text-align:center;border:1px solid var(--border);cursor:pointer;background:${bgColor};color:${txtColor};font-weight:600;font-size:14px" onclick="toggleQuoteLength(${idx},'${len}')">${isOn?'✓':''}</td>`;
-          }
-          rows+=`<tr>
-            <td style="padding:10px 12px;font-weight:600;font-size:13px;border:1px solid var(--border);background:var(--panel-alt)">${p.product}</td>
-            ${lengthCells}
-            <td style="padding:2px;border:1px solid var(--border)">
-              <input type="text" value="${p.qty||''}" placeholder="Qty" style="width:50px;padding:4px;font-size:11px;text-align:center;background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:var(--radius)" onchange="updateProductField(${idx},'qty',this.value)">
-            </td>
-            <td style="padding:2px;border:1px solid var(--border)">
-              <select style="padding:4px;font-size:10px;background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:var(--radius)" onchange="updateProductField(${idx},'ship',this.value)">
-                <option value="Prompt" ${p.ship==='Prompt'?'selected':''}>Prompt</option>
-                <option value="1-2 Weeks" ${!p.ship||p.ship==='1-2 Weeks'?'selected':''}>1-2 Wks</option>
-                <option value="2-3 Weeks" ${p.ship==='2-3 Weeks'?'selected':''}>2-3 Wks</option>
-                <option value="3-4 Weeks" ${p.ship==='3-4 Weeks'?'selected':''}>3-4 Wks</option>
-              </select>
-            </td>
-            <td style="padding:4px;text-align:center;border:1px solid var(--border)">
-              <button class="btn btn-default" style="padding:4px 8px;font-size:10px" onclick="selectAllLengths(${idx})">ALL</button>
-            </td>
-            <td style="padding:4px;text-align:center;border:1px solid var(--border)">
-              <button class="btn" style="padding:4px 8px;font-size:10px;background:var(--negative);color:#fff" onclick="removeQuoteProduct(${idx})">✕</button>
-            </td>
-          </tr>`;
-        }
-
-        sectionEl.innerHTML=`
-          <div style="display:flex;gap:8px;margin-bottom:16px">
-            <input type="text" id="q-product-input" placeholder="Type: 2x4#2, 2x6 #1, 2x8 MSR..." style="flex:1;padding:12px;font-size:14px;background:var(--surface);color:var(--text);border:2px solid var(--border);border-radius:var(--radius)" onkeydown="if(event.key==='Enter'){event.preventDefault();addQuoteProduct()}">
-            <button class="btn btn-primary" style="padding:12px 20px;font-size:14px" onclick="addQuoteProduct()">+ ADD</button>
-          </div>
-          <div style="overflow-x:auto">
-            <table style="width:100%;border-collapse:collapse">
-              <thead>
-                <tr style="background:var(--panel-alt)">
-                  <th style="padding:10px 12px;text-align:left;border:1px solid var(--border);min-width:100px">Product</th>
-                  ${QUOTE_LENGTHS.map(l=>'<th style="padding:10px 8px;text-align:center;border:1px solid var(--border);min-width:50px">'+l+"'</th>").join('')}
-                  <th style="padding:10px 4px;text-align:center;border:1px solid var(--border);width:60px">Qty</th>
-                  <th style="padding:10px 4px;text-align:center;border:1px solid var(--border);width:70px">Ship</th>
-                  <th style="padding:10px 4px;text-align:center;border:1px solid var(--border);width:50px"></th>
-                  <th style="padding:10px 4px;text-align:center;border:1px solid var(--border);width:40px"></th>
-                </tr>
-              </thead>
-              <tbody>${rows}</tbody>
-            </table>
-          </div>`;
-      } else {
-        // Classic Checkbox Matrix Mode
-        const gradeGroups=[
-          {label:'#1',products:MI_PRODUCTS.filter(p=>p.includes('#1'))},
-          {label:'#2',products:MI_PRODUCTS.filter(p=>p.includes('#2'))},
-          {label:'#3',products:MI_PRODUCTS.filter(p=>p.includes('#3'))},
-          {label:'#4',products:MI_PRODUCTS.filter(p=>p.includes('#4'))},
-          {label:'MSR',products:MI_PRODUCTS.filter(p=>p.includes('MSR'))},
-        ];
-
-        const matrixRows=gradeGroups.map(grp=>{
-          const groupHeader=`<tr><td colspan="${QUOTE_LENGTHS.length+1}" style="padding:6px 6px 2px;font-size:10px;font-weight:700;color:var(--muted);border-top:1px solid var(--border)">${grp.label}</td></tr>`;
-          const rows=grp.products.map(p=>{
-            const pid=p.replace(/\s+/g,'-');
-            const cells=QUOTE_LENGTHS.map(l=>`<td style="text-align:center;padding:3px"><input type="checkbox" id="q-mx-${pid}-${l}" onchange="updateMatrixCount()"></td>`).join('');
-            return`<tr>
-              <td style="white-space:nowrap;padding:3px 6px;font-size:11px;font-weight:600">
-                <label style="cursor:pointer;display:flex;align-items:center;gap:4px">
-                  <input type="checkbox" id="q-mx-row-${pid}" onchange="toggleMatrixRow('${p}')">
-                  ${formatProductHeader(p)}
-                </label>
-              </td>
-              ${cells}
-            </tr>`;
-          }).join('');
-          return groupHeader+rows;
+      const rows=GRADE_GROUPS.map(grp=>{
+        const header=`<tr><td colspan="${QUOTE_LENGTHS.length+1}" style="padding:6px 6px 2px;font-size:10px;font-weight:700;color:var(--muted);border-top:1px solid var(--border)">${grp.label}</td></tr>`;
+        const productRows=grp.products.map(p=>{
+          const pid=_pid(p);
+          const cells=QUOTE_LENGTHS.map(l=>
+            `<td style="text-align:center;padding:3px"><input type="checkbox" id="q-cb-${pid}-${l}" onchange="cellChanged()"></td>`
+          ).join('');
+          return`<tr>
+            <td style="white-space:nowrap;padding:3px 6px;font-size:11px;font-weight:600">
+              <label style="cursor:pointer;display:flex;align-items:center;gap:4px">
+                <input type="checkbox" id="q-row-${pid}" onchange="toggleRow('${p}')">
+                ${p}
+              </label>
+            </td>${cells}</tr>`;
         }).join('');
+        return header+productRows;
+      }).join('');
 
-        const colHeaders=QUOTE_LENGTHS.map(l=>`<th style="text-align:center;padding:3px;font-size:10px;font-weight:600;min-width:28px">
-          <div>${l}'</div>
-          <input type="checkbox" id="q-mx-col-${l}" onchange="toggleMatrixCol('${l}')" style="margin-top:2px">
-        </th>`).join('');
-
-        sectionEl.innerHTML=`
-          <div style="overflow-x:auto;max-height:400px;overflow-y:auto">
-            <table style="font-size:11px;border-collapse:collapse;width:100%">
-              <thead>
-                <tr>
-                  <th style="text-align:left;padding:3px 6px;font-size:10px">PRODUCT</th>
-                  ${colHeaders}
-                </tr>
-              </thead>
-              <tbody>${matrixRows}</tbody>
-            </table>
-          </div>`;
-
-        // Update count display
-        setTimeout(()=>updateMatrixCount(),0);
-      }
+      tbl.innerHTML=`<thead><tr><th style="text-align:left;padding:3px 6px;font-size:10px">PRODUCT</th>${colHeaders}</tr></thead><tbody>${rows}</tbody>`;
+      updateHeaders();
     }
 
-    // Matrix mode helpers
-    function toggleMatrixRow(product){
-      const pid=product.replace(/\s+/g,'-');
-      const rowCb=document.getElementById(`q-mx-row-${pid}`);
+    function toggleRow(product){
+      const pid=_pid(product);
+      const rowCb=document.getElementById(`q-row-${pid}`);
       const on=rowCb?rowCb.checked:true;
       QUOTE_LENGTHS.forEach(l=>{
-        const cb=document.getElementById(`q-mx-${pid}-${l}`);
+        const cb=document.getElementById(`q-cb-${pid}-${l}`);
         if(cb)cb.checked=on;
       });
-      updateMatrixCount();
+      updateHeaders();
     }
 
-    function toggleMatrixCol(length){
-      const colCb=document.getElementById(`q-mx-col-${length}`);
+    function toggleCol(length){
+      const colCb=document.getElementById(`q-col-${length}`);
       const on=colCb?colCb.checked:true;
       MI_PRODUCTS.forEach(p=>{
-        const pid=p.replace(/\s+/g,'-');
-        const cb=document.getElementById(`q-mx-${pid}-${length}`);
+        const cb=document.getElementById(`q-cb-${_pid(p)}-${length}`);
         if(cb)cb.checked=on;
       });
-      updateMatrixCount();
+      updateHeaders();
     }
 
-    function updateMatrixCount(){
-      const combos=getMatrixCheckedCombos();
-      const dest=document.getElementById('q-dest')?.value||'';
-      document.getElementById('q-combo-count').textContent=combos.length+' selected';
-      document.getElementById('q-build-status').textContent=combos.length+' item'+(combos.length!==1?'s':'')+' → '+(dest||'Enter destination');
-      document.getElementById('q-build-btn').disabled=!combos.length||!dest;
+    function cellChanged(){
+      updateHeaders();
     }
 
-    function getMatrixCheckedCombos(){
-      const combos=[];
+    function updateHeaders(){
       MI_PRODUCTS.forEach(p=>{
-        const pid=p.replace(/\s+/g,'-');
-        QUOTE_LENGTHS.forEach(l=>{
-          const cb=document.getElementById(`q-mx-${pid}-${l}`);
-          if(cb&&cb.checked)combos.push({product:p,length:l});
-        });
+        const pid=_pid(p);
+        const rowCb=document.getElementById(`q-row-${pid}`);
+        if(!rowCb)return;
+        const checks=QUOTE_LENGTHS.map(l=>{const cb=document.getElementById(`q-cb-${pid}-${l}`);return cb?cb.checked:false;});
+        const allOn=checks.every(c=>c),noneOn=checks.every(c=>!c);
+        rowCb.checked=allOn;rowCb.indeterminate=!allOn&&!noneOn;
       });
-      return combos;
+      QUOTE_LENGTHS.forEach(l=>{
+        const colCb=document.getElementById(`q-col-${l}`);
+        if(!colCb)return;
+        const checks=MI_PRODUCTS.map(p=>{const cb=document.getElementById(`q-cb-${_pid(p)}-${l}`);return cb?cb.checked:false;});
+        const allOn=checks.every(c=>c),noneOn=checks.every(c=>!c);
+        colCb.checked=allOn;colCb.indeterminate=!allOn&&!noneOn;
+      });
+      const count=getCheckedCombos().length;
+      const el=document.getElementById('q-combo-count');
+      if(el)el.textContent=`${count} combo${count!==1?'s':''} selected`;
     }
-
-    // Keep old function name for compatibility
-    function renderProductTable(){renderQuoteBuilder();}
 
     function getCheckedCombos(){
-      if(_quoteMode==='matrix')return getMatrixCheckedCombos();
       const combos=[];
-      _quoteProducts.forEach(p=>{
+      MI_PRODUCTS.forEach(p=>{
         QUOTE_LENGTHS.forEach(l=>{
-          if(p.lengths&&p.lengths[l])combos.push({product:p.product,length:l,qty:p.qty,ship:p.ship});
+          const cb=document.getElementById(`q-cb-${_pid(p)}-${l}`);
+          if(cb&&cb.checked)combos.push({product:p,length:l});
         });
       });
       return combos;
@@ -776,8 +623,7 @@
           _quoteResults.push({
             product:combo.product,length:combo.length,
             label:formatProductLabel(combo.product,combo.length),
-            destination,best,options,
-            qty:combo.qty,ship:combo.ship
+            destination,best,options
           });
         }
 
@@ -794,10 +640,8 @@
     }
 
     function renderQuoteResults(){
-      const card=document.getElementById('q-results-card');
       const el=document.getElementById('q-results');
       const copyBtn=document.getElementById('q-copy-btn');
-      card.style.display=_quoteResults.length?'':'none';
       if(!_quoteResults.length){
         el.innerHTML='<div class="empty-state">No results</div>';
         copyBtn.style.display='none';
@@ -828,13 +672,11 @@
             const ageLabel=pAgeLabel(r.best.date);
             const ageBg=pAgeBadgeBg(r.best.date);
             const ageColor=pAgeBadgeColor(r.best.date);
-            const displayQty=r.qty||(r.best.tls?r.best.tls+' TL':'1 TL');
-            const displayShip=r.ship||r.best.shipWindow||'Prompt';
             return `<tr>
             <td style="padding:4px 6px;font-weight:600;color:var(--accent)">${r.label}</td>
             <td style="padding:4px 6px;text-align:right;font-weight:600;color:var(--positive)" class="mono">${r.best.landedCost!=null?fmt(r.best.landedCost):fmt(r.best.fobPrice)}</td>
-            <td style="padding:4px 6px;text-align:center" class="mono">${displayQty}</td>
-            <td style="padding:4px 6px;text-align:right;color:var(--muted)">${displayShip}</td>
+            <td style="padding:4px 6px;text-align:center" class="mono">${r.best.tls||1} TL</td>
+            <td style="padding:4px 6px;text-align:right;color:var(--muted)">${r.best.shipWindow||'Prompt'}</td>
             <td style="padding:4px 6px;text-align:center"><span style="font-size:9px;padding:2px 6px;border-radius:8px;background:${ageBg};color:${ageColor}">${ageLabel}</span></td>
           </tr>`;}).join('')}
           </tbody></table>`;
@@ -889,15 +731,12 @@
     </tr>
   </thead>
   <tbody>
-    ${results.map((r,i)=>{
-      const displayQty=r.qty||(r.best.tls?r.best.tls+' TL':'1 TL');
-      const displayShip=r.ship||r.best.shipWindow||'Prompt';
-      return `<tr style="background:${i%2?'#f5f5f5':'white'};">
+    ${results.map((r,i)=>`<tr style="background:${i%2?'#f5f5f5':'white'};">
       <td style="padding:6px 12px;border:1px solid #ddd;">${r.label}</td>
       <td style="padding:6px 12px;text-align:right;border:1px solid #ddd;font-weight:bold;color:#2e7d32;">${r.best.landedCost!=null?'$'+Math.round(r.best.landedCost):'$'+Math.round(r.best.fobPrice)}</td>
-      <td style="padding:6px 12px;text-align:center;border:1px solid #ddd;">${displayQty}</td>
-      <td style="padding:6px 12px;text-align:right;border:1px solid #ddd;color:#666;">${displayShip}</td>
-    </tr>`;}).join('')}
+      <td style="padding:6px 12px;text-align:center;border:1px solid #ddd;">${r.best.tls||1} TL</td>
+      <td style="padding:6px 12px;text-align:right;border:1px solid #ddd;color:#666;">${r.best.shipWindow||'Prompt'}</td>
+    </tr>`).join('')}
   </tbody>
 </table>
 <p style="font-family:Calibri,Arial,sans-serif;font-size:10pt;color:#666;margin-top:8px;">
@@ -912,9 +751,7 @@
       lines.push(['Product','Price','Qty','Ship'].join('\t'));
       results.forEach(r=>{
         const price=r.best.landedCost!=null?'$'+Math.round(r.best.landedCost):'$'+Math.round(r.best.fobPrice);
-        const displayQty=r.qty||(r.best.tls?r.best.tls+' TL':'1 TL');
-        const displayShip=r.ship||r.best.shipWindow||'Prompt';
-        lines.push([r.label,price,displayQty,displayShip].join('\t'));
+        lines.push([r.label,price,(r.best.tls||1)+' TL',r.best.shipWindow||'Prompt'].join('\t'));
       });
       const noOffer=_quoteResults.filter(r=>!r.best);
       if(noOffer.length){lines.push('');lines.push('No offers: '+noOffer.map(r=>r.label).join(', '));}
