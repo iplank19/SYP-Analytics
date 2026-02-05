@@ -1374,9 +1374,179 @@ function render(){
       `:''}`
   }
   else if(S.view==='quotes'||S.view==='mi-quotes'){
-    // Quote Engine View — with SOURCE / BUILD tabs
-    const _qeTab=S.view==='mi-quotes'?'source':(S.quoteTab||'build');
-    if(S.view==='mi-quotes'){S.view='quotes';S.quoteTab='source';}
+    // Quote Engine View — Product Entry + Length Matrix
+    const customers=myCustomers().filter(c=>c.type!=='mill');
+    const selectedCustomer=S.qbCustomer?customers.find(c=>c.name===S.qbCustomer):null;
+    const customerDest=selectedCustomer?.locations?.[0]||selectedCustomer?.destination||S.qbCustomDest||'';
+    const costMatrix=S.costMatrix||{};
+    const matrixLoading=S.costMatrixLoading||false;
+    if(!S.quoteProducts)S.quoteProducts=[];
+    const quoteProducts=S.quoteProducts;
+    const lengths=['8','10','12','14','16','18','20'];
+
+    // Count total selected
+    let totalSelected=0;
+    quoteProducts.forEach(function(p){
+      if(p.lengths){
+        lengths.forEach(function(len){
+          if(p.lengths[len])totalSelected++;
+        });
+      }
+    });
+
+    let productRows='';
+    for(let idx=0;idx<quoteProducts.length;idx++){
+      const p=quoteProducts[idx];
+      let lengthCells='';
+      for(let li=0;li<lengths.length;li++){
+        const len=lengths[li];
+        const isOn=p.lengths&&p.lengths[len];
+        const bgColor=isOn?'var(--accent)':'var(--bg)';
+        const txtColor=isOn?'var(--bg)':'var(--muted)';
+        lengthCells+=`<td style="padding:8px;text-align:center;border:1px solid var(--border);cursor:pointer;background:${bgColor};color:${txtColor};font-weight:600;font-size:14px" onclick="toggleQuoteLength(${idx},'${len}')">${isOn?'✓':''}</td>`;
+      }
+      productRows+=`<tr>
+        <td style="padding:10px 12px;font-weight:600;font-size:13px;border:1px solid var(--border);background:var(--panel-alt)">${p.product}</td>
+        ${lengthCells}
+        <td style="padding:2px;border:1px solid var(--border)">
+          <input type="text" value="${p.qty||''}" placeholder="Qty" style="width:50px;padding:4px;font-size:11px;text-align:center" onchange="updateQuoteProductField(${idx},'qty',this.value)">
+        </td>
+        <td style="padding:2px;border:1px solid var(--border)">
+          <select style="padding:4px;font-size:10px" onchange="updateQuoteProductField(${idx},'ship',this.value)">
+            <option value="Prompt" ${p.ship==='Prompt'?'selected':''}>Prompt</option>
+            <option value="1-2 Weeks" ${!p.ship||p.ship==='1-2 Weeks'?'selected':''}>1-2 Wks</option>
+            <option value="2-3 Weeks" ${p.ship==='2-3 Weeks'?'selected':''}>2-3 Wks</option>
+            <option value="3-4 Weeks" ${p.ship==='3-4 Weeks'?'selected':''}>3-4 Wks</option>
+          </select>
+        </td>
+        <td style="padding:4px;text-align:center;border:1px solid var(--border)">
+          <button class="btn btn-default" style="padding:4px 8px;font-size:10px" onclick="selectAllLengths(${idx})">ALL</button>
+        </td>
+        <td style="padding:4px;text-align:center;border:1px solid var(--border)">
+          <button class="btn" style="padding:4px 8px;font-size:10px;background:var(--negative);color:#fff" onclick="removeQuoteProduct(${idx})">✕</button>
+        </td>
+      </tr>`;
+    }
+
+    let resultRows='';
+    for(let idx=0;idx<quoteProducts.length;idx++){
+      const p=quoteProducts[idx];
+      let resultCells='';
+      for(let li=0;li<lengths.length;li++){
+        const len=lengths[li];
+        const key=p.product+'|'+len;
+        const cell=costMatrix[key];
+        const isSelected=p.lengths&&p.lengths[len];
+        if(!isSelected){
+          resultCells+=`<td style="padding:6px;text-align:center;border:1px solid var(--border);color:var(--muted)">—</td>`;
+        }else if(!cell||!cell.landedCost){
+          resultCells+=`<td style="padding:6px;text-align:center;border:1px solid var(--border);color:var(--warn)">?</td>`;
+        }else{
+          const millShort=cell.mill?cell.mill.split(' - ')[0]:'';
+          resultCells+=`<td style="padding:6px;text-align:center;border:1px solid var(--border);cursor:pointer" onclick="showCostDetail('${p.product}','${len}')">
+            <div style="font-weight:700;font-family:var(--mono);color:var(--positive);font-size:13px">$${Math.round(cell.landedCost)}</div>
+            <div style="font-size:9px;color:var(--muted)">${millShort}</div>
+          </td>`;
+        }
+      }
+      resultRows+=`<tr>
+        <td style="padding:8px 12px;font-weight:600;border:1px solid var(--border);background:var(--panel-alt)">${p.product}</td>
+        ${resultCells}
+      </tr>`;
+    }
+
+    c.innerHTML=`
+      <div class="card" style="margin-bottom:16px">
+        <div class="card-body" style="padding:12px">
+          <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+            <div style="flex:1;min-width:250px">
+              <label style="font-size:10px;color:var(--muted);text-transform:uppercase">Customer</label>
+              <select id="cost-matrix-customer" onchange="S.qbCustomer=this.value;S.qbCustomDest=this.options[this.selectedIndex].dataset.dest||'';save('qbCustomer',S.qbCustomer);save('qbCustomDest',S.qbCustomDest);render()" style="width:100%;padding:10px;font-size:14px;margin-top:4px">
+                <option value="">Select customer...</option>
+                ${customers.map(function(cust){
+                  const dest=cust.locations&&cust.locations[0]?cust.locations[0]:(cust.destination||'');
+                  const sel=S.qbCustomer===cust.name?'selected':'';
+                  return '<option value="'+cust.name+'" data-dest="'+dest+'" '+sel+'>'+cust.name+'</option>';
+                }).join('')}
+              </select>
+            </div>
+            <div style="min-width:200px">
+              <label style="font-size:10px;color:var(--muted);text-transform:uppercase">Destination</label>
+              <input type="text" id="cost-matrix-dest" value="${customerDest}" placeholder="City, ST" onchange="S.qbCustomDest=this.value;save('qbCustomDest',S.qbCustomDest)" style="width:100%;padding:10px;font-size:14px;margin-top:4px">
+            </div>
+          </div>
+          ${customerDest?'<div style="margin-top:8px;font-size:11px;color:var(--accent)">📍 Delivering to: <strong>'+customerDest+'</strong></div>':''}
+        </div>
+      </div>
+
+      <div class="card" style="margin-bottom:16px">
+        <div class="card-header">
+          <span class="card-title">① SELECT PRODUCTS & LENGTHS</span>
+          <span style="font-size:11px;color:var(--muted)">${totalSelected} selected</span>
+        </div>
+        <div class="card-body" style="padding:12px">
+          <div style="display:flex;gap:8px;margin-bottom:16px">
+            <input type="text" id="add-product-input" placeholder="Type: 2x4#2, 2x6 #1, 2x8 MSR..." style="flex:1;padding:12px;font-size:14px;border:2px solid var(--border);border-radius:var(--radius)" onkeydown="if(event.key==='Enter'){event.preventDefault();addQuoteProduct()}">
+            <button class="btn btn-primary" style="padding:12px 20px;font-size:14px" onclick="addQuoteProduct()">+ ADD</button>
+          </div>
+          ${quoteProducts.length?`
+          <div style="overflow-x:auto">
+            <table style="width:100%;border-collapse:collapse">
+              <thead>
+                <tr style="background:var(--panel-alt)">
+                  <th style="padding:10px 12px;text-align:left;border:1px solid var(--border);min-width:100px">Product</th>
+                  ${lengths.map(function(l){return '<th style="padding:10px 8px;text-align:center;border:1px solid var(--border);min-width:50px">'+l+"'</th>";}).join('')}
+                  <th style="padding:10px 4px;text-align:center;border:1px solid var(--border);width:60px">Qty</th>
+                  <th style="padding:10px 4px;text-align:center;border:1px solid var(--border);width:70px">Ship</th>
+                  <th style="padding:10px 4px;text-align:center;border:1px solid var(--border);width:50px"></th>
+                  <th style="padding:10px 4px;text-align:center;border:1px solid var(--border);width:40px"></th>
+                </tr>
+              </thead>
+              <tbody>${productRows}</tbody>
+            </table>
+          </div>
+          `:'<div style="text-align:center;padding:30px;color:var(--muted)">Type a product above (e.g., 2x4#2) and click ADD</div>'}
+        </div>
+      </div>
+
+      <div class="card" style="margin-bottom:16px">
+        <div class="card-body" style="padding:16px;display:flex;justify-content:space-between;align-items:center">
+          <div>
+            <div style="font-weight:600;font-size:14px">② GET BEST DELIVERED COSTS</div>
+            <div style="font-size:12px;color:var(--muted)">${totalSelected} item${totalSelected!==1?'s':''} → ${customerDest||'Select destination'}</div>
+          </div>
+          <button class="btn btn-success" style="padding:14px 28px;font-size:16px" onclick="loadCustomerCostMatrix()" ${matrixLoading||!totalSelected||!customerDest?'disabled':''}>
+            ${matrixLoading?'Loading...':'💰 GET COSTS'}
+          </button>
+        </div>
+      </div>
+
+      ${Object.keys(costMatrix).length?`
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">③ DELIVERED COSTS</span>
+          <button class="btn btn-default btn-sm" onclick="copyAllCosts()">📋 Copy</button>
+        </div>
+        <div class="card-body" style="padding:0;overflow-x:auto">
+          <table style="width:100%;border-collapse:collapse;font-size:12px">
+            <thead>
+              <tr style="background:var(--panel-alt)">
+                <th style="padding:10px 12px;text-align:left;border:1px solid var(--border)">Product</th>
+                ${lengths.map(function(l){return '<th style="padding:10px 8px;text-align:center;border:1px solid var(--border);min-width:70px">'+l+"'</th>";}).join('')}
+              </tr>
+            </thead>
+            <tbody>${resultRows}</tbody>
+          </table>
+          <div style="padding:12px;font-size:10px;color:var(--muted)">Click any cost for details</div>
+        </div>
+      </div>
+      `:''}
+    `;
+    return;
+  }
+  else if(S.view==='quotes-legacy'){
+    // Legacy Quote Engine View — with SOURCE / BUILD tabs (kept for reference)
+    const _qeTab=S.quoteTab||'build';
 
     // SOURCE tab: render Smart Quotes inline
     if(_qeTab==='source'){
@@ -2494,6 +2664,228 @@ function render(){
       }
       renderPnLBarChart(labels,data);
     },10);
+  }
+  else if(S.view==='pipeline'){
+    // Execution Pipeline - Kanban view
+    const stages=typeof PIPELINE_STAGES!=='undefined'?PIPELINE_STAGES:['quoted','ordered','confirmed','shipped','delivered','settled'];
+    const stageLabels={quoted:'QUOTED',ordered:'ORDERED',confirmed:'CONFIRMED',shipped:'SHIPPED',delivered:'DELIVERED',settled:'SETTLED'};
+    const stageColors={quoted:'var(--muted)',ordered:'var(--info)',confirmed:'var(--accent)',shipped:'var(--warn)',delivered:'var(--positive)',settled:'var(--positive)'};
+
+    // Get trades by stage
+    const tradesByStage={};
+    stages.forEach(s=>tradesByStage[s]=[]);
+
+    // Assign sells to stages based on pipelineStage or status
+    S.sells.filter(s=>s.status!=='cancelled').forEach(sell=>{
+      const stage=typeof getPipelineStage==='function'?getPipelineStage(sell):'quoted';
+      if(tradesByStage[stage])tradesByStage[stage].push({...sell,type:'sell'});
+    });
+
+    // Pipeline stats
+    const totalTrades=Object.values(tradesByStage).reduce((s,arr)=>s+arr.length,0);
+    const settledCount=tradesByStage.settled?.length||0;
+    const inProgressCount=totalTrades-settledCount;
+
+    c.innerHTML=`
+      <div class="kpi-grid" style="margin-bottom:16px">
+        <div class="kpi"><div class="kpi-label">TOTAL IN PIPELINE</div><div class="kpi-value">${totalTrades}</div></div>
+        <div class="kpi"><div class="kpi-label">IN PROGRESS</div><div class="kpi-value warn">${inProgressCount}</div></div>
+        <div class="kpi"><div class="kpi-label">SETTLED</div><div class="kpi-value positive">${settledCount}</div></div>
+        <div class="kpi"><div class="kpi-label">COMPLETION RATE</div><div class="kpi-value">${totalTrades?Math.round(settledCount/totalTrades*100):0}%</div></div>
+      </div>
+
+      <div class="pipeline-kanban">
+        ${stages.map(stage=>`
+          <div class="pipeline-column" data-stage="${stage}">
+            <div class="pipeline-column-header" style="border-bottom-color:${stageColors[stage]}">
+              <span class="pipeline-stage-label">${stageLabels[stage]}</span>
+              <span class="pipeline-stage-count">${tradesByStage[stage].length}</span>
+            </div>
+            <div class="pipeline-column-body">
+              ${tradesByStage[stage].length?tradesByStage[stage].map(trade=>`
+                <div class="pipeline-card" data-id="${trade.id}" onclick="showTradeDetail('${trade.id}','sell')">
+                  <div class="pipeline-card-header">
+                    <span class="pipeline-card-customer">${trade.customer||'Unknown'}</span>
+                    <span class="pipeline-card-order">#${trade.orderNum||trade.id}</span>
+                  </div>
+                  <div class="pipeline-card-product">${trade.product}</div>
+                  <div class="pipeline-card-details">
+                    <span>${fmtN(trade.volume)} MBF</span>
+                    <span>${fmt(trade.price)}</span>
+                  </div>
+                  <div class="pipeline-card-footer">
+                    <span class="pipeline-card-margin ${trade.profit>=0?'positive':'negative'}">${trade.profit?fmt(Math.round(trade.profit)):'-'}</span>
+                    ${typeof calcDaysInStage==='function'?`<span class="pipeline-card-days">${calcDaysInStage(trade)}d</span>`:''}
+                  </div>
+                  ${stage!=='settled'?`<div class="pipeline-card-actions">
+                    <button class="btn btn-sm btn-primary" onclick="event.stopPropagation();advanceStage('${trade.id}','sell');render()">Advance ▶</button>
+                  </div>`:''}
+                </div>
+              `).join(''):`<div class="pipeline-empty">No trades</div>`}
+            </div>
+          </div>
+        `).join('')}
+      </div>
+    `;
+  }
+  else if(S.view==='analytics-lab'){
+    // Analytics Lab - VaR, Scenarios, P&L Attribution
+    const config=S.scenarioConfig||{bullBear:10,simulations:1000,holdingDays:5};
+
+    // Get VaR data if available
+    const varData=typeof calcMonteCarloVaR==='function'?calcMonteCarloVaR(0.95,config.simulations,config.holdingDays):null;
+    const scenarios=typeof runAllScenarios==='function'?runAllScenarios():[];
+    const attribution=typeof getPnLAttribution==='function'?getPnLAttribution('30d'):{byProduct:[],byCustomer:[],byTrader:[]};
+
+    c.innerHTML=`
+      <div style="display:flex;gap:8px;margin-bottom:16px">
+        <button class="btn ${!S.analyticsLabTab||S.analyticsLabTab==='var'?'btn-primary':'btn-default'}" onclick="S.analyticsLabTab='var';render()">📊 VaR Analysis</button>
+        <button class="btn ${S.analyticsLabTab==='scenarios'?'btn-primary':'btn-default'}" onclick="S.analyticsLabTab='scenarios';render()">🎯 Scenarios</button>
+        <button class="btn ${S.analyticsLabTab==='attribution'?'btn-primary':'btn-default'}" onclick="S.analyticsLabTab='attribution';render()">📈 P&L Attribution</button>
+      </div>
+
+      ${!S.analyticsLabTab||S.analyticsLabTab==='var'?`
+        <!-- VaR Analysis -->
+        <div class="grid-2" style="margin-bottom:16px">
+          <div class="card">
+            <div class="card-header"><span class="card-title negative">VALUE AT RISK (95%)</span></div>
+            <div class="card-body" style="text-align:center;padding:24px">
+              <div style="font-size:36px;font-weight:700;color:var(--negative)">${varData?fmt(Math.round(varData.var95)):'$—'}</div>
+              <div style="color:var(--muted);margin-top:8px">Max expected loss over ${config.holdingDays} days</div>
+              <div style="margin-top:16px;padding:12px;background:var(--bg);border-radius:4px">
+                <div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:8px">
+                  <span>99% VaR:</span><span class="negative bold">${varData?fmt(Math.round(varData.var99)):'—'}</span>
+                </div>
+                <div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:8px">
+                  <span>Expected Shortfall:</span><span class="negative bold">${varData?fmt(Math.round(varData.expectedShortfall)):'—'}</span>
+                </div>
+                <div style="display:flex;justify-content:space-between;font-size:11px">
+                  <span>Position Value:</span><span class="bold">${varData?fmt(Math.round(varData.positionValue)):'—'}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-header"><span class="card-title">VaR CONFIGURATION</span></div>
+            <div class="card-body">
+              <div class="form-group" style="margin-bottom:12px">
+                <label class="form-label">Monte Carlo Simulations</label>
+                <input type="number" id="var-simulations" value="${config.simulations}" min="100" max="10000" style="width:150px">
+              </div>
+              <div class="form-group" style="margin-bottom:12px">
+                <label class="form-label">Holding Period (Days)</label>
+                <input type="number" id="var-holding-days" value="${config.holdingDays}" min="1" max="30" style="width:150px">
+              </div>
+              <button class="btn btn-primary" onclick="S.scenarioConfig.simulations=parseInt(document.getElementById('var-simulations').value)||1000;S.scenarioConfig.holdingDays=parseInt(document.getElementById('var-holding-days').value)||5;SS('scenarioConfig',S.scenarioConfig);render()">Recalculate VaR</button>
+            </div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-header"><span class="card-title">VaR DISTRIBUTION</span></div>
+          <div class="card-body">
+            <div style="height:250px"><canvas id="var-distribution-chart"></canvas></div>
+          </div>
+        </div>
+      `:''}
+
+      ${S.analyticsLabTab==='scenarios'?`
+        <!-- Scenario Analysis -->
+        <div class="kpi-grid" style="margin-bottom:16px">
+          <div class="kpi"><div class="kpi-label">BULL +10%</div><div class="kpi-value ${scenarios.find(s=>s.id==='bull10')?.impact>=0?'positive':'negative'}">${scenarios.find(s=>s.id==='bull10')?fmt(Math.round(scenarios.find(s=>s.id==='bull10').impact)):'—'}</div></div>
+          <div class="kpi"><div class="kpi-label">BEAR -10%</div><div class="kpi-value ${scenarios.find(s=>s.id==='bear10')?.impact>=0?'positive':'negative'}">${scenarios.find(s=>s.id==='bear10')?fmt(Math.round(scenarios.find(s=>s.id==='bear10').impact)):'—'}</div></div>
+          <div class="kpi"><div class="kpi-label">HOUSING BOOM</div><div class="kpi-value ${scenarios.find(s=>s.id==='housing_boom')?.impact>=0?'positive':'negative'}">${scenarios.find(s=>s.id==='housing_boom')?fmt(Math.round(scenarios.find(s=>s.id==='housing_boom').impact)):'—'}</div></div>
+          <div class="kpi"><div class="kpi-label">SUPPLY GLUT</div><div class="kpi-value ${scenarios.find(s=>s.id==='supply_glut')?.impact>=0?'positive':'negative'}">${scenarios.find(s=>s.id==='supply_glut')?fmt(Math.round(scenarios.find(s=>s.id==='supply_glut').impact)):'—'}</div></div>
+        </div>
+        <div class="card">
+          <div class="card-header"><span class="card-title">ALL SCENARIOS</span></div>
+          <div class="card-body" style="overflow-x:auto">
+            <table>
+              <thead><tr><th>Scenario</th><th class="right">Price Change</th><th class="right">Current Value</th><th class="right">Scenario Value</th><th class="right">P&L Impact</th></tr></thead>
+              <tbody>
+                ${scenarios.map(s=>`<tr>
+                  <td class="bold">${s.name}</td>
+                  <td class="right ${s.priceChange>=0?'positive':'negative'}">${s.priceChange>=0?'+':''}${(s.priceChange*100).toFixed(0)}%</td>
+                  <td class="right">${fmt(Math.round(s.currentValue))}</td>
+                  <td class="right">${fmt(Math.round(s.scenarioValue))}</td>
+                  <td class="right ${s.impact>=0?'positive':'negative'} bold">${s.impact>=0?'+':''}${fmt(Math.round(s.impact))}</td>
+                </tr>`).join('')||'<tr><td colspan="5" class="empty-state">No scenario data</td></tr>'}
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <div class="card" style="margin-top:16px">
+          <div class="card-header"><span class="card-title">SCENARIO IMPACT CHART</span></div>
+          <div class="card-body">
+            <div style="height:250px"><canvas id="scenario-impact-chart"></canvas></div>
+          </div>
+        </div>
+      `:''}
+
+      ${S.analyticsLabTab==='attribution'?`
+        <!-- P&L Attribution -->
+        <div class="grid-3" style="margin-bottom:16px">
+          <div class="card">
+            <div class="card-header"><span class="card-title accent">BY PRODUCT</span></div>
+            <div class="card-body" style="padding:0;max-height:300px;overflow-y:auto">
+              ${attribution.byProduct.length?attribution.byProduct.map(p=>`
+                <div class="activity-item" style="padding:8px 12px">
+                  <div><div style="font-weight:500">${p.product}</div><div style="font-size:9px;color:var(--muted)">${fmtN(p.volume)} MBF</div></div>
+                  <div class="bold ${p.profit>=0?'positive':'negative'}">${fmt(Math.round(p.profit))}</div>
+                </div>
+              `).join(''):'<div class="empty-state">No data</div>'}
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-header"><span class="card-title warn">BY CUSTOMER</span></div>
+            <div class="card-body" style="padding:0;max-height:300px;overflow-y:auto">
+              ${attribution.byCustomer.length?attribution.byCustomer.map(c=>`
+                <div class="activity-item" style="padding:8px 12px">
+                  <div><div style="font-weight:500">${c.customer}</div><div style="font-size:9px;color:var(--muted)">${c.trades} trades</div></div>
+                  <div class="bold ${c.profit>=0?'positive':'negative'}">${fmt(Math.round(c.profit))}</div>
+                </div>
+              `).join(''):'<div class="empty-state">No data</div>'}
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-header"><span class="card-title info">BY TRADER</span></div>
+            <div class="card-body" style="padding:0;max-height:300px;overflow-y:auto">
+              ${attribution.byTrader.length?attribution.byTrader.map(t=>`
+                <div class="activity-item" style="padding:8px 12px;border-left:3px solid ${typeof traderColor==='function'?traderColor(t.trader):'var(--accent)'}">
+                  <div><div style="font-weight:500">${t.trader}</div><div style="font-size:9px;color:var(--muted)">${fmtN(t.volume)} MBF</div></div>
+                  <div class="bold ${t.profit>=0?'positive':'negative'}">${fmt(Math.round(t.profit))}</div>
+                </div>
+              `).join(''):'<div class="empty-state">No data</div>'}
+            </div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-header"><span class="card-title">P&L ATTRIBUTION CHART</span></div>
+          <div class="card-body">
+            <div style="height:250px"><canvas id="attribution-chart"></canvas></div>
+          </div>
+        </div>
+      `:''}
+    `;
+
+    // Render charts after DOM update
+    setTimeout(()=>{
+      if(!S.analyticsLabTab||S.analyticsLabTab==='var'){
+        // Render VaR distribution chart
+        if(varData&&varData.distribution&&typeof renderVaRChart==='function'){
+          renderVaRChart('var-distribution-chart',varData);
+        }
+      }else if(S.analyticsLabTab==='scenarios'){
+        // Render scenario impact chart
+        if(scenarios.length&&typeof renderScenarioChart==='function'){
+          renderScenarioChart('scenario-impact-chart',scenarios);
+        }
+      }else if(S.analyticsLabTab==='attribution'){
+        // Render attribution chart
+        if(attribution.byProduct.length&&typeof renderAttributionChart==='function'){
+          renderAttributionChart('attribution-chart',attribution);
+        }
+      }
+    },50);
   }
   else if(S.view==='settings'){
     const sbUrl=LS('supabaseUrl','')||DEFAULT_SUPABASE_URL;

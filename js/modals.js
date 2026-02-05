@@ -132,15 +132,17 @@ function showBuyModal(b=null){
             const tallyKeys=b?.tally?Object.keys(b.tally):[];
             const hasMixedKeys=tallyKeys.some(k=>/[a-zA-Z]/.test(k));
             if(hasMixedKeys){
-              // Mixed-product tally: show custom rows from actual keys
-              return`<table style="width:100%;font-size:11px"><thead><tr><th>Item</th><th>MBF</th><th>$/MBF</th><th>Value</th></tr></thead><tbody>
+              // Mixed-product tally: show custom rows from actual keys with Units column
+              return`<table style="width:100%;font-size:11px"><thead><tr><th>Item</th><th>Units</th><th style="color:var(--muted)">MBF</th><th>$/MBF</th><th>Value</th></tr></thead><tbody>
                 ${tallyKeys.map((key,ki)=>`<tr>
                   <td style="font-weight:600">${key}</td>
-                  <td><input type="number" id="tally-vol-mixed-${ki}" data-tkey="${key}" value="${b.tally[key]?.vol||''}" style="width:60px" onchange="calcMixedTallyTotal()"></td>
+                  <td><input type="number" id="tally-units-mixed-${ki}" data-tkey="${key}" value="${b.tally[key]?.units||''}" style="width:50px" onchange="calcMixedTallyTotal()" step="0.01" placeholder="units"></td>
+                  <td><input type="number" id="tally-vol-mixed-${ki}" data-tkey="${key}" value="${b.tally[key]?.vol||''}" style="width:60px" onchange="calcMixedTallyTotal()" placeholder="MBF"></td>
                   <td><input type="number" id="tally-price-mixed-${ki}" data-tkey="${key}" value="${b.tally[key]?.price||''}" style="width:70px" onchange="calcMixedTallyTotal()"></td>
                   <td id="tally-val-mixed-${ki}" class="right">—</td>
                 </tr>`).join('')}
-              </tbody><tfoot><tr style="font-weight:bold;border-top:2px solid var(--border)"><td>Total</td><td id="tally-total-vol">—</td><td id="tally-avg-price">—</td><td id="tally-total-val">—</td></tr></tfoot></table>`;
+              </tbody><tfoot><tr style="font-weight:bold;border-top:2px solid var(--border)"><td>Total</td><td id="tally-total-units-mixed">—</td><td id="tally-total-vol">—</td><td id="tally-avg-price">—</td><td id="tally-total-val">—</td></tr></tfoot></table>
+              <div style="margin-top:8px;font-size:10px;color:var(--muted)">Enter Units (bunks) and MBF will auto-calculate based on product. Or enter MBF directly.</div>`;
             }
             // Standard length-only tally
             return`<table style="width:100%;font-size:11px"><thead><tr><th>Length</th><th>Units</th><th style="color:var(--muted)">MBF</th><th id="tally-price-header">${isMSR?'Your $/MBF':'$/MBF'}</th><th id="tally-base-header" style="display:${isMSR?'table-cell':'none'}">Base #1</th><th id="tally-prem-header" style="display:${isMSR?'table-cell':'none'}">Premium</th><th>Value</th></tr></thead><tbody>
@@ -804,24 +806,50 @@ function calcTallyTotal(){
 }
 
 function calcMixedTallyTotal(){
-  let totalVol=0,totalVal=0;
+  let totalVol=0,totalVal=0,totalUnits=0;
   let i=0;
   while(true){
+    const unitsEl=document.getElementById(`tally-units-mixed-${i}`);
     const volEl=document.getElementById(`tally-vol-mixed-${i}`);
     const priceEl=document.getElementById(`tally-price-mixed-${i}`);
     const valEl=document.getElementById(`tally-val-mixed-${i}`);
     if(!volEl)break;
-    const vol=parseFloat(volEl.value)||0;
+
+    // Get units and calculate MBF if units field exists
+    const units=parseFloat(unitsEl?.value)||0;
+    let vol=parseFloat(volEl.value)||0;
+
+    // If units entered, auto-calc MBF based on product in tally key
+    if(units>0&&unitsEl){
+      const tkey=volEl.dataset.tkey||'';
+      // Parse product from key like "2x4#2 8'" or "2x6#2 10'"
+      const dimMatch=tkey.match(/2x(\d+)/i);
+      const lenMatch=tkey.match(/(\d+)['\"]?\s*$/);
+      if(dimMatch){
+        const width=parseInt(dimMatch[1])||4;
+        const length=lenMatch?parseInt(lenMatch[1]):14; // Default 14' for RL
+        // PPU lookup (pieces per unit)
+        const ppuMap={'2x4':208,'2x6':128,'2x8':96,'2x10':80,'2x12':64};
+        const ppu=ppuMap[`2x${width}`]||128;
+        // Calculate: (units * ppu * 2 * width * length) / 12 / 1000
+        vol=(units*ppu*2*width*length)/12/1000;
+        volEl.value=fmtN(vol);
+      }
+    }
+
     const price=parseFloat(priceEl?.value)||0;
     const val=vol*price;
     if(valEl)valEl.textContent=val>0?fmt(Math.round(val)):'—';
     totalVol+=vol;
     totalVal+=val;
+    totalUnits+=units;
     i++;
   }
+  const unitsTotalEl=document.getElementById('tally-total-units-mixed');
   const volTotalEl=document.getElementById('tally-total-vol');
   const avgEl=document.getElementById('tally-avg-price');
   const valTotalEl=document.getElementById('tally-total-val');
+  if(unitsTotalEl)unitsTotalEl.textContent=totalUnits>0?fmtN(totalUnits):'—';
   if(volTotalEl)volTotalEl.textContent=totalVol>0?fmtN(totalVol):'—';
   if(avgEl)avgEl.textContent=totalVol>0?fmt(Math.round(totalVal/totalVol)):'—';
   if(valTotalEl)valTotalEl.textContent=totalVal>0?fmt(Math.round(totalVal)):'—';
@@ -1502,14 +1530,16 @@ function showSellModal(s=null){
             const tallyKeys=s?.tally?Object.keys(s.tally):[];
             const hasMixedKeys=tallyKeys.some(k=>/[a-zA-Z]/.test(k));
             if(hasMixedKeys){
-              return`<table style="width:100%;font-size:11px"><thead><tr><th>Item</th><th>MBF</th><th>$/MBF DLVD</th><th>Value</th></tr></thead><tbody>
+              return`<table style="width:100%;font-size:11px"><thead><tr><th>Item</th><th>Units</th><th style="color:var(--muted)">MBF</th><th>$/MBF DLVD</th><th>Value</th></tr></thead><tbody>
                 ${tallyKeys.map((key,ki)=>`<tr>
                   <td style="font-weight:600">${key}</td>
-                  <td><input type="number" id="tally-vol-mixed-${ki}" data-tkey="${key}" value="${s.tally[key]?.vol||''}" style="width:60px" onchange="calcMixedTallyTotal()"></td>
+                  <td><input type="number" id="tally-units-mixed-${ki}" data-tkey="${key}" value="${s.tally[key]?.units||''}" style="width:50px" onchange="calcMixedTallyTotal()" step="0.01" placeholder="units"></td>
+                  <td><input type="number" id="tally-vol-mixed-${ki}" data-tkey="${key}" value="${s.tally[key]?.vol||''}" style="width:60px" onchange="calcMixedTallyTotal()" placeholder="MBF"></td>
                   <td><input type="number" id="tally-price-mixed-${ki}" data-tkey="${key}" value="${s.tally[key]?.price||''}" style="width:70px" onchange="calcMixedTallyTotal()"></td>
                   <td id="tally-val-mixed-${ki}" class="right">—</td>
                 </tr>`).join('')}
-              </tbody><tfoot><tr style="font-weight:bold;border-top:2px solid var(--border)"><td>Total</td><td id="tally-total-vol">—</td><td id="tally-avg-price">—</td><td id="tally-total-val">—</td></tr></tfoot></table>`;
+              </tbody><tfoot><tr style="font-weight:bold;border-top:2px solid var(--border)"><td>Total</td><td id="tally-total-units-mixed">—</td><td id="tally-total-vol">—</td><td id="tally-avg-price">—</td><td id="tally-total-val">—</td></tr></tfoot></table>
+              <div style="margin-top:8px;font-size:10px;color:var(--muted)">Enter Units (bunks) and MBF will auto-calculate based on product. Or enter MBF directly.</div>`;
             }
             return`<table style="width:100%;font-size:11px"><thead><tr><th>Length</th><th>Units</th><th style="color:var(--muted)">MBF</th><th id="tally-price-header-sell">${isMSR?'Your $/MBF':'$/MBF DLVD'}</th><th id="tally-base-header-sell" style="display:${isMSR?'table-cell':'none'}">Base #1</th><th id="tally-prem-header-sell" style="display:${isMSR?'table-cell':'none'}">Premium</th><th>Value</th></tr></thead><tbody>
             ${['8','10','12','14','16','18','20'].map(len=>`<tr>

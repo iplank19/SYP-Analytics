@@ -152,10 +152,15 @@ async function saveBuy(id){
   };
   
   if(!b.product||!b.price||!b.volume){showToast('Fill required fields (product, price, volume)','warn');return}
-  // Warn on duplicate order number (different buy)
+  // Warn on duplicate order number (different buy) - with fuzzy matching
   if(b.orderNum){
-    const dupe=S.buys.find(x=>x.id!==id&&String(x.orderNum||x.po||'').trim()===b.orderNum.trim());
-    if(dupe&&!confirm(`Order # "${b.orderNum}" already exists on a buy from ${dupe.mill||'unknown mill'}. Save anyway?`))return;
+    const normalizeOrderNum=s=>String(s||'').toLowerCase().replace(/[^a-z0-9]/g,'');
+    const normalizedNew=normalizeOrderNum(b.orderNum);
+    const dupe=S.buys.find(x=>x.id!==id&&normalizeOrderNum(x.orderNum||x.po)===normalizedNew);
+    if(dupe){
+      const userInput=prompt(`DUPLICATE ORDER WARNING!\n\nOrder # "${b.orderNum}" appears to match existing buy:\n- Mill: ${dupe.mill||'unknown'}\n- Product: ${dupe.product}\n- Date: ${dupe.date}\n\nType "SAVE" to save anyway, or click Cancel:`);
+      if(userInput?.toUpperCase()!=='SAVE'){showToast('Save cancelled - duplicate order','warn');return}
+    }
   }
   if(id){
     const existing=S.buys.find(x=>x.id===id);
@@ -308,10 +313,15 @@ async function saveSell(id){
   };
   
   if(!s.product||!s.price||!s.volume){showToast('Fill required fields (product, price, volume)','warn');return}
-  // Warn on duplicate order number (different sell)
+  // Warn on duplicate order number (different sell) - with fuzzy matching
   if(s.orderNum){
-    const dupe=S.sells.find(x=>x.id!==id&&String(x.orderNum||x.linkedPO||x.oc||'').trim()===s.orderNum.trim());
-    if(dupe&&!confirm(`Order # "${s.orderNum}" already exists on a sell to ${dupe.customer||'unknown customer'}. Save anyway?`))return;
+    const normalizeOrderNum=str=>String(str||'').toLowerCase().replace(/[^a-z0-9]/g,'');
+    const normalizedNew=normalizeOrderNum(s.orderNum);
+    const dupe=S.sells.find(x=>x.id!==id&&normalizeOrderNum(x.orderNum||x.linkedPO||x.oc)===normalizedNew);
+    if(dupe){
+      const userInput=prompt(`DUPLICATE ORDER WARNING!\n\nOrder # "${s.orderNum}" appears to match existing sell:\n- Customer: ${dupe.customer||'unknown'}\n- Product: ${dupe.product}\n- Date: ${dupe.date}\n\nType "SAVE" to save anyway, or click Cancel:`);
+      if(userInput?.toUpperCase()!=='SAVE'){showToast('Save cancelled - duplicate order','warn');return}
+    }
   }
   // Save rate as default
   S.flatRate=s.rate;
@@ -359,6 +369,14 @@ async function saveCust(oldName){
       const err=await res.json().catch(()=>({}));
       throw new Error(err.error||'Server error '+res.status);
     }
+    // Update local state immediately
+    const savedData=await res.json();
+    if(existing){
+      Object.assign(existing,c,{id:savedData.id||existing.id});
+    }else{
+      S.customers.unshift({...c,id:savedData.id});
+    }
+    await saveAllLocal();
     showToast('Customer saved','positive');
     closeModal();loadCRMData();
   }catch(e){showToast('Error saving customer: '+e.message,'negative')}
@@ -428,6 +446,14 @@ async function saveMill(oldName){
       const err=await res.json().catch(()=>({}));
       throw new Error(err.error||'Server error '+res.status);
     }
+    // Update local state immediately
+    const savedData=await res.json();
+    if(existing){
+      Object.assign(existing,m,{id:savedData.id||existing.id});
+    }else{
+      S.mills.unshift({...m,id:savedData.id});
+    }
+    await saveAllLocal();
     showToast('Mill saved','positive');
     closeModal();loadCRMData();
   }catch(e){showToast('Error saving mill: '+e.message,'negative')}
@@ -444,6 +470,9 @@ async function deleteCust(name){
   try{
     const c=S.customers.find(x=>x.name===name);
     if(c?.id)await fetch('/api/crm/customers/'+c.id,{method:'DELETE'});
+    S.customers=S.customers.filter(x=>x.name!==name);
+    await saveAllLocal();
+    showToast('Customer deleted','positive');
     loadCRMData();
   }catch(e){showToast('Error deleting customer: '+e.message,'negative')}
 }
@@ -454,7 +483,8 @@ async function deleteMill(name){
     const m=S.mills.find(x=>x.name===name);
     if(m?.id)await fetch('/api/crm/mills/'+m.id,{method:'DELETE'});
     S.mills=S.mills.filter(x=>x.name!==name);
-    await save();
+    await saveAllLocal();
+    showToast('Mill deleted','positive');
     loadCRMData();
   }catch(e){showToast('Error deleting mill: '+e.message,'negative')}
 }
@@ -784,5 +814,427 @@ function calcBasisTarget(){
       </div>
     </div>
   `;
+}
+
+// ============================================================================
+// PHASE 1: SMART ORDER MATCHING ENGINE
+// ============================================================================
+
+// Normalize product for comparison (strips whitespace, case-insensitive)
+function normalizeProductForMatch(product){
+  if(!product)return '';
+  return product.toLowerCase().replace(/\s+/g,'').replace(/#/g,'');
+}
+
+// Calculate match score between a buy and sell (0-100)
+function calcMatchScore(buy, sell){
+  if(!buy||!sell)return 0;
+  let score=0;
+  const config=S.autoMatchConfig||{};
+  const volTolerance=config.volumeTolerance||0.2;
+  const priceTolerance=config.priceTolerance||20;
+
+  // Product match (40 points max)
+  const buyProd=normalizeProductForMatch(buy.product);
+  const sellProd=normalizeProductForMatch(sell.product);
+  if(buyProd===sellProd){
+    score+=40;
+  }else if(buyProd.includes(sellProd)||sellProd.includes(buyProd)){
+    score+=25; // Partial match
+  }
+
+  // Length match (15 points max)
+  const buyLen=(buy.length||'RL').toString();
+  const sellLen=(sell.length||'RL').toString();
+  if(buyLen===sellLen){
+    score+=15;
+  }else if(buyLen==='RL'||sellLen==='RL'){
+    score+=10; // RL matches any length
+  }
+
+  // Volume compatibility (25 points max)
+  const buyVol=buy.volume||0;
+  const sellVol=sell.volume||0;
+  const soldFromBuy=getVolumeAlreadySold(buy);
+  const availVol=buyVol-soldFromBuy;
+
+  if(availVol>=sellVol){
+    score+=25; // Full coverage available
+  }else if(availVol>=sellVol*(1-volTolerance)){
+    score+=Math.round(25*(availVol/sellVol)); // Partial coverage
+  }
+
+  // Date proximity (10 points max) - prefer recent buys for recent sells
+  const buyDate=new Date(buy.date||0);
+  const sellDate=new Date(sell.date||0);
+  const daysDiff=Math.abs((sellDate-buyDate)/(1000*60*60*24));
+  if(daysDiff<=7)score+=10;
+  else if(daysDiff<=14)score+=7;
+  else if(daysDiff<=30)score+=4;
+
+  // Price margin check (10 points max) - ensure profitable match
+  const buyPrice=buy.price||0;
+  const sellPrice=sell.price||0;
+  const freight=sell.freight||0;
+  const freightPerMBF=sellVol>0?freight/sellVol:0;
+  const margin=sellPrice-freightPerMBF-buyPrice;
+
+  if(margin>priceTolerance)score+=10;
+  else if(margin>0)score+=6;
+  else if(margin>=-priceTolerance)score+=2;
+
+  return Math.min(100,Math.max(0,score));
+}
+
+// Get volume already sold from a buy order
+function getVolumeAlreadySold(buy){
+  if(!buy)return 0;
+  const ord=String(buy.orderNum||buy.po||'').trim();
+  if(!ord)return 0;
+  return S.sells.filter(s=>{
+    const sellOrd=String(s.orderNum||s.linkedPO||s.oc||'').trim();
+    return sellOrd===ord&&s.status!=='cancelled';
+  }).reduce((sum,s)=>sum+(s.volume||0),0);
+}
+
+// Get available volume on a buy order
+function getAvailableVolume(buy){
+  if(!buy)return 0;
+  return(buy.volume||0)-getVolumeAlreadySold(buy);
+}
+
+// Calculate margin preview for a potential match
+function calcMarginPreview(buy,sell){
+  if(!buy||!sell)return null;
+  const buyPrice=buy.price||0;
+  const sellPrice=sell.price||0;
+  const sellVol=sell.volume||0;
+  const freight=sell.freight||0;
+  const freightPerMBF=sellVol>0?freight/sellVol:0;
+  const marginPerMBF=sellPrice-freightPerMBF-buyPrice;
+  const totalMargin=marginPerMBF*sellVol;
+
+  return{
+    buyPrice,
+    sellPrice,
+    freightPerMBF:Math.round(freightPerMBF),
+    marginPerMBF:Math.round(marginPerMBF),
+    totalMargin:Math.round(totalMargin),
+    volume:sellVol
+  };
+}
+
+// Suggest best matches for an unmatched sell (short position)
+function suggestMatchesForShort(sell){
+  if(!sell)return[];
+  const config=S.autoMatchConfig||{};
+  const minScore=config.minScore||60;
+  const volTolerance=config.volumeTolerance||0.2;
+
+  // Get buys that could cover this sell
+  const candidates=S.buys.filter(b=>{
+    if(b.status==='cancelled')return false;
+    const availVol=getAvailableVolume(b);
+    if(availVol<(sell.volume||0)*(1-volTolerance))return false;
+    // Product match check
+    const buyProd=normalizeProductForMatch(b.product);
+    const sellProd=normalizeProductForMatch(sell.product);
+    return buyProd===sellProd||buyProd.includes(sellProd)||sellProd.includes(buyProd);
+  });
+
+  // Score and rank matches
+  const scored=candidates.map(b=>({
+    buy:b,
+    score:calcMatchScore(b,sell),
+    margin:calcMarginPreview(b,sell),
+    availableVolume:getAvailableVolume(b)
+  })).filter(m=>m.score>=minScore);
+
+  // Sort by score descending, take top 5
+  scored.sort((a,b)=>b.score-a.score);
+  return scored.slice(0,5);
+}
+
+// Auto-match a sell to best available buy
+async function autoMatchShort(sellId){
+  const sell=S.sells.find(s=>s.id===sellId);
+  if(!sell){showToast('Sell not found','warn');return null}
+
+  // Check if already matched
+  const ord=String(sell.orderNum||sell.linkedPO||sell.oc||'').trim();
+  if(ord){
+    const existingBuy=S.buys.find(b=>String(b.orderNum||b.po||'').trim()===ord);
+    if(existingBuy){showToast('Already matched to PO '+ord,'info');return null}
+  }
+
+  const suggestions=suggestMatchesForShort(sell);
+  if(!suggestions.length){showToast('No matching buys found','warn');return null}
+
+  const best=suggestions[0];
+  const config=S.autoMatchConfig||{};
+
+  // Auto-confirm if enabled and score is high enough
+  if(config.autoConfirm&&best.score>=90){
+    return confirmMatch(sellId,best.buy.id);
+  }
+
+  return best;
+}
+
+// Confirm a match between sell and buy
+async function confirmMatch(sellId,buyId){
+  const sell=S.sells.find(s=>s.id===sellId);
+  const buy=S.buys.find(b=>b.id===buyId);
+
+  if(!sell||!buy){showToast('Trade not found','warn');return false}
+
+  const buyOrd=String(buy.orderNum||buy.po||'').trim();
+  if(!buyOrd){showToast('Buy has no order number','warn');return false}
+
+  // Link the sell to the buy's order number
+  sell.linkedPO=buyOrd;
+  sell.orderNum=buyOrd;
+  sell.oc=buyOrd;
+
+  await saveAllLocal();
+  showToast(`Matched to PO ${buyOrd}`,'positive');
+  render();
+  return true;
+}
+
+// Get all unmatched sells (short positions)
+function getUnmatchedSells(){
+  const buyOrders=new Set(
+    S.buys.filter(b=>b.status!=='cancelled')
+      .map(b=>String(b.orderNum||b.po||'').trim())
+      .filter(Boolean)
+  );
+
+  return S.sells.filter(s=>{
+    if(s.status==='cancelled')return false;
+    const ord=String(s.orderNum||s.linkedPO||s.oc||'').trim();
+    return!ord||!buyOrders.has(ord);
+  });
+}
+
+// Show smart match modal for a sell
+function showSmartMatchModal(sellId){
+  const sell=S.sells.find(s=>s.id===sellId);
+  if(!sell){showToast('Sell not found','warn');return}
+
+  const suggestions=suggestMatchesForShort(sell);
+
+  document.getElementById('modal').innerHTML=`<div class="modal-overlay" onclick="closeModal()"><div class="modal wide" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <span class="modal-title info">SMART MATCH SUGGESTIONS</span>
+      <button class="modal-close" onclick="closeModal()">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="match-sell-summary" style="background:var(--panel-alt);padding:12px;margin-bottom:16px;border:1px solid var(--info)">
+        <div style="font-weight:600;color:var(--info);margin-bottom:8px">SHORT POSITION</div>
+        <div class="grid-3" style="font-size:11px">
+          <div><span style="color:var(--muted)">Product:</span> ${sell.product} ${sell.length||'RL'}</div>
+          <div><span style="color:var(--muted)">Volume:</span> ${fmtN(sell.volume)} MBF</div>
+          <div><span style="color:var(--muted)">Sell Price:</span> ${fmt(sell.price)} DLVD</div>
+          <div><span style="color:var(--muted)">Customer:</span> ${sell.customer||'—'}</div>
+          <div><span style="color:var(--muted)">Destination:</span> ${sell.destination||'—'}</div>
+          <div><span style="color:var(--muted)">Freight:</span> ${fmt(sell.freight||0)}</div>
+        </div>
+      </div>
+
+      ${suggestions.length?`
+        <div style="font-weight:600;margin-bottom:12px">TOP ${suggestions.length} MATCHES</div>
+        <div class="match-suggestions">
+          ${suggestions.map((s,i)=>`
+            <div class="match-card" style="background:var(--panel);border:1px solid ${s.score>=80?'var(--positive)':s.score>=60?'var(--warn)':'var(--border)'};padding:12px;margin-bottom:8px;border-radius:var(--radius)">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+                <div style="display:flex;align-items:center;gap:8px">
+                  <span class="match-rank" style="background:${i===0?'var(--positive)':'var(--panel-alt)'};color:${i===0?'#000':'var(--text)'};padding:2px 8px;border-radius:2px;font-weight:700;font-size:10px">#${i+1}</span>
+                  <span style="font-weight:600">${s.buy.mill||'Unknown Mill'}</span>
+                  <span class="badge badge-${s.score>=80?'success':s.score>=60?'warn':'info'}">${s.score}% MATCH</span>
+                </div>
+                <button class="btn btn-${i===0?'success':'primary'} btn-sm" onclick="confirmMatch(${sellId},${s.buy.id});closeModal()">
+                  ${i===0?'Best Match':'Select'}
+                </button>
+              </div>
+              <div class="grid-2" style="font-size:10px;gap:8px">
+                <div>
+                  <div><span style="color:var(--muted)">PO:</span> ${s.buy.orderNum||s.buy.po||'—'}</div>
+                  <div><span style="color:var(--muted)">Product:</span> ${s.buy.product} ${s.buy.length||'RL'}</div>
+                  <div><span style="color:var(--muted)">Buy Price:</span> ${fmt(s.buy.price)} FOB</div>
+                  <div><span style="color:var(--muted)">Available:</span> ${fmtN(s.availableVolume)} MBF</div>
+                </div>
+                <div style="background:var(--bg);padding:8px;border-radius:var(--radius)">
+                  <div style="font-weight:600;margin-bottom:4px;color:${s.margin?.marginPerMBF>=0?'var(--positive)':'var(--negative)'}">
+                    MARGIN PREVIEW
+                  </div>
+                  <div><span style="color:var(--muted)">$/MBF:</span> <span class="${s.margin?.marginPerMBF>=0?'positive':'negative'}">${fmt(s.margin?.marginPerMBF||0)}</span></div>
+                  <div><span style="color:var(--muted)">Total:</span> <span class="${s.margin?.totalMargin>=0?'positive':'negative'}">${fmt(s.margin?.totalMargin||0)}</span></div>
+                </div>
+              </div>
+            </div>
+          `).join('')}
+        </div>
+      `:`
+        <div class="empty-state" style="padding:40px">
+          <div style="font-size:32px;margin-bottom:12px">🔍</div>
+          <div style="font-weight:600;margin-bottom:8px">No Matching Buys Found</div>
+          <div style="color:var(--muted);font-size:11px">
+            No POs match this product with available volume.<br>
+            Consider creating a new buy order.
+          </div>
+          <button class="btn btn-success" style="margin-top:16px" onclick="closeModal();showBuyModal({product:'${sell.product}',length:'${sell.length||'RL'}'})">
+            + Create Buy
+          </button>
+        </div>
+      `}
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-default" onclick="closeModal()">Cancel</button>
+    </div>
+  </div></div>`;
+}
+
+// ============================================================================
+// PHASE 3: EXECUTION PIPELINE FUNCTIONS
+// ============================================================================
+
+// Pipeline stage definitions
+const PIPELINE_STAGES=[
+  {id:'quoted',label:'Quoted',icon:'📝',color:'var(--muted)'},
+  {id:'ordered',label:'Ordered',icon:'📋',color:'var(--info)'},
+  {id:'confirmed',label:'Confirmed',icon:'✓',color:'var(--accent)'},
+  {id:'shipped',label:'Shipped',icon:'🚚',color:'var(--warn)'},
+  {id:'delivered',label:'Delivered',icon:'📦',color:'var(--positive)'},
+  {id:'settled',label:'Settled',icon:'💰',color:'var(--positive)'}
+];
+
+// Get current pipeline stage for a trade
+function getPipelineStage(trade){
+  if(!trade)return'quoted';
+  // Check explicit stage first
+  if(trade.pipelineStage)return trade.pipelineStage;
+  // Infer from status flags
+  if(trade.settled||trade.invoiced)return'settled';
+  if(trade.delivered)return'delivered';
+  if(trade.shipped)return'shipped';
+  if(trade.confirmed)return'confirmed';
+  if(trade.orderNum||trade.linkedPO||trade.po)return'ordered';
+  return'quoted';
+}
+
+// Advance a trade to the next pipeline stage
+async function advanceStage(tradeId,tradeType='sell'){
+  const trades=tradeType==='sell'?S.sells:S.buys;
+  const trade=trades.find(t=>t.id===tradeId);
+  if(!trade){showToast('Trade not found','warn');return false}
+
+  const currentStage=getPipelineStage(trade);
+  const stageOrder=S.pipelineStages||['quoted','ordered','confirmed','shipped','delivered','settled'];
+  const currentIdx=stageOrder.indexOf(currentStage);
+
+  if(currentIdx>=stageOrder.length-1){
+    showToast('Already at final stage','info');
+    return false;
+  }
+
+  const nextStage=stageOrder[currentIdx+1];
+  trade.pipelineStage=nextStage;
+
+  // Update legacy flags for compatibility
+  if(nextStage==='confirmed')trade.confirmed=true;
+  if(nextStage==='shipped')trade.shipped=true;
+  if(nextStage==='delivered')trade.delivered=true;
+  if(nextStage==='settled')trade.settled=true;
+
+  await saveAllLocal();
+  showToast(`Advanced to ${nextStage}`,'positive');
+  render();
+  return true;
+}
+
+// Move trade to specific pipeline stage
+async function setStage(tradeId,stage,tradeType='sell'){
+  const trades=tradeType==='sell'?S.sells:S.buys;
+  const trade=trades.find(t=>t.id===tradeId);
+  if(!trade){showToast('Trade not found','warn');return false}
+
+  trade.pipelineStage=stage;
+
+  // Update legacy flags
+  trade.confirmed=(['confirmed','shipped','delivered','settled'].includes(stage));
+  trade.shipped=(['shipped','delivered','settled'].includes(stage));
+  trade.delivered=(['delivered','settled'].includes(stage));
+  trade.settled=(stage==='settled');
+
+  await saveAllLocal();
+  render();
+  return true;
+}
+
+// Get trades grouped by pipeline stage
+function getTradesByStage(){
+  const stages={};
+  PIPELINE_STAGES.forEach(s=>stages[s.id]=[]);
+
+  // Process sells with their matched buys
+  S.sells.filter(s=>s.status!=='cancelled').forEach(sell=>{
+    const stage=getPipelineStage(sell);
+    const ord=String(sell.orderNum||sell.linkedPO||sell.oc||'').trim();
+    const buy=ord?S.buys.find(b=>String(b.orderNum||b.po||'').trim()===ord):null;
+
+    // Calculate margin if matched
+    let margin=null;
+    if(buy){
+      const freightPerMBF=(sell.volume||0)>0?(sell.freight||0)/(sell.volume||0):0;
+      margin=(sell.price||0)-freightPerMBF-(buy.price||0);
+    }
+
+    const card={
+      id:sell.id,
+      type:'sell',
+      customer:sell.customer||'Unknown',
+      product:sell.product,
+      length:sell.length||'RL',
+      volume:sell.volume||0,
+      sellPrice:sell.price||0,
+      buyPrice:buy?.price||null,
+      margin,
+      mill:buy?.mill||'Unmatched',
+      date:sell.date,
+      destination:sell.destination,
+      daysInStage:calcDaysInStage(sell),
+      isMatched:!!buy,
+      orderNum:ord
+    };
+
+    if(stages[stage])stages[stage].push(card);
+  });
+
+  return stages;
+}
+
+// Calculate days a trade has been in current stage
+function calcDaysInStage(trade){
+  const stageDate=trade.stageChangedAt||trade.date;
+  if(!stageDate)return 0;
+  const now=new Date();
+  const then=new Date(stageDate);
+  return Math.floor((now-then)/(1000*60*60*24));
+}
+
+// Show trade detail (opens edit modal for the trade)
+function showTradeDetail(tradeId,tradeType='sell'){
+  if(tradeType==='sell'){
+    const trade=S.sells.find(s=>String(s.id)===String(tradeId));
+    if(trade&&typeof showSellModal==='function'){
+      showSellModal(trade);
+    }
+  }else{
+    const trade=S.buys.find(b=>String(b.id)===String(tradeId));
+    if(trade&&typeof showBuyModal==='function'){
+      showBuyModal(trade);
+    }
+  }
 }
 
