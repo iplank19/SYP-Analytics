@@ -61,7 +61,38 @@ const AI_TOOLS=[
   {name:'get_best_mill_price',desc:'Get the cheapest mill offer for a product',params:['product']},
   // Utility
   {name:'clear_chat',desc:'Clear AI chat history',params:[]},
-  {name:'refresh',desc:'Refresh the current view',params:[]}
+  {name:'refresh',desc:'Refresh the current view',params:[]},
+  // Risk Management
+  {name:'get_var',desc:'Calculate Value at Risk',params:['confidence','period']},
+  {name:'get_exposure',desc:'Get current exposure by dimension (product, region, trader)',params:['groupBy']},
+  {name:'check_limits',desc:'Check position limit breaches',params:[]},
+  {name:'get_drawdown',desc:'Get drawdown metrics',params:['period']},
+  {name:'get_risk_dashboard',desc:'Get comprehensive risk dashboard data',params:[]},
+  // Advanced Analytics
+  {name:'get_correlations',desc:'Get price correlations between products',params:['weeks']},
+  {name:'get_seasonality',desc:'Get seasonal patterns for a product',params:['product','region']},
+  {name:'get_volatility',desc:'Get volatility metrics for all products',params:['weeks']},
+  // Trading Signals
+  {name:'get_signals',desc:'Get active trading signals',params:['type']},
+  {name:'generate_signals',desc:'Generate new trading signals',params:[]},
+  {name:'get_recommendations',desc:'Get trade recommendations based on signals and portfolio',params:['objective']},
+  // P&L Attribution
+  {name:'get_pnl_breakdown',desc:'Get P&L breakdown by dimension',params:['groupBy','period']},
+  {name:'get_trader_performance',desc:'Get trader performance comparison',params:['period']},
+  {name:'get_customer_profitability',desc:'Get customer profitability analysis',params:['period']},
+  {name:'get_mill_profitability',desc:'Get mill profitability analysis',params:['period']},
+  // Portfolio Management
+  {name:'get_mtm',desc:'Get mark-to-market valuations',params:[]},
+  {name:'get_basis',desc:'Get cash vs futures basis',params:[]},
+  {name:'get_hedge_recommendation',desc:'Get recommended hedge position',params:[]},
+  {name:'get_inventory_optimization',desc:'Get optimal inventory levels',params:[]},
+  // Reports
+  {name:'generate_report',desc:'Generate a trading report',params:['type','period']},
+  {name:'get_daily_flash',desc:'Get daily flash report',params:[]},
+  // Alerts
+  {name:'get_alerts',desc:'Get active alerts',params:['severity']},
+  {name:'generate_alerts',desc:'Generate new alerts',params:[]},
+  {name:'get_spread_analysis',desc:'Get spread analysis',params:[]}
 ];
 
 function executeAITool(name,params){
@@ -533,6 +564,139 @@ function executeAITool(name,params){
         if(!best)return{success:true,message:`No mill quotes for ${params.product}`,data:null};
         return{success:true,message:`Best price for ${params.product}: $${best.price} from ${best.mill}`,data:{mill:best.mill,price:best.price,date:best.date,shipWindow:best.shipWindow}};
       }
+      // Risk Management Tools
+      case 'get_var':{
+        const confidence=parseFloat(params.confidence)||0.95;
+        const period=parseInt(params.period)||5;
+        const varReport=getVaRReport(confidence);
+        return{success:true,message:`VaR (${confidence*100}%): ${fmt(varReport.conservativeVaR)}`,data:varReport};
+      }
+      case 'get_exposure':{
+        const groupBy=params.groupBy||'product';
+        const exposure=getExposure(groupBy);
+        const portfolio=getPortfolioExposure();
+        return{success:true,data:{groupBy,exposure,summary:{totalLong:portfolio.totalLong,totalShort:portfolio.totalShort,net:portfolio.netPosition,notional:portfolio.totalNotional}}};
+      }
+      case 'check_limits':{
+        const breaches=checkPositionLimits();
+        return{success:true,message:breaches.length?`${breaches.length} limit breach(es) detected`:'All limits OK',data:breaches};
+      }
+      case 'get_drawdown':{
+        const period=params.period||'30d';
+        const dd=calcDrawdown(period);
+        return{success:true,data:dd};
+      }
+      case 'get_risk_dashboard':{
+        const risk=getRiskDashboard();
+        return{success:true,message:`Risk Level: ${risk.riskLevel} (Score: ${risk.riskScore}/100)`,data:risk};
+      }
+      // Advanced Analytics Tools
+      case 'get_correlations':{
+        const weeks=parseInt(params.weeks)||12;
+        const matrix=getCorrelationMatrix(weeks);
+        return{success:true,data:matrix};
+      }
+      case 'get_seasonality':{
+        const product=params.product||'2x4#2';
+        const region=params.region||'west';
+        const seasonal=calcSeasonalPattern(product,region,52);
+        return{success:true,data:seasonal};
+      }
+      case 'get_volatility':{
+        const weeks=parseInt(params.weeks)||12;
+        const volReport=getVolatilityReport(weeks);
+        return{success:true,message:`Volatility regime: ${volReport.regime}`,data:volReport};
+      }
+      // Trading Signals Tools
+      case 'get_signals':{
+        initSignalConfig();
+        let signals=S.signals.filter(s=>s.status==='active');
+        if(params.type)signals=signals.filter(s=>s.type===params.type);
+        return{success:true,message:`${signals.length} active signal(s)`,data:signals};
+      }
+      case 'generate_signals':{
+        const newSignals=generateSignals();
+        return{success:true,message:`Generated ${newSignals.length} new signal(s)`,data:newSignals};
+      }
+      case 'get_recommendations':{
+        const objective=params.objective||'balanced';
+        const recs=getTradeRecommendations(objective);
+        return{success:true,message:`${recs.recommendations.length} recommendation(s)`,data:recs};
+      }
+      // P&L Attribution Tools
+      case 'get_pnl_breakdown':{
+        const groupBy=params.groupBy||'product';
+        const period=params.period||'30d';
+        const pnl=getPnLBreakdown(groupBy,period);
+        return{success:true,message:`Total P&L: ${fmt(pnl.totals.totalPnL)}`,data:pnl};
+      }
+      case 'get_trader_performance':{
+        const period=params.period||'30d';
+        const perf=getTraderPerformance(period);
+        return{success:true,data:perf};
+      }
+      case 'get_customer_profitability':{
+        const period=params.period||'30d';
+        const prof=getCustomerProfitability(period);
+        return{success:true,data:prof};
+      }
+      case 'get_mill_profitability':{
+        const period=params.period||'30d';
+        const prof=getMillProfitability(period);
+        return{success:true,data:prof};
+      }
+      // Portfolio Management Tools
+      case 'get_mtm':{
+        const mtm=calcDailyMTM();
+        return{success:true,message:`Portfolio MTM: ${fmt(mtm.totalMTM)}`,data:mtm};
+      }
+      case 'get_basis':{
+        const basis=calcBasis();
+        return{success:true,data:basis};
+      }
+      case 'get_hedge_recommendation':{
+        const rec=getHedgeRecommendation();
+        return{success:true,message:`Recommended: ${rec.recommendedContracts} contracts`,data:rec};
+      }
+      case 'get_inventory_optimization':{
+        const opt=getOptimalInventory();
+        return{success:true,data:opt};
+      }
+      // Reports Tools
+      case 'generate_report':{
+        const type=params.type||'daily';
+        let report;
+        switch(type){
+          case 'daily':case 'flash':report=generateDailyFlash();break;
+          case 'weekly':report=generateWeeklyReport();break;
+          case 'monthly':report=generateMonthlyReport();break;
+          case 'risk':report=generateRiskReport();break;
+          case 'customer':report=generateCustomerReport(params.period||'30d');break;
+          case 'mill':report=generateMillReport(params.period||'30d');break;
+          default:report=generateDailyFlash();
+        }
+        saveReportToHistory(report);
+        return{success:true,message:`Generated ${type} report`,data:report};
+      }
+      case 'get_daily_flash':{
+        const flash=generateDailyFlash();
+        return{success:true,data:flash};
+      }
+      // Alerts Tools
+      case 'get_alerts':{
+        initAlertConfig();
+        let alerts=S.alerts;
+        if(params.severity)alerts=alerts.filter(a=>a.severity===params.severity);
+        return{success:true,message:`${alerts.length} alert(s)`,data:alerts.slice(0,20)};
+      }
+      case 'generate_alerts':{
+        const newAlerts=generateAlerts();
+        return{success:true,message:`Generated ${newAlerts.length} new alert(s)`,data:newAlerts};
+      }
+      case 'get_spread_analysis':{
+        const spreads=getSpreadAnalysis();
+        return{success:true,data:spreads};
+      }
       default:
         return{success:false,message:`Unknown tool: ${name}`};
     }
@@ -847,29 +1011,87 @@ function parseOrderCSV(csvText){
     return{product,length,dim,thick,wide,isTimber};
   }
 
-  function parseTally(val){
-    // Handles: "17", "5/14", "40/18", "", and Excel date-mangled values
+  // Parse mixed tallies into array of {units, length} objects
+  // Handles formats like: "5/10, 3/12, 2/14", "10'-5, 12'-3", "5-10's 3-12's", "5x10 3x12", etc.
+  function parseMixedTally(val, defaultLength){
     val=(val||'').replace(/"/g,'').trim();
-    if(!val)return 0;
-    // Excel date detection: "5/14/2026", "2/12/2026", "1/1/2026", "May-14", etc.
-    // If it has 2+ slashes or month names, it's a mangled date — extract first number
-    if(/^\d+\/\d+\/\d{4}$/.test(val)){
-      // "5/14/2026" → was originally "5/14" → units = 5
-      return parseFloat(val.split('/')[0])||0;
+    if(!val)return [];
+
+    // Excel date detection: "5/14/2026" or "5/14/26" — mangled from "5/14"
+    // This is units/bundles format, NOT a mixed tally with lengths
+    if(/^\d+\/\d+\/\d{2,4}$/.test(val)){
+      const units=parseFloat(val.split('/')[0])||0;
+      return units?[{units,length:defaultLength}]:[];
     }
-    if(/^\d+\/\d+\/\d{2}$/.test(val)){
-      // "5/14/26" → units = 5
-      return parseFloat(val.split('/')[0])||0;
-    }
-    if(/[a-zA-Z]/.test(val)){
-      // "May-14" or other month-based mangling → try to extract any leading number
+
+    // Month-name mangling: "May-14" — extract first number as units
+    if(/^[a-zA-Z]{3,}-\d+$/.test(val)){
       const n=val.match(/(\d+)/);
-      return n?parseFloat(n[1]):0;
+      const units=n?parseFloat(n[1]):0;
+      return units?[{units,length:defaultLength}]:[];
     }
-    // Normal: "17" → 17, "5/14" → 5 (units/bundles, second number ignored)
-    const slashMatch=val.match(/^(\d+)\//);
-    if(slashMatch)return parseFloat(slashMatch[1])||0;
-    return parseFloat(val)||0;
+
+    // Check for mixed tally patterns (multiple length entries)
+    // Pattern: comma/space separated entries with units AND lengths
+    const mixedPatterns=[
+      // "5/10, 3/12, 2/14" — units/length pairs
+      /(\d+)\s*\/\s*(\d+)(?:'|ft)?/gi,
+      // "10'-5, 12'-3, 14'-2" — length'-units pairs
+      /(\d+)(?:'|ft)?\s*[-–]\s*(\d+)(?!\d)/gi,
+      // "5-10's, 3-12's" — units-length's pairs
+      /(\d+)\s*[-–]\s*(\d+)(?:'s|'|ft)/gi,
+      // "5x10, 3x12" — units x length pairs (NOT dimensions like 2x4)
+      /(?<![x×])(\d+)\s*[x×]\s*(\d+)(?!'|\d)/gi,
+      // "10(5) 12(3)" — length(units) pairs
+      /(\d+)(?:'|ft)?\s*\(\s*(\d+)\s*\)/gi,
+    ];
+
+    // Try pattern: units/length (most common mixed tally format)
+    let matches=[...val.matchAll(/(\d+)\s*\/\s*(\d+)(?!')/g)];
+    if(matches.length>1||(matches.length===1&&val.includes(','))){
+      // Multiple "X/Y" patterns = mixed tally
+      return matches.map(m=>({units:parseFloat(m[1]),length:m[2]})).filter(x=>x.units>0);
+    }
+
+    // Try pattern: length'-units (e.g., "10'-5, 12'-3")
+    matches=[...val.matchAll(/(\d+)(?:'|ft|')\s*[-–]\s*(\d+)(?!\d)/g)];
+    if(matches.length>0){
+      return matches.map(m=>({units:parseFloat(m[2]),length:m[1]})).filter(x=>x.units>0);
+    }
+
+    // Try pattern: units-length's (e.g., "5-10's, 3-12's")
+    matches=[...val.matchAll(/(\d+)\s*[-–]\s*(\d+)(?:'s|'s|'|ft)/g)];
+    if(matches.length>0){
+      return matches.map(m=>({units:parseFloat(m[1]),length:m[2]})).filter(x=>x.units>0);
+    }
+
+    // Try pattern: length(units) (e.g., "10(5) 12(3)")
+    matches=[...val.matchAll(/(\d+)(?:'|ft)?\s*\(\s*(\d+)\s*\)/g)];
+    if(matches.length>0){
+      return matches.map(m=>({units:parseFloat(m[2]),length:m[1]})).filter(x=>x.units>0);
+    }
+
+    // Single value patterns (no embedded length info)
+    // "17" → 17 units at default length
+    // "5/14" → 5 units / 14 bundles (ignore bundles), use default length
+    let units=0;
+    const slashMatch=val.match(/^(\d+)\s*\/\s*(\d+)$/);
+    if(slashMatch){
+      // Single "X/Y" = units/bundles, NOT units/length (when there's no comma indicating multiple entries)
+      units=parseFloat(slashMatch[1])||0;
+    }else{
+      // Plain number
+      units=parseFloat(val.match(/(\d+)/)?.[1]||'0')||0;
+    }
+
+    return units?[{units,length:defaultLength}]:[];
+  }
+
+  // Legacy single-value tally parser (for backward compatibility)
+  function parseTally(val){
+    const items=parseMixedTally(val,'');
+    if(items.length===0)return 0;
+    return items.reduce((sum,i)=>sum+i.units,0);
   }
 
   function unitsToMBF(units,dim,lengthFt,isTimber){
@@ -985,43 +1207,48 @@ function parseOrderCSV(csvText){
       buyPrice=buyPriceIdx>=0?parsePrice(f[buyPriceIdx]):0;
     }
 
-    const{product,length,dim,thick,wide,isTimber}=parseProduct(productDesc,productDetail);
-    const units=parseTally(tally);
-    const mbf=unitsToMBF(units,dim,length,isTimber);
-
-    // Detect and convert per-piece prices to MBF (e.g., $5.76/pc → ~$576/MBF for 2x6 12')
-    const lengthNum=parseFloat(length)||12;
-    if(isPiecePrice(sellPrice,thick,wide,lengthNum)){
-      sellPrice=piecePriceToMBF(sellPrice,thick,wide,lengthNum);
-    }
-    if(isPiecePrice(buyPrice,thick,wide,lengthNum)){
-      buyPrice=piecePriceToMBF(buyPrice,thick,wide,lengthNum);
-    }
+    const{product,length:defaultLength,dim,thick,wide,isTimber}=parseProduct(productDesc,productDetail);
 
     // Normalize entity names (handles ALL-CAPS, aliases, suffix stripping)
     if(customer&&typeof normalizeCustomerName==='function')customer=normalizeCustomerName(customer);
     if(mill&&typeof normalizeMillCompany==='function')mill=normalizeMillCompany(mill);
 
-    return{
-      orderNum,
-      seller,
-      customer,
-      shipToState,
-      shipToCity,
-      sellPrice,
-      product,
-      length,
-      dim,
-      isTimber,
-      units,
-      volume:mbf,
-      mill,
-      shipFromState,
-      shipFromCity,
-      buyer,
-      buyPrice
-    };
-  }).filter(Boolean);
+    // Parse mixed tallies — may return multiple {units, length} entries
+    const tallyItems=parseMixedTally(tally,defaultLength);
+
+    // If no tally items parsed, create single row with 0 units
+    if(tallyItems.length===0){
+      return[{
+        orderNum,seller,customer,shipToState,shipToCity,sellPrice,product,
+        length:defaultLength,dim,isTimber,units:0,volume:0,
+        mill,shipFromState,shipFromCity,buyer,buyPrice
+      }];
+    }
+
+    // Create a row for each tally entry (handles mixed tallies like "5/10, 3/12, 2/14")
+    return tallyItems.map(ti=>{
+      const len=ti.length||defaultLength;
+      const mbf=unitsToMBF(ti.units,dim,len,isTimber);
+
+      // Detect and convert per-piece prices to MBF (e.g., $5.76/pc → ~$576/MBF for 2x6 12')
+      const lengthNum=parseFloat(len)||12;
+      let adjSellPrice=sellPrice,adjBuyPrice=buyPrice;
+      if(typeof isPiecePrice==='function'&&typeof piecePriceToMBF==='function'){
+        if(isPiecePrice(sellPrice,thick,wide,lengthNum)){
+          adjSellPrice=piecePriceToMBF(sellPrice,thick,wide,lengthNum);
+        }
+        if(isPiecePrice(buyPrice,thick,wide,lengthNum)){
+          adjBuyPrice=piecePriceToMBF(buyPrice,thick,wide,lengthNum);
+        }
+      }
+
+      return{
+        orderNum,seller,customer,shipToState,shipToCity,sellPrice:adjSellPrice,product,
+        length:len,dim,isTimber,units:ti.units,volume:mbf,
+        mill,shipFromState,shipFromCity,buyer,buyPrice:adjBuyPrice
+      };
+    });
+  }).flat().filter(Boolean);
 
   // Group by Order #
   const groups=new Map();
@@ -1112,21 +1339,27 @@ async function parseOrdersWithAI(text){
   const customerNames=S.customers.filter(c=>c.type!=='mill').map(c=>c.name);
   const millNames=S.customers.filter(c=>c.type==='mill').map(c=>c.name);
 
-  const systemPrompt=`You are a lumber trade order parser for Southern Yellow Pine (SYP). Extract structured order data from ANY text format the user provides — CSV data, pasted emails, order confirmations, free-form text descriptions, etc.
+  const systemPrompt=`You are an expert lumber trade order parser for Southern Yellow Pine (SYP). Your job is to extract PERFECTLY structured order data from ANY text format — CSV, emails, order confirmations, handwritten notes, etc.
 
-PRODUCT FORMAT GUIDE:
-- Standard dimensions: 2x4, 2x6, 2x8, 2x10, 2x12
-- Timbers: 4x4, 4x6, 6x6, etc. (thick >= 4)
-- Grades: #1, #2, #3, CLEAR — written as 2x4#2, 2x6#1, 2x8 CLEAR, etc.
-- MSR/MEL: e.g. "2x4 MSR 2400f", "2x6 MSR 1650f" — include the full designation
-- Product string format: "{dim}{grade}" e.g. "2x4#2", "2x6#1", "2x10 CLEAR"
+CRITICAL: ACCURACY IS PARAMOUNT. Every unit, price, and length MUST be correctly paired. When in doubt, preserve the original structure rather than guessing.
 
-LENGTH FORMAT GUIDE:
+═══════════════════════════════════════════════════════════════════════════════
+PRODUCT STANDARDS
+═══════════════════════════════════════════════════════════════════════════════
+DIMENSIONS: 2x4, 2x6, 2x8, 2x10, 2x12 (standard), 4x4, 4x6, 6x6 (timbers)
+GRADES: #1, #2, #3, #4, CLEAR, MSR
+FORMAT: "{dim}{grade}" → "2x4#2", "2x6#1", "2x8 CLEAR", "2x4 MSR 2400f"
+
+═══════════════════════════════════════════════════════════════════════════════
+LENGTH FORMAT GUIDE
+═══════════════════════════════════════════════════════════════════════════════
 - Standard: 10', 12', 16', 20' (foot mark)
 - Stud lengths: "104-5/8"" or "92-5/8"" — convert to feet: 104.625" ≈ 8.72', 92.625" ≈ 7.72'
 - If length is in inches (>20), divide by 12 to get feet
 
-PRICE FORMAT DETECTION:
+═══════════════════════════════════════════════════════════════════════════════
+PRICE FORMAT DETECTION
+═══════════════════════════════════════════════════════════════════════════════
 - MBF prices are typically $200-$900 (e.g., 450, 575, 680)
 - Per-piece prices are typically $2-$20 (e.g., 5.76, 8.32, 12.50)
 - CRITICAL: If you see prices under $50, check if they're per-piece and CONVERT to MBF:
@@ -1134,66 +1367,128 @@ PRICE FORMAT DETECTION:
   Example: $5.76/pc for 2x6 12' → 5.76 × 1000 / (2×6×12/12) = 5.76 × 1000 / 12 = $480/MBF
 - Always output prices in $/MBF format
 
-PCS_PER_UNIT (pieces per unit/bundle):
-${Object.entries(S.ppu||{'2x4':208,'2x6':128,'2x8':96,'2x10':80,'2x12':64}).map(([dim,ppu])=>`- ${dim}: ${ppu} pcs/unit`).join('\n')}
-- Timbers (4x4+): flat 20 MBF per order regardless of tally
+═══════════════════════════════════════════════════════════════════════════════
+PIECES PER UNIT (PPU) — MEMORIZE THESE
+═══════════════════════════════════════════════════════════════════════════════
+${Object.entries(S.ppu||{'2x4':208,'2x6':128,'2x8':96,'2x10':80,'2x12':64}).map(([dim,ppu])=>`${dim}: ${ppu} pcs/unit`).join('    ')}
+Timbers (4x4+): use 20 MBF flat
 
-MBF CALCULATION:
-- MBF = (totalPieces × thick × wide × lengthFt) / 12 / 1000
-- totalPieces = units × pcsPerUnit
-- IMPORTANT: Return the raw "units" value and we will recalculate MBF on our end
+═══════════════════════════════════════════════════════════════════════════════
+MBF CALCULATION — DO THIS FOR EVERY LINE ITEM
+═══════════════════════════════════════════════════════════════════════════════
+MBF = (units × pcsPerUnit × thick × wide × lengthFt) / 12 / 1000
 
-REGION MAPPINGS:
-- West: TX, AR, LA, OK, NM, CO, AZ, UT, NV, CA, OR, WA, ID, MT, WY
-- East: NC, SC, GA, FL, VA, MD, DE, NJ, NY, PA, CT, MA, ME, NH, VT, RI, WV, DC
-- Central: all other US states (AL, MS, TN, KY, OH, IN, IL, MO, MI, WI, MN, IA, etc.)
+Examples:
+• 5 units of 2x4 at 10' → (5 × 208 × 2 × 4 × 10) / 12 / 1000 = 69.33 MBF
+• 3 units of 2x6 at 12' → (3 × 128 × 2 × 6 × 12) / 12 / 1000 = 46.08 MBF
+• 2 units of 2x8 at 16' → (2 × 96 × 2 × 8 × 16) / 12 / 1000 = 40.96 MBF
 
-TRADER NAME MAP:
-${JSON.stringify(TRADER_MAP)}
+═══════════════════════════════════════════════════════════════════════════════
+⚠️ CRITICAL: MIXED TALLY PARSING ⚠️
+═══════════════════════════════════════════════════════════════════════════════
+Tallies describe how many UNITS at each LENGTH. A single order often has MULTIPLE lengths.
+You MUST create a SEPARATE line item for EACH length in the tally.
 
-KNOWN CUSTOMERS (use for fuzzy matching):
-${customerNames.length?customerNames.join(', '):'(none)'}
+TALLY FORMAT EXAMPLES (all mean the same thing):
+• "5/10, 3/12, 2/14" → 5 units @ 10', 3 units @ 12', 2 units @ 14'
+• "10'-5, 12'-3, 14'-2" → 5 units @ 10', 3 units @ 12', 2 units @ 14'
+• "5-10's, 3-12's, 2-14's" → 5 units @ 10', 3 units @ 12', 2 units @ 14'
+• "5x10, 3x12, 2x14" → 5 units @ 10', 3 units @ 12', 2 units @ 14'
+• "10(5) 12(3) 14(2)" → 5 units @ 10', 3 units @ 12', 2 units @ 14'
 
-KNOWN MILLS (use for fuzzy matching):
-${millNames.length?millNames.join(', '):'(none)'}
+SINGLE LENGTH TALLIES:
+• "5/14" → 5 units (the 14 is bundles/lifts, IGNORE IT), need length from elsewhere
+• "17" → 17 units, need length from elsewhere
+• "5 units" → 5 units, need length from elsewhere
 
-ORDER STATUS RULES:
-- "matched" = has BOTH a mill (buy side) AND a customer (sell side)
-- "short" = has a customer (sell) but NO mill (buy)
-- "long" = has a mill (buy) but NO customer (sell)
+WHEN LENGTH IS IN A SEPARATE COLUMN:
+• If tally is just "5" and length column says "10", that's 5 units @ 10'
+• Multiple rows with same order# but different lengths = multiple line items
 
-OUTPUT FORMAT — Return ONLY a JSON array (no markdown, no explanation), each element:
-{
-  "orderNum": "string — order number or generated ID",
+═══════════════════════════════════════════════════════════════════════════════
+⚠️ CRITICAL: PRICE-TALLY ALIGNMENT ⚠️
+═══════════════════════════════════════════════════════════════════════════════
+Prices often vary by length. You MUST match prices to the correct lengths.
+
+SCENARIO 1 — Single price for all lengths:
+  "2x4#2, 5/10 3/12 2/14, $450" → All three lengths get $450
+
+SCENARIO 2 — Price per length (common in formal orders):
+  "2x4#2 10' $445, 2x4#2 12' $450, 2x4#2 14' $460"
+  → 10' gets $445, 12' gets $450, 14' gets $460
+
+SCENARIO 3 — Price table format:
+  Length | Price | Units
+  10'    | 445   | 5
+  12'    | 450   | 3
+  14'    | 460   | 2
+  → Create 3 items with correct price-length pairing
+
+SCENARIO 4 — Base price + length adders:
+  "Base $450, +$5 for 14'+, +$10 for 16'+"
+  → 10' = $450, 12' = $450, 14' = $455, 16' = $460
+
+WHEN UNCERTAIN: If prices and tallies don't clearly align, use the SAME price for all lengths rather than guessing wrong.
+
+═══════════════════════════════════════════════════════════════════════════════
+REGIONS (by state)
+═══════════════════════════════════════════════════════════════════════════════
+West: TX, AR, LA, OK, NM, CO, AZ, UT, NV, CA, OR, WA, ID, MT, WY
+East: NC, SC, GA, FL, VA, MD, DE, NJ, NY, PA, CT, MA, ME, NH, VT, RI, WV, DC
+Central: All other US states
+
+═══════════════════════════════════════════════════════════════════════════════
+KNOWN ENTITIES (fuzzy match to these)
+═══════════════════════════════════════════════════════════════════════════════
+TRADERS: ${JSON.stringify(TRADER_MAP)}
+CUSTOMERS: ${customerNames.length?customerNames.join(', '):'(none)'}
+MILLS: ${millNames.length?millNames.join(', '):'(none)'}
+
+═══════════════════════════════════════════════════════════════════════════════
+ORDER STATUS
+═══════════════════════════════════════════════════════════════════════════════
+"matched" = has BOTH mill (buy) AND customer (sell)
+"short" = has customer but NO mill
+"long" = has mill but NO customer
+
+═══════════════════════════════════════════════════════════════════════════════
+OUTPUT FORMAT — JSON ARRAY ONLY, NO MARKDOWN
+═══════════════════════════════════════════════════════════════════════════════
+[{
+  "orderNum": "string",
   "status": "matched|short|long",
   "buy": {
-    "trader": "full trader name or empty string",
+    "trader": "trader name or empty",
     "mill": "mill name",
-    "origin": "City, ST format or empty",
-    "product": "e.g. 2x4#2 or 2x4#2 / 2x6#2 for mixed",
+    "origin": "City, ST",
+    "product": "2x4#2 or 2x4#2 / 2x6#2 for mixed",
     "region": "west|central|east",
-    "items": [{ "product": "2x4#2", "length": "10", "price": 450, "volume": 34.67, "units": 5 }]
+    "items": [
+      {"product": "2x4#2", "length": "10", "price": 450, "volume": 69.33, "units": 5},
+      {"product": "2x4#2", "length": "12", "price": 450, "volume": 41.60, "units": 3},
+      {"product": "2x4#2", "length": "14", "price": 455, "volume": 32.43, "units": 2}
+    ]
   },
   "sell": {
-    "trader": "full trader name or empty string",
+    "trader": "trader name or empty",
     "customer": "customer name",
-    "destination": "City, ST format or empty",
-    "product": "same as buy.product",
+    "destination": "City, ST",
+    "product": "2x4#2",
     "region": "west|central|east",
-    "items": [{ "product": "2x4#2", "length": "10", "price": 580, "volume": 34.67, "units": 5 }]
+    "items": [same structure as buy.items with sell prices]
   }
-}
+}]
 
-RULES:
-- If buy side is missing, set "buy" to null
-- If sell side is missing, set "sell" to null
-- Prices should be numeric (no $ sign), in $/MBF
-- Volume in MBF (thousand board feet), calculated from units/pieces
-- Length as string (just the number, no apostrophe)
-- Match fuzzy customer/mill names to known names when possible
-- Group related line items under the same order number
-- For multi-product orders (e.g. 2x4 + 2x6 on one truck), list each as a separate item and set product to "2x4#2 / 2x6#2"
-- If no order number is present, generate sequential ones like "AI-001", "AI-002", etc.`;
+═══════════════════════════════════════════════════════════════════════════════
+FINAL RULES
+═══════════════════════════════════════════════════════════════════════════════
+• buy/sell = null if that side is missing
+• Prices numeric (no $), in $/MBF
+• Length as string, just the number (no ' or ")
+• ONE item per length — if tally has 3 lengths, output 3 items
+• Calculate MBF for EVERY item using the formula above
+• If no order number, generate "AI-001", "AI-002", etc.
+• Multi-product orders: set product to "2x4#2 / 2x6#2" and include separate items for each`;
 
   const res=await fetch('https://api.anthropic.com/v1/messages',{
     method:'POST',

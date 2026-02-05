@@ -419,3 +419,451 @@ function generateSpreadTable(rlData){
     </tr>`;
   }).join('');
 }
+
+// ============================================================================
+// RISK DASHBOARD CHARTS
+// ============================================================================
+
+// Risk gauge chart (semi-circular gauge)
+function renderRiskGaugeChart(score,level){
+  if(typeof Chart==='undefined')return;
+  const ctx=document.getElementById('risk-gauge-chart');
+  if(!ctx)return;
+  destroyChart('risk-gauge');
+
+  const remaining=100-score;
+  const color=level==='CRITICAL'?'#ff5252':level==='HIGH'?'#ffab40':level==='MODERATE'?'#ffd54f':'#00e676';
+
+  window._charts['risk-gauge']=new Chart(ctx,{
+    type:'doughnut',
+    data:{
+      datasets:[{
+        data:[score,remaining],
+        backgroundColor:[color,'rgba(28,28,42,0.5)'],
+        borderWidth:0,
+        circumference:180,
+        rotation:270
+      }]
+    },
+    options:{
+      responsive:true,
+      maintainAspectRatio:false,
+      cutout:'75%',
+      plugins:{
+        legend:{display:false},
+        tooltip:{enabled:false}
+      }
+    }
+  });
+}
+
+// Exposure bar chart
+function renderExposureChart(){
+  if(typeof Chart==='undefined')return;
+  const ctx=document.getElementById('exposure-chart');
+  if(!ctx)return;
+  destroyChart('exposure');
+
+  const exposure=getExposure('product');
+  const products=Object.keys(exposure).slice(0,8);
+  const longs=products.map(p=>exposure[p].long);
+  const shorts=products.map(p=>-exposure[p].short);
+
+  window._charts['exposure']=new Chart(ctx,{
+    type:'bar',
+    data:{
+      labels:products,
+      datasets:[
+        {label:'Long',data:longs,backgroundColor:'rgba(0,230,118,0.7)',borderRadius:4},
+        {label:'Short',data:shorts,backgroundColor:'rgba(255,82,82,0.7)',borderRadius:4}
+      ]
+    },
+    options:{
+      responsive:true,
+      maintainAspectRatio:false,
+      indexAxis:'y',
+      plugins:{
+        legend:{labels:{color:'#5a6270',font:{size:10}}}
+      },
+      scales:{
+        x:{
+          ticks:{color:'#5a6270',font:{size:10}},
+          grid:{color:'rgba(28,28,42,0.8)'}
+        },
+        y:{
+          ticks:{color:'#5a6270',font:{size:10}},
+          grid:{display:false}
+        }
+      }
+    }
+  });
+}
+
+// VaR contribution chart
+function renderVaRChart(){
+  if(typeof Chart==='undefined')return;
+  const ctx=document.getElementById('var-chart');
+  if(!ctx)return;
+  destroyChart('var');
+
+  const varReport=getVaRReport(0.95);
+  const products=varReport.byProduct.slice(0,6);
+  const labels=products.map(p=>p.product);
+  const values=products.map(p=>p.var);
+
+  window._charts['var']=new Chart(ctx,{
+    type:'bar',
+    data:{
+      labels,
+      datasets:[{
+        label:'VaR Contribution',
+        data:values,
+        backgroundColor:'rgba(255,82,82,0.7)',
+        borderRadius:4
+      }]
+    },
+    options:{
+      responsive:true,
+      maintainAspectRatio:false,
+      plugins:{
+        legend:{display:false},
+        tooltip:{
+          callbacks:{
+            label:ctx=>'$'+ctx.parsed.y.toLocaleString()
+          }
+        }
+      },
+      scales:{
+        x:{ticks:{color:'#5a6270',font:{size:10}},grid:{display:false}},
+        y:{ticks:{color:'#5a6270',font:{size:10},callback:v=>'$'+v.toLocaleString()},grid:{color:'rgba(28,28,42,0.8)'}}
+      }
+    }
+  });
+}
+
+// Drawdown chart
+function renderDrawdownChart(){
+  if(typeof Chart==='undefined')return;
+  const ctx=document.getElementById('drawdown-chart');
+  if(!ctx)return;
+  destroyChart('drawdown');
+
+  const dd=calcDrawdown('90d');
+  if(!dd.cumulativePnL||dd.cumulativePnL.length<2)return;
+
+  const labels=dd.cumulativePnL.map(d=>fmtD(d.date));
+  const cumulative=dd.cumulativePnL.map(d=>d.cumulative);
+
+  // Calculate drawdown from peak at each point
+  let peak=cumulative[0];
+  const drawdowns=cumulative.map(v=>{
+    if(v>peak)peak=v;
+    return v-peak;
+  });
+
+  window._charts['drawdown']=new Chart(ctx,{
+    type:'line',
+    data:{
+      labels,
+      datasets:[
+        {label:'Cumulative P&L',data:cumulative,borderColor:'#4d8df7',backgroundColor:'rgba(77,141,247,0.1)',fill:true,tension:0.3,pointRadius:0,borderWidth:2},
+        {label:'Drawdown',data:drawdowns,borderColor:'#ff5252',backgroundColor:'rgba(255,82,82,0.1)',fill:true,tension:0.3,pointRadius:0,borderWidth:2}
+      ]
+    },
+    options:{
+      responsive:true,
+      maintainAspectRatio:false,
+      plugins:{legend:{labels:{color:'#5a6270',font:{size:10}}}},
+      scales:{
+        x:{ticks:{color:'#5a6270',font:{size:10},maxTicksLimit:8},grid:{color:'rgba(28,28,42,0.8)'}},
+        y:{ticks:{color:'#5a6270',font:{size:10},callback:v=>'$'+v.toLocaleString()},grid:{color:'rgba(28,28,42,0.8)'}}
+      }
+    }
+  });
+}
+
+// ============================================================================
+// P&L CHARTS
+// ============================================================================
+
+// P&L by product chart
+function renderPnLByProductChart(canvasId,breakdown){
+  if(typeof Chart==='undefined')return;
+  const id=canvasId||'pnl-product-chart';
+  const ctx=document.getElementById(id);
+  if(!ctx)return;
+  destroyChart(id);
+
+  // Get data from breakdown or calculate fresh
+  let items=[];
+  if(breakdown&&breakdown.items){
+    items=breakdown.items.slice(0,8);
+  }else if(typeof getPnLBreakdown==='function'){
+    const pnl=getPnLBreakdown({groupBy:'product',period:'30d'});
+    items=pnl.items.slice(0,8);
+  }
+
+  const labels=items.map(p=>p.key||p.product||'Unknown');
+  const values=items.map(p=>p.pnl||p.totalPnL||0);
+  const colors=values.map(v=>v>=0?'rgba(0,230,118,0.7)':'rgba(255,82,82,0.7)');
+
+  window._charts[id]=new Chart(ctx,{
+    type:'bar',
+    data:{
+      labels,
+      datasets:[{label:'P&L',data:values,backgroundColor:colors,borderRadius:4}]
+    },
+    options:{
+      responsive:true,
+      maintainAspectRatio:false,
+      plugins:{legend:{display:false}},
+      scales:{
+        x:{ticks:{color:'#5a6270',font:{size:10}},grid:{display:false}},
+        y:{ticks:{color:'#5a6270',font:{size:10},callback:v=>'$'+v.toLocaleString()},grid:{color:'rgba(28,28,42,0.8)'}}
+      }
+    }
+  });
+}
+
+// Rolling P&L trend chart
+function renderRollingPnLChart(canvasId){
+  if(typeof Chart==='undefined')return;
+  const id=canvasId||'rolling-pnl-chart';
+  const ctx=document.getElementById(id);
+  if(!ctx)return;
+  destroyChart(id);
+
+  // Get rolling data from pnl.js
+  let rollingData=[];
+  if(typeof getRollingPnL==='function'){
+    rollingData=getRollingPnL(30);
+  }
+
+  const labels=rollingData.map(d=>d.date?.substring(5)||'');
+  const pnl=rollingData.map(d=>d.pnl||0);
+  const cumulative=rollingData.map(d=>d.cumulative||0);
+
+  const canvasCtx=ctx.getContext('2d');
+  window._charts[id]=new Chart(ctx,{
+    type:'bar',
+    data:{
+      labels,
+      datasets:[
+        {label:'Daily P&L',data:pnl,type:'bar',backgroundColor:pnl.map(v=>v>=0?'rgba(0,230,118,0.6)':'rgba(255,82,82,0.6)'),borderRadius:4,yAxisID:'y'},
+        {label:'Cumulative',data:cumulative,type:'line',borderColor:'#4d8df7',backgroundColor:hexToGradient('#4d8df7',canvasCtx,160),fill:true,tension:0.3,pointRadius:0,borderWidth:2,yAxisID:'y2'}
+      ]
+    },
+    options:{
+      responsive:true,
+      maintainAspectRatio:false,
+      plugins:{legend:{labels:{color:'#5a6270',font:{size:10}}}},
+      scales:{
+        x:{ticks:{color:'#5a6270',font:{size:10},maxRotation:0},grid:{display:false}},
+        y:{position:'left',ticks:{color:'#5a6270',font:{size:10},callback:v=>'$'+v.toLocaleString()},grid:{color:'rgba(28,28,42,0.8)'}},
+        y2:{position:'right',ticks:{color:'#4d8df7',font:{size:10},callback:v=>'$'+v.toLocaleString()},grid:{display:false}}
+      }
+    }
+  });
+}
+
+// Trader comparison chart
+function renderTraderComparisonChart(){
+  if(typeof Chart==='undefined')return;
+  const ctx=document.getElementById('trader-chart');
+  if(!ctx)return;
+  destroyChart('trader');
+
+  const perf=getTraderPerformance('30d');
+  const labels=perf.performance.map(t=>t.trader);
+  const pnl=perf.performance.map(t=>t.totalPnL);
+  const colors=pnl.map(v=>v>=0?'rgba(0,230,118,0.7)':'rgba(255,82,82,0.7)');
+
+  window._charts['trader']=new Chart(ctx,{
+    type:'bar',
+    data:{
+      labels,
+      datasets:[{label:'P&L',data:pnl,backgroundColor:colors,borderRadius:4}]
+    },
+    options:{
+      responsive:true,
+      maintainAspectRatio:false,
+      indexAxis:'y',
+      plugins:{legend:{display:false}},
+      scales:{
+        x:{ticks:{color:'#5a6270',font:{size:10},callback:v=>'$'+v.toLocaleString()},grid:{color:'rgba(28,28,42,0.8)'}},
+        y:{ticks:{color:'#5a6270',font:{size:10}},grid:{display:false}}
+      }
+    }
+  });
+}
+
+// ============================================================================
+// CORRELATION HEATMAP
+// ============================================================================
+
+// Render correlation matrix as HTML table (Chart.js doesn't have native heatmaps)
+function renderCorrelationHeatmap(){
+  const container=document.getElementById('correlation-heatmap');
+  if(!container)return;
+
+  const matrix=getCorrelationMatrix(12);
+  const products=matrix.products;
+
+  let html='<table class="heatmap-table" style="width:100%;border-collapse:collapse;font-size:11px;">';
+  html+='<tr><th style="padding:8px;"></th>';
+  products.forEach(p=>html+=`<th style="padding:8px;color:#5a6270;font-weight:500;">${p.replace('#2','')}</th>`);
+  html+='</tr>';
+
+  products.forEach(p1=>{
+    html+=`<tr><td style="padding:8px;color:#5a6270;font-weight:500;">${p1.replace('#2','')}</td>`;
+    products.forEach(p2=>{
+      const corr=matrix.matrix[p1][p2];
+      const color=getCorrelationColor(corr);
+      html+=`<td style="padding:8px;background:${color};text-align:center;color:#fff;font-weight:500;">${corr.toFixed(2)}</td>`;
+    });
+    html+='</tr>';
+  });
+  html+='</table>';
+
+  container.innerHTML=html;
+}
+
+function getCorrelationColor(corr){
+  if(corr>=0.8)return'#00e676';
+  if(corr>=0.5)return'#4caf50';
+  if(corr>=0.2)return'#8bc34a';
+  if(corr>=-0.2)return'#5a6270';
+  if(corr>=-0.5)return'#ff9800';
+  return'#ff5252';
+}
+
+// ============================================================================
+// VOLATILITY CHART
+// ============================================================================
+
+function renderVolatilityChart(){
+  if(typeof Chart==='undefined')return;
+  const ctx=document.getElementById('volatility-chart');
+  if(!ctx)return;
+  destroyChart('volatility');
+
+  const vol=getVolatilityReport(12);
+  const data=vol.byProduct.slice(0,12);
+  const labels=data.map(v=>`${v.product} ${v.region.charAt(0).toUpperCase()}`);
+  const values=data.map(v=>v.annualizedVol);
+
+  window._charts['volatility']=new Chart(ctx,{
+    type:'bar',
+    data:{
+      labels,
+      datasets:[{label:'Annualized Vol %',data:values,backgroundColor:'rgba(255,171,64,0.7)',borderRadius:4}]
+    },
+    options:{
+      responsive:true,
+      maintainAspectRatio:false,
+      plugins:{legend:{display:false}},
+      scales:{
+        x:{ticks:{color:'#5a6270',font:{size:9},maxRotation:45},grid:{display:false}},
+        y:{ticks:{color:'#5a6270',font:{size:10},callback:v=>v+'%'},grid:{color:'rgba(28,28,42,0.8)'}}
+      }
+    }
+  });
+}
+
+// ============================================================================
+// SIGNALS CHART
+// ============================================================================
+
+function renderSignalsChart(canvasId,typeCounts){
+  if(typeof Chart==='undefined')return;
+  const id=canvasId||'signals-chart';
+  const ctx=document.getElementById(id);
+  if(!ctx)return;
+  destroyChart(id);
+
+  // Get signal counts by type
+  let counts=typeCounts||{};
+  if(!typeCounts&&typeof generateSignals==='function'){
+    const signals=generateSignals();
+    signals.forEach(s=>{counts[s.type]=(counts[s.type]||0)+1});
+  }
+
+  const types=['trend','meanReversion','seasonal','spread','momentum','position'];
+  const data=types.map(t=>counts[t]||0);
+  const hasData=data.some(d=>d>0);
+
+  if(!hasData){
+    // Show empty state message
+    ctx.parentElement.innerHTML='<div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--muted);font-size:12px">No signals generated. Add RL price data to enable signal analysis.</div>';
+    return;
+  }
+
+  window._charts[id]=new Chart(ctx,{
+    type:'doughnut',
+    data:{
+      labels:types.map(t=>t.charAt(0).toUpperCase()+t.slice(1).replace(/([A-Z])/g,' $1')),
+      datasets:[{
+        data,
+        backgroundColor:['#4d8df7','#00e676','#ffab40','#ff5252','#9c27b0','#607d8b'],
+        borderWidth:0
+      }]
+    },
+    options:{
+      responsive:true,
+      maintainAspectRatio:false,
+      plugins:{
+        legend:{position:'right',labels:{color:'#5a6270',font:{size:10},padding:8}}
+      }
+    }
+  });
+}
+
+// MTM trend chart
+function renderMTMTrendChart(canvasId,historyData){
+  if(typeof Chart==='undefined')return;
+  const id=canvasId||'mtm-trend-chart';
+  const ctx=document.getElementById(id);
+  if(!ctx)return;
+  destroyChart(id);
+
+  // Get history data
+  let history=historyData||[];
+  if(!historyData&&typeof getMTMHistory==='function'){
+    history=getMTMHistory(30);
+  }
+
+  if(history.length<2){
+    ctx.parentElement.innerHTML='<div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--muted);font-size:12px">Not enough historical data for MTM trend.</div>';
+    return;
+  }
+
+  const labels=history.map(h=>h.date?.substring(5)||'');
+  const values=history.map(h=>h.unrealizedPnL||h.mtmPnL||0);
+
+  const canvasCtx=ctx.getContext('2d');
+  window._charts[id]=new Chart(ctx,{
+    type:'line',
+    data:{
+      labels,
+      datasets:[{
+        label:'Unrealized P&L',
+        data:values,
+        borderColor:'#4d8df7',
+        backgroundColor:hexToGradient('#4d8df7',canvasCtx,120),
+        fill:true,
+        tension:0.3,
+        pointRadius:3,
+        borderWidth:2
+      }]
+    },
+    options:{
+      responsive:true,
+      maintainAspectRatio:false,
+      plugins:{legend:{display:false}},
+      scales:{
+        x:{ticks:{color:'#5a6270',font:{size:10}},grid:{color:'rgba(28,28,42,0.8)'}},
+        y:{ticks:{color:'#5a6270',font:{size:10},callback:v=>'$'+v.toLocaleString()},grid:{color:'rgba(28,28,42,0.8)'}}
+      }
+    }
+  });
+}

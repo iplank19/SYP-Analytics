@@ -184,75 +184,151 @@ async function miAiParseMillPriceList(text) {
   }).filter(Boolean).join(', ');
   const cityRef = Object.entries(MI_MILL_CITIES).map(([c,s]) => `${c.replace(/\b\w/g,l=>l.toUpperCase())}=${s}`).join(', ');
 
-  const systemPrompt = `You are a lumber industry data parser. Extract mill pricing quotes from the provided text.
+  const systemPrompt = `You are an expert lumber industry data parser. Your job is to extract mill pricing quotes with PERFECT ACCURACY.
 
+CRITICAL: Every price, product, length, and mill location MUST be correctly identified. Errors cost real money.
+
+═══════════════════════════════════════════════════════════════════════════════
+REFERENCE DATA
+═══════════════════════════════════════════════════════════════════════════════
 KNOWN MILLS: ${knownMills.join(', ')}
 KNOWN PRODUCTS: ${MI_PRODUCTS.join(', ')}
-PIECES PER UNIT: ${ppuInfo}
+PIECES PER UNIT (PPU): ${ppuInfo}
 MBF PER UNIT (at RL 14' avg): ${mbfPerUnit}
+MILL CITIES: ${cityRef}
 
-Return a JSON array of quote objects. Each object MUST have:
-{
-  "mill": "Mill Name - Location",
-  "product": "e.g. 2x4#2, 2x6#3",
+═══════════════════════════════════════════════════════════════════════════════
+OUTPUT FORMAT — JSON ARRAY ONLY
+═══════════════════════════════════════════════════════════════════════════════
+[{
+  "mill": "Company Name - City",
+  "product": "2x4#2",
   "price": 450,
-  "length": "RL or specific like 16",
+  "length": "RL",
   "volume": 23.5,
   "tls": 0,
   "shipWindow": "",
   "notes": "",
   "city": "City, ST"
-}
+}]
 
-CRITICAL PARSING RULES:
+═══════════════════════════════════════════════════════════════════════════════
+⚠️ CRITICAL: MILL IDENTIFICATION ⚠️
+═══════════════════════════════════════════════════════════════════════════════
+Multi-location companies MUST use "Company - City" format:
+• "GP" or "Georgia Pacific" alone is WRONG — need "Georgia-Pacific - Gurdon" etc.
+• "Canfor" alone is WRONG — need "Canfor - DeQuincy" or "Canfor - Urbana" etc.
+• "West Fraser" alone is WRONG — need "West Fraser - Huttig" etc.
 
-1. MILL ORIGIN / CITY DETECTION:
-   - ALWAYS determine where the mill is located
-   - Known SYP mill cities: ${cityRef}
-   - Key multi-location companies use "Company - City" format
-   - NEVER leave city empty
+WHERE TO FIND THE CITY:
+1. Sheet name: "=== SHEET: Graceville ===" → city is Graceville
+2. File header/title: "GP Gurdon Price List" → city is Gurdon
+3. Column headers with city names: "Graceville | Bristol" → two separate mills
+4. Letterhead/logo area: Often shows full address
+5. Email signature: "John Smith, Georgia-Pacific Gurdon"
 
-2. MULTI-LOCATION SPREADSHEETS:
-   - Separate sheets (=== SHEET: name ===) are separate mill locations
-   - Within a sheet, column headers like "Graceville" and "Bristol" mean separate mill locations
-   - Create SEPARATE quote entries for each location that has units available
-   - SIDE-BY-SIDE LAYOUT: Some sheets have TWO products on the same row separated by blank columns.
-     Example: header row "2x4 #2 PRIME | FULL PACKS | Graceville | Bristol | | 2x6 #2 PRIME | | Graceville | Bristol"
-     Data row: "10' | 445 | 48 | | | 10' | 460 | 18 | "
-     This means: 2x4#2 at 10' $445 with 48 units at Graceville, AND 2x6#2 at 10' $460 with 18 units at Graceville
-     The numbers after the price are UNITS at each location (Graceville column, then Bristol column)
+NEVER leave city empty. If truly unknown, use the company HQ or first known location.
 
-3. RANDOM LENGTHS / TALLIES:
-   - No length column → length="RL"
-   - "Random" or "RL" or "Tally" → length="RL"
+═══════════════════════════════════════════════════════════════════════════════
+⚠️ CRITICAL: MULTI-LOCATION SPREADSHEETS ⚠️
+═══════════════════════════════════════════════════════════════════════════════
 
-4. VOLUME & AVAILABILITY — DEFAULT IS UNITS:
-   Quantity columns (Avail, Qty, Units, etc.) are in UNITS unless explicitly labeled otherwise.
+PATTERN 1 — SEPARATE SHEETS:
+"=== SHEET: Graceville ===" and "=== SHEET: Bristol ===" are DIFFERENT mills.
+Create entries with appropriate mill name for each sheet.
 
-   CONVERT UNITS TO MBF using the precomputed MBF-PER-UNIT table above:
-     volume = number_of_units × MBF_per_unit_for_that_product
+PATTERN 2 — CITY COLUMNS (most common, most error-prone):
+Header: "Product | Length | Price | Graceville | Bristol | Monroeville"
+Data:   "2x4#2  | 10'    | 445   | 48         | 22      |            "
 
-   For specific lengths (not RL), scale: volume = units × MBF_per_unit × (actual_length / 14)
+This means:
+• 48 units of 2x4#2 10' @ $445 at Graceville mill
+• 22 units of 2x4#2 10' @ $445 at Bristol mill
+• Monroeville has NO availability (empty cell)
 
-   Examples (MBF/unit values are at RL=14' avg, scale for specific lengths):
-     48 units of 2x4 at 10' → 48 × 1.94 × (10/14) = 66.6 MBF
-     22 units of 2x4 at 12' → 22 × 1.94 × (12/14) = 36.6 MBF
-     60 units of 2x6 at 14' → 60 × 1.79 × (14/14) = 107.4 MBF
-     50 units of 2x8 at 12' → 50 × 1.79 × (12/14) = 76.7 MBF
-     3 units of 2x4 RL      → 3 × 1.94 = 5.82 MBF (small units = small volume, that's correct)
+Create SEPARATE quote objects for Graceville AND Bristol. Do NOT create one for Monroeville (no volume).
 
-   ONLY if header explicitly says "TL", "Loads", or "Trucks": tls=N, volume=N*23
-   If NO quantity column exists: set volume=0, tls=0 (price-only list)
+PATTERN 3 — SIDE-BY-SIDE PRODUCTS:
+Some sheets show TWO products per row with a blank column separator:
 
-5. PRICES: FOB mill in $/MBF. Typical SYP prices range $300-$700/MBF. Do NOT convert.
+Header: "2x4 #2 PRIME |     | Graceville | Bristol | | 2x6 #2 PRIME |     | Graceville | Bristol"
+Data:   "10'          | 445 | 48         |         | | 10'          | 460 | 18         |         "
 
-6. PRODUCTS: #2 PRIME=#2, #3 GM=#3, MSR 2400=MSR
+Parse as:
+• 2x4#2 10' $445 with 48 units at Graceville (Bristol empty = skip)
+• 2x6#2 10' $460 with 18 units at Graceville (Bristol empty = skip)
 
-7. MILL NAMING: "Company - Location" for multi-mill companies
+The blank column(s) "| |" separate the two product sections.
 
-8. COMPLETENESS: Extract EVERY line item with a price
+PATTERN 4 — STACKED ROWS BY LOCATION:
+Row 1: "Graceville"
+Row 2: "2x4#2 | 10' | 445 | 48"
+Row 3: "2x4#2 | 12' | 450 | 22"
+Row 4: "Bristol"
+Row 5: "2x4#2 | 10' | 442 | 35"
 
-Return ONLY the JSON array, no explanation.`;
+The location applies to all rows until the next location header.
+
+═══════════════════════════════════════════════════════════════════════════════
+⚠️ CRITICAL: PRICE COLUMN IDENTIFICATION ⚠️
+═══════════════════════════════════════════════════════════════════════════════
+Prices are in $/MBF. Look for columns labeled:
+• "Price", "FOB", "$/MBF", "MBF Price", "Cost"
+• Numbers in $300-$700 range for standard SYP
+
+DO NOT confuse with:
+• Units/availability (smaller numbers like 5, 22, 48)
+• Pieces per unit (208, 128, 96, etc.)
+• Dates (1/15, 2/28)
+
+PRICE SANITY CHECK:
+• $300-$700/MBF is normal for SYP
+• < $100 is probably units, not price
+• > $1000 might be per-unit pricing (divide by MBF-per-unit to convert)
+
+═══════════════════════════════════════════════════════════════════════════════
+VOLUME CALCULATIONS — ALWAYS IN MBF
+═══════════════════════════════════════════════════════════════════════════════
+Quantity columns show UNITS unless labeled "TL", "Loads", or "Trucks".
+
+FORMULA: volume = units × MBF_per_unit × (actual_length / 14)
+
+EXAMPLES:
+• 48 units of 2x4 at 10' → 48 × 1.94 × (10/14) = 66.5 MBF
+• 22 units of 2x4 at 12' → 22 × 1.94 × (12/14) = 36.6 MBF
+• 60 units of 2x6 at 14' → 60 × 1.79 × (14/14) = 107.4 MBF
+• 50 units of 2x8 at 16' → 50 × 1.79 × (16/14) = 102.3 MBF
+• 3 units of 2x4 RL → 3 × 1.94 = 5.82 MBF (RL = 14' average)
+
+TRUCKLOADS: If column says "TL"/"Loads"/"Trucks": tls=N, volume=N×23
+
+NO QUANTITY: If no availability column exists, set volume=0, tls=0
+
+═══════════════════════════════════════════════════════════════════════════════
+LENGTH HANDLING
+═══════════════════════════════════════════════════════════════════════════════
+• "10", "10'", "10ft" → length="10"
+• "Random", "RL", "Tally", "Mixed" → length="RL"
+• No length column → length="RL"
+• "8-16" (range) → Create separate entries OR use "RL" if mixed truck
+
+═══════════════════════════════════════════════════════════════════════════════
+PRODUCT NORMALIZATION
+═══════════════════════════════════════════════════════════════════════════════
+• "#2 PRIME", "#2 Prime", "#2 PR", "No. 2" → "#2"
+• "#3 GM", "#3 Green", "Std/Btr" → "#3"
+• "MSR 2400", "2400f MSR" → "MSR"
+• Format: "2x4#2", "2x6#3", "2x8 MSR"
+
+═══════════════════════════════════════════════════════════════════════════════
+COMPLETENESS REQUIREMENTS
+═══════════════════════════════════════════════════════════════════════════════
+• Extract EVERY line item that has a price
+• Skip rows with no price (header rows, subtotals, etc.)
+• Skip location columns with empty/zero availability
+• Include notes for special conditions (e.g., "Weekly production", "Spot only")
+
+Return ONLY the JSON array, no markdown, no explanation.`;
 
   const sheetChunks = miSplitIntoSheets(text);
   let allQuotes = [];
@@ -304,44 +380,112 @@ async function miAiParseImages(images) {
   }).filter(Boolean).join(', ');
   const cityRef = Object.entries(MI_MILL_CITIES).map(([c,s]) => `${c.replace(/\b\w/g,l=>l.toUpperCase())}=${s}`).join(', ');
 
-  const systemPrompt = `You are a lumber industry data parser. Extract mill pricing quotes from the scanned price list image(s).
+  const systemPrompt = `You are an expert lumber industry data parser. Extract mill pricing quotes from scanned price list images with PERFECT ACCURACY.
 
+CRITICAL: Every price, product, length, and mill location MUST be correctly identified. Errors cost real money.
+
+═══════════════════════════════════════════════════════════════════════════════
+REFERENCE DATA
+═══════════════════════════════════════════════════════════════════════════════
 KNOWN MILLS: ${knownMills.join(', ')}
 KNOWN PRODUCTS: ${MI_PRODUCTS.join(', ')}
-PIECES PER UNIT/PACK: ${ppuInfo}
+PIECES PER UNIT (PPU): ${ppuInfo}
 MBF PER UNIT (at RL 14' avg): ${mbfPerUnit}
+MILL CITIES: ${cityRef}
 
-Return a JSON array of quote objects. Each object MUST have:
-{
-  "mill": "Mill Name - Location",
-  "product": "e.g. 2x4#2, 2x6#3",
+═══════════════════════════════════════════════════════════════════════════════
+OUTPUT FORMAT — JSON ARRAY ONLY
+═══════════════════════════════════════════════════════════════════════════════
+[{
+  "mill": "Company Name - City",
+  "product": "2x4#2",
   "price": 450,
-  "length": "RL or specific like 16",
+  "length": "RL",
   "volume": 0,
   "tls": 0,
   "shipWindow": "",
   "notes": "",
   "city": "City, ST"
-}
+}]
 
-CRITICAL PARSING RULES:
+═══════════════════════════════════════════════════════════════════════════════
+⚠️ CRITICAL: MILL IDENTIFICATION FROM IMAGE ⚠️
+═══════════════════════════════════════════════════════════════════════════════
+1. READ THE LETTERHEAD/LOGO: Company name is usually at top of price sheet
+2. LOOK FOR ADDRESS/LOCATION: City name often appears below company name
+3. Multi-location companies MUST use "Company - City" format:
+   • "GP" → "Georgia-Pacific - [City from letterhead]"
+   • "Canfor" → "Canfor - [City from letterhead]"
+   • "West Fraser" → "West Fraser - [City from letterhead]"
+4. If multiple locations shown in columns, create SEPARATE entries for each
 
-1. MILL NAME: Read the company name from the header/logo of the price sheet. Use "Company - City" format for mill name.
-   Known SYP mill cities: ${cityRef}
+═══════════════════════════════════════════════════════════════════════════════
+⚠️ CRITICAL: TABLE STRUCTURE RECOGNITION ⚠️
+═══════════════════════════════════════════════════════════════════════════════
+TYPICAL PRICE SHEET LAYOUTS:
 
-2. READ EVERY ROW: Extract every product/grade/length combination that has a price.
+LAYOUT 1 — Products as rows, lengths as columns:
+         | 8'  | 10' | 12' | 14' | 16' |
+2x4 #2   | 440 | 445 | 450 | 455 | 460 |
+2x6 #2   | 445 | 450 | 455 | 460 | 465 |
 
-3. PRODUCTS: Map grades to standard format: #1 PRIME=#1, #2 PRIME=#2, #2=#2, #3=#3, #3 GM=#3, MSR 2400=MSR
+LAYOUT 2 — Products as rows, single "RL" price:
+Product    | Price | Pcs/Pack
+2x4 #2 RL  | 450   | 208
+2x6 #2 RL  | 455   | 128
 
-4. LENGTHS: Column headers like 8', 10', 12' etc. are specific lengths. "RL" or "Random" = RL.
+LAYOUT 3 — Length as rows within product sections:
+2x4 #2 PRIME
+  10'  | 445
+  12'  | 450
+  14'  | 455
+2x6 #2 PRIME
+  10'  | 450
+  ...
 
-5. PCS/PACK column: This is pieces per pack/unit info, NOT volume. If no availability/quantity column exists, set volume=0, tls=0 (price-only list).
+LAYOUT 4 — Multi-location columns:
+Product | Length | Price | Graceville | Bristol |
+2x4 #2  | 10'    | 445   | 48 units   | 22 units|
 
-6. PRICES: FOB mill in $/MBF. Typical SYP prices range $300-$700/MBF.
+═══════════════════════════════════════════════════════════════════════════════
+PRICE IDENTIFICATION
+═══════════════════════════════════════════════════════════════════════════════
+• Prices are in $/MBF, typically $300-$700 for SYP
+• Look for columns labeled "Price", "FOB", "$/MBF"
+• DO NOT confuse with Pcs/Pack (208, 128, 96, etc.)
+• DO NOT confuse with unit counts (small numbers like 5, 22, 48)
 
-7. Create a SEPARATE quote entry for each product × grade × length that has a price.
+═══════════════════════════════════════════════════════════════════════════════
+PRODUCT NORMALIZATION
+═══════════════════════════════════════════════════════════════════════════════
+• "#2 PRIME", "#2 Prime", "#2 PR", "No. 2" → "#2"
+• "#3 GM", "#3 Green", "Std/Btr" → "#3"
+• "MSR 2400", "2400f MSR" → "MSR"
+• Format as: "2x4#2", "2x6#3", "2x8 MSR"
 
-Return ONLY the JSON array, no explanation.`;
+═══════════════════════════════════════════════════════════════════════════════
+LENGTH HANDLING
+═══════════════════════════════════════════════════════════════════════════════
+• Read lengths from column headers OR row labels
+• "10", "10'", "10 ft" → length="10"
+• "Random", "RL", "Tally" → length="RL"
+• No length specified → length="RL"
+
+═══════════════════════════════════════════════════════════════════════════════
+VOLUME (for price-only sheets, usually 0)
+═══════════════════════════════════════════════════════════════════════════════
+• Most scanned price sheets are PRICE-ONLY (no availability)
+• Set volume=0, tls=0 unless availability column clearly exists
+• If availability shown: convert units to MBF using formula above
+
+═══════════════════════════════════════════════════════════════════════════════
+COMPLETENESS
+═══════════════════════════════════════════════════════════════════════════════
+• Extract EVERY product × length combination with a price
+• Create SEPARATE entries for each (don't combine)
+• Include notes for special conditions visible on sheet
+
+Return ONLY the JSON array, no markdown, no explanation.`;
 
   // Build vision content: image blocks + text prompt
   const content = [];
