@@ -5,6 +5,13 @@ let _miQuoteLoading = false;
 let _miQuoteResults = [];
 let _miActiveTemplate = '';
 let _miQuoteProducts = []; // [{product:'2x4#2', lengths:{8:true,10:true}, qty:'', ship:'1-2 Weeks'}]
+let _miQuoteMode = 'entry'; // 'entry' = new product entry, 'matrix' = classic checkbox
+
+// Toggle between entry and matrix modes
+function miToggleQuoteMode() {
+  _miQuoteMode = _miQuoteMode === 'entry' ? 'matrix' : 'entry';
+  _miReRenderSource();
+}
 
 // Re-render the Smart Quotes UI into whichever container is active (inline or standalone)
 function _miReRenderSource() {
@@ -19,6 +26,98 @@ function _miReRenderSource() {
 
 // Safe ID for product names with spaces (e.g. "2x4 MSR" → "2x4-MSR")
 function _miPid(p) { return p.replace(/\s+/g, '-'); }
+
+// --- Classic Matrix Helpers ---
+
+function miGetMatrixState() {
+  const grid = {};
+  MI_PRODUCTS.forEach(p => {
+    grid[p] = {};
+    QUOTE_LENGTHS.forEach(l => {
+      const cb = document.getElementById(`mi-mx-${_miPid(p)}-${l}`);
+      grid[p][l] = cb ? cb.checked : false;
+    });
+  });
+  return grid;
+}
+
+function miSetMatrixState(grid) {
+  MI_PRODUCTS.forEach(p => {
+    QUOTE_LENGTHS.forEach(l => {
+      const cb = document.getElementById(`mi-mx-${_miPid(p)}-${l}`);
+      if (cb) cb.checked = !!(grid[p] && grid[p][l]);
+    });
+  });
+  miUpdateMatrixHeaders();
+}
+
+function miUpdateMatrixHeaders() {
+  MI_PRODUCTS.forEach(p => {
+    const rowCb = document.getElementById(`mi-mx-row-${_miPid(p)}`);
+    if (!rowCb) return;
+    const checks = QUOTE_LENGTHS.map(l => {
+      const cb = document.getElementById(`mi-mx-${_miPid(p)}-${l}`);
+      return cb ? cb.checked : false;
+    });
+    const allOn = checks.every(c => c);
+    const noneOn = checks.every(c => !c);
+    rowCb.checked = allOn;
+    rowCb.indeterminate = !allOn && !noneOn;
+  });
+  QUOTE_LENGTHS.forEach(l => {
+    const colCb = document.getElementById(`mi-mx-col-${l}`);
+    if (!colCb) return;
+    const checks = MI_PRODUCTS.map(p => {
+      const cb = document.getElementById(`mi-mx-${_miPid(p)}-${l}`);
+      return cb ? cb.checked : false;
+    });
+    const allOn = checks.every(c => c);
+    const noneOn = checks.every(c => !c);
+    colCb.checked = allOn;
+    colCb.indeterminate = !allOn && !noneOn;
+  });
+  const count = miGetMatrixCheckedCombos().length;
+  const countEl = document.getElementById('mi-mx-count');
+  if (countEl) countEl.textContent = `${count} combo${count !== 1 ? 's' : ''} selected`;
+}
+
+function miToggleRow(product) {
+  const rowCb = document.getElementById(`mi-mx-row-${_miPid(product)}`);
+  const on = rowCb ? rowCb.checked : true;
+  QUOTE_LENGTHS.forEach(l => {
+    const cb = document.getElementById(`mi-mx-${_miPid(product)}-${l}`);
+    if (cb) cb.checked = on;
+  });
+  _miActiveTemplate = '';
+  miUpdateMatrixHeaders();
+}
+
+function miToggleCol(length) {
+  const colCb = document.getElementById(`mi-mx-col-${length}`);
+  const on = colCb ? colCb.checked : true;
+  MI_PRODUCTS.forEach(p => {
+    const cb = document.getElementById(`mi-mx-${_miPid(p)}-${length}`);
+    if (cb) cb.checked = on;
+  });
+  _miActiveTemplate = '';
+  miUpdateMatrixHeaders();
+}
+
+function miCellChanged() {
+  _miActiveTemplate = '';
+  miUpdateMatrixHeaders();
+}
+
+function miGetMatrixCheckedCombos() {
+  const combos = [];
+  MI_PRODUCTS.forEach(p => {
+    QUOTE_LENGTHS.forEach(l => {
+      const cb = document.getElementById(`mi-mx-${_miPid(p)}-${l}`);
+      if (cb && cb.checked) combos.push({ product: p, length: l });
+    });
+  });
+  return combos;
+}
 
 // --- Product Entry Helpers ---
 
@@ -69,6 +168,10 @@ function miGetSelectedCount() {
 }
 
 function miGetCheckedCombos() {
+  // Use matrix mode if active, otherwise use product entry
+  if (_miQuoteMode === 'matrix') {
+    return miGetMatrixCheckedCombos();
+  }
   const combos = [];
   const lengths = ['8','10','12','14','16','18','20'];
   _miQuoteProducts.forEach(p => {
@@ -184,60 +287,137 @@ async function _miRenderSmartQuotesInto(c) {
   }
 
   const lengths = ['8','10','12','14','16','18','20'];
-  const totalSelected = miGetSelectedCount();
+  const isEntryMode = _miQuoteMode === 'entry';
 
-  // Build product rows
-  let productRows = '';
-  for (let idx = 0; idx < _miQuoteProducts.length; idx++) {
-    const p = _miQuoteProducts[idx];
-    let lengthCells = '';
-    for (let li = 0; li < lengths.length; li++) {
-      const len = lengths[li];
-      const isOn = p.lengths && p.lengths[len];
-      const bgColor = isOn ? 'var(--accent)' : 'var(--bg)';
-      const txtColor = isOn ? 'var(--bg)' : 'var(--muted)';
-      lengthCells += `<td style="padding:8px;text-align:center;border:1px solid var(--border);cursor:pointer;background:${bgColor};color:${txtColor};font-weight:600;font-size:14px" onclick="miToggleQuoteLength(${idx},'${len}')">${isOn ? '✓' : ''}</td>`;
+  // Mode toggle buttons
+  const modeToggle = `
+    <div style="display:flex;gap:4px;margin-bottom:12px">
+      <button class="btn ${isEntryMode ? 'btn-primary' : 'btn-default'}" style="padding:6px 12px;font-size:11px" onclick="_miQuoteMode='entry';_miReRenderSource()">Type to Add</button>
+      <button class="btn ${!isEntryMode ? 'btn-primary' : 'btn-default'}" style="padding:6px 12px;font-size:11px" onclick="_miQuoteMode='matrix';_miReRenderSource()">Checkbox Matrix</button>
+    </div>`;
+
+  let productSection = '';
+  let totalSelected = 0;
+
+  if (isEntryMode) {
+    // Product Entry Mode
+    totalSelected = miGetSelectedCount();
+
+    let productRows = '';
+    for (let idx = 0; idx < _miQuoteProducts.length; idx++) {
+      const p = _miQuoteProducts[idx];
+      let lengthCells = '';
+      for (let li = 0; li < lengths.length; li++) {
+        const len = lengths[li];
+        const isOn = p.lengths && p.lengths[len];
+        const bgColor = isOn ? 'var(--accent)' : 'var(--bg)';
+        const txtColor = isOn ? 'var(--bg)' : 'var(--muted)';
+        lengthCells += `<td style="padding:8px;text-align:center;border:1px solid var(--border);cursor:pointer;background:${bgColor};color:${txtColor};font-weight:600;font-size:14px" onclick="miToggleQuoteLength(${idx},'${len}')">${isOn ? '✓' : ''}</td>`;
+      }
+      productRows += `<tr>
+        <td style="padding:10px 12px;font-weight:600;font-size:13px;border:1px solid var(--border);background:var(--panel-alt)">${p.product}</td>
+        ${lengthCells}
+        <td style="padding:2px;border:1px solid var(--border)">
+          <input type="text" value="${p.qty || ''}" placeholder="Qty" style="width:50px;padding:4px;font-size:11px;text-align:center;background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:var(--radius)" onchange="miUpdateProductField(${idx},'qty',this.value)">
+        </td>
+        <td style="padding:2px;border:1px solid var(--border)">
+          <select style="padding:4px;font-size:10px;background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:var(--radius)" onchange="miUpdateProductField(${idx},'ship',this.value)">
+            <option value="Prompt" ${p.ship === 'Prompt' ? 'selected' : ''}>Prompt</option>
+            <option value="1-2 Weeks" ${!p.ship || p.ship === '1-2 Weeks' ? 'selected' : ''}>1-2 Wks</option>
+            <option value="2-3 Weeks" ${p.ship === '2-3 Weeks' ? 'selected' : ''}>2-3 Wks</option>
+            <option value="3-4 Weeks" ${p.ship === '3-4 Weeks' ? 'selected' : ''}>3-4 Wks</option>
+          </select>
+        </td>
+        <td style="padding:4px;text-align:center;border:1px solid var(--border)">
+          <button class="btn btn-default" style="padding:4px 8px;font-size:10px" onclick="miSelectAllLengths(${idx})">ALL</button>
+        </td>
+        <td style="padding:4px;text-align:center;border:1px solid var(--border)">
+          <button class="btn" style="padding:4px 8px;font-size:10px;background:var(--negative);color:#fff" onclick="miRemoveQuoteProduct(${idx})">✕</button>
+        </td>
+      </tr>`;
     }
-    productRows += `<tr>
-      <td style="padding:10px 12px;font-weight:600;font-size:13px;border:1px solid var(--border);background:var(--panel-alt)">${p.product}</td>
-      ${lengthCells}
-      <td style="padding:2px;border:1px solid var(--border)">
-        <input type="text" value="${p.qty || ''}" placeholder="Qty" style="width:50px;padding:4px;font-size:11px;text-align:center;background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:var(--radius)" onchange="miUpdateProductField(${idx},'qty',this.value)">
-      </td>
-      <td style="padding:2px;border:1px solid var(--border)">
-        <select style="padding:4px;font-size:10px;background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:var(--radius)" onchange="miUpdateProductField(${idx},'ship',this.value)">
-          <option value="Prompt" ${p.ship === 'Prompt' ? 'selected' : ''}>Prompt</option>
-          <option value="1-2 Weeks" ${!p.ship || p.ship === '1-2 Weeks' ? 'selected' : ''}>1-2 Wks</option>
-          <option value="2-3 Weeks" ${p.ship === '2-3 Weeks' ? 'selected' : ''}>2-3 Wks</option>
-          <option value="3-4 Weeks" ${p.ship === '3-4 Weeks' ? 'selected' : ''}>3-4 Wks</option>
-        </select>
-      </td>
-      <td style="padding:4px;text-align:center;border:1px solid var(--border)">
-        <button class="btn btn-default" style="padding:4px 8px;font-size:10px" onclick="miSelectAllLengths(${idx})">ALL</button>
-      </td>
-      <td style="padding:4px;text-align:center;border:1px solid var(--border)">
-        <button class="btn" style="padding:4px 8px;font-size:10px;background:var(--negative);color:#fff" onclick="miRemoveQuoteProduct(${idx})">✕</button>
-      </td>
-    </tr>`;
-  }
 
-  const productTable = _miQuoteProducts.length ? `
-    <div style="overflow-x:auto">
-      <table style="width:100%;border-collapse:collapse">
-        <thead>
-          <tr style="background:var(--panel-alt)">
-            <th style="padding:10px 12px;text-align:left;border:1px solid var(--border);min-width:100px">Product</th>
-            ${lengths.map(l => `<th style="padding:10px 8px;text-align:center;border:1px solid var(--border);min-width:50px">${l}'</th>`).join('')}
-            <th style="padding:10px 4px;text-align:center;border:1px solid var(--border);width:60px">Qty</th>
-            <th style="padding:10px 4px;text-align:center;border:1px solid var(--border);width:70px">Ship</th>
-            <th style="padding:10px 4px;text-align:center;border:1px solid var(--border);width:50px"></th>
-            <th style="padding:10px 4px;text-align:center;border:1px solid var(--border);width:40px"></th>
-          </tr>
-        </thead>
-        <tbody>${productRows}</tbody>
-      </table>
-    </div>
-  ` : `<div style="text-align:center;padding:30px;color:var(--muted)">Type a product above (e.g., 2x4#2) and click ADD</div>`;
+    const productTable = _miQuoteProducts.length ? `
+      <div style="overflow-x:auto">
+        <table style="width:100%;border-collapse:collapse">
+          <thead>
+            <tr style="background:var(--panel-alt)">
+              <th style="padding:10px 12px;text-align:left;border:1px solid var(--border);min-width:100px">Product</th>
+              ${lengths.map(l => `<th style="padding:10px 8px;text-align:center;border:1px solid var(--border);min-width:50px">${l}'</th>`).join('')}
+              <th style="padding:10px 4px;text-align:center;border:1px solid var(--border);width:60px">Qty</th>
+              <th style="padding:10px 4px;text-align:center;border:1px solid var(--border);width:70px">Ship</th>
+              <th style="padding:10px 4px;text-align:center;border:1px solid var(--border);width:50px"></th>
+              <th style="padding:10px 4px;text-align:center;border:1px solid var(--border);width:40px"></th>
+            </tr>
+          </thead>
+          <tbody>${productRows}</tbody>
+        </table>
+      </div>
+    ` : `<div style="text-align:center;padding:30px;color:var(--muted)">Type a product above (e.g., 2x4#2) and click ADD</div>`;
+
+    productSection = `
+      <label class="form-label">① ADD PRODUCTS</label>
+      <div style="display:flex;gap:8px;margin-bottom:12px">
+        <input type="text" id="mi-product-input" placeholder="Type: 2x4#2, 2x6 #1, 2x8 MSR..." style="flex:1;padding:12px;font-size:14px;background:var(--surface);color:var(--text);border:2px solid var(--border);border-radius:var(--radius)" onkeydown="if(event.key==='Enter'){event.preventDefault();miAddQuoteProduct()}">
+        <button class="btn btn-primary" style="padding:12px 20px;font-size:14px" onclick="miAddQuoteProduct()">+ ADD</button>
+      </div>
+      ${productTable}`;
+  } else {
+    // Classic Checkbox Matrix Mode
+    const gradeGroups = [
+      {label: '#1', products: MI_PRODUCTS.filter(p => p.includes('#1'))},
+      {label: '#2', products: MI_PRODUCTS.filter(p => p.includes('#2'))},
+      {label: '#3', products: MI_PRODUCTS.filter(p => p.includes('#3'))},
+      {label: '#4', products: MI_PRODUCTS.filter(p => p.includes('#4'))},
+      {label: 'MSR', products: MI_PRODUCTS.filter(p => p.includes('MSR'))},
+    ];
+
+    const matrixRows = gradeGroups.map(grp => {
+      const groupHeader = `<tr><td colspan="${lengths.length + 1}" style="padding:6px 6px 2px;font-size:10px;font-weight:700;color:var(--muted);border-top:1px solid var(--border)">${grp.label}</td></tr>`;
+      const rows = grp.products.map(p => {
+        const pid = _miPid(p);
+        const cells = lengths.map(l =>
+          `<td style="text-align:center;padding:3px"><input type="checkbox" id="mi-mx-${pid}-${l}" onchange="miCellChanged()"></td>`
+        ).join('');
+        return `<tr>
+          <td style="white-space:nowrap;padding:3px 6px;font-size:11px;font-weight:600">
+            <label style="cursor:pointer;display:flex;align-items:center;gap:4px">
+              <input type="checkbox" id="mi-mx-row-${pid}" onchange="miToggleRow('${p}')">
+              ${typeof formatProductHeader === 'function' ? formatProductHeader(p) : p}
+            </label>
+          </td>
+          ${cells}
+        </tr>`;
+      }).join('');
+      return groupHeader + rows;
+    }).join('');
+
+    const colHeaders = lengths.map(l =>
+      `<th style="text-align:center;padding:3px;font-size:10px;font-weight:600;min-width:28px">
+        <div>${l}'</div>
+        <input type="checkbox" id="mi-mx-col-${l}" onchange="miToggleCol('${l}')" style="margin-top:2px">
+      </th>`
+    ).join('');
+
+    productSection = `
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+        <label class="form-label" style="margin:0">① SELECT PRODUCTS & LENGTHS</label>
+        <span id="mi-mx-count" style="font-size:10px;color:var(--muted)">0 combos selected</span>
+      </div>
+      <div style="overflow-x:auto;max-height:400px;overflow-y:auto">
+        <table style="font-size:11px;border-collapse:collapse;width:100%" id="mi-quote-matrix">
+          <thead>
+            <tr>
+              <th style="text-align:left;padding:3px 6px;font-size:10px">PRODUCT</th>
+              ${colHeaders}
+            </tr>
+          </thead>
+          <tbody>
+            ${matrixRows}
+          </tbody>
+        </table>
+      </div>`;
+  }
 
   c.innerHTML = `
     <div class="grid-2" style="gap:16px;align-items:start">
@@ -245,9 +425,10 @@ async function _miRenderSmartQuotesInto(c) {
         <div class="card">
           <div class="card-header">
             <span class="card-title">SMART QUOTE BUILDER</span>
-            <span style="font-size:11px;color:var(--muted)">${totalSelected} selected</span>
+            <span style="font-size:11px;color:var(--muted)">${isEntryMode ? totalSelected + ' selected' : ''}</span>
           </div>
           <div class="card-body">
+            ${modeToggle}
             <div style="margin-bottom:16px">
               <div class="form-group">
                 <label class="form-label">Destination</label>
@@ -256,15 +437,10 @@ async function _miRenderSmartQuotesInto(c) {
             </div>
 
             <div style="margin-bottom:16px">
-              <label class="form-label">① ADD PRODUCTS</label>
-              <div style="display:flex;gap:8px;margin-bottom:12px">
-                <input type="text" id="mi-product-input" placeholder="Type: 2x4#2, 2x6 #1, 2x8 MSR..." style="flex:1;padding:12px;font-size:14px;background:var(--surface);color:var(--text);border:2px solid var(--border);border-radius:var(--radius)" onkeydown="if(event.key==='Enter'){event.preventDefault();miAddQuoteProduct()}">
-                <button class="btn btn-primary" style="padding:12px 20px;font-size:14px" onclick="miAddQuoteProduct()">+ ADD</button>
-              </div>
-              ${productTable}
+              ${productSection}
             </div>
 
-            <button class="btn btn-success" onclick="miBuildSmartQuote()" style="padding:14px 28px;font-size:16px;width:100%" ${_miQuoteLoading || !totalSelected ? 'disabled' : ''}>
+            <button class="btn btn-success" onclick="miBuildSmartQuote()" style="padding:14px 28px;font-size:16px;width:100%" ${_miQuoteLoading ? 'disabled' : ''}>
               ${_miQuoteLoading ? '<span class="spinner" style="width:14px;height:14px;display:inline-block;vertical-align:middle;margin-right:6px;border-width:2px"></span>Building...' : '💰 GET COSTS'}
             </button>
           </div>
@@ -278,12 +454,17 @@ async function _miRenderSmartQuotesInto(c) {
             ${_miQuoteResults.length ? `<button class="btn btn-sm btn-success" onclick="miCopyQuoteResults()">📋 Copy</button>` : ''}
           </div>
           <div class="card-body" id="mi-quote-results">
-            <div class="empty-state">Enter a destination, add products, select lengths, then click GET COSTS</div>
+            <div class="empty-state">Enter a destination, select products/lengths, then click GET COSTS</div>
           </div>
         </div>
       </div>
     </div>
   `;
+
+  // For matrix mode, update headers after render
+  if (!isEntryMode) {
+    setTimeout(() => miUpdateMatrixHeaders(), 0);
+  }
 
   if (_miQuoteResults.length) miRenderQuoteResults();
 }

@@ -1486,7 +1486,7 @@ function render(){
         </div>
         <div class="card-body" style="padding:12px">
           <div style="display:flex;gap:8px;margin-bottom:16px">
-            <input type="text" id="add-product-input" placeholder="Type: 2x4#2, 2x6 #1, 2x8 MSR..." style="flex:1;padding:12px;font-size:14px;border:2px solid var(--border);border-radius:var(--radius)" onkeydown="if(event.key==='Enter'){event.preventDefault();addQuoteProduct()}">
+            <input type="text" id="add-product-input" placeholder="Type: 2x4#2, 2x6 #1, 2x8 MSR..." style="flex:1;padding:12px;font-size:14px;background:var(--surface);color:var(--text);border:2px solid var(--border);border-radius:var(--radius)" onkeydown="if(event.key==='Enter'){event.preventDefault();addQuoteProduct()}">
             <button class="btn btn-primary" style="padding:12px 20px;font-size:14px" onclick="addQuoteProduct()">+ ADD</button>
           </div>
           ${quoteProducts.length?`
