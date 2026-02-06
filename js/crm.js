@@ -44,14 +44,26 @@ async function loadCRMData(){
     const dedupeByName=arr=>{const seen=new Set();return arr.filter(x=>{if(!x.name||seen.has(x.name))return false;seen.add(x.name);return true})};
     const uniqueServerCusts=dedupeByName(serverCustomers);
     const uniqueServerMills=dedupeByName(serverMills);
-    // Merge: use server data as base, add any in-memory entries not on server
+    // Merge: memory (cloud) data is authoritative; enrich from SQLite
+    const memoryCustMap=new Map((S.customers||[]).map(c=>[c.name,c]));
+    const memoryMillMap=new Map((S.mills||[]).map(m=>[m.name,m]));
+    // For entries in both: keep memory version, just ensure SQLite ID is available
+    // For SQLite-only entries: add to memory
+    uniqueServerCusts.forEach(sc=>{
+      const mc=memoryCustMap.get(sc.name);
+      if(mc){if(sc.id&&!mc.id)mc.id=sc.id}
+      else{S.customers.push(sc);memoryCustMap.set(sc.name,sc)}
+    });
+    uniqueServerMills.forEach(sm=>{
+      const mm=memoryMillMap.get(sm.name);
+      if(mm){if(sm.id&&!mm.id)mm.id=sm.id}
+      else{S.mills.push(sm);memoryMillMap.set(sm.name,sm)}
+    });
+    // Sync any memory-only entries to SQLite
     const serverCustNames=new Set(uniqueServerCusts.map(c=>c.name));
     const serverMillNames=new Set(uniqueServerMills.map(m=>m.name));
     const extraCusts=(S.customers||[]).filter(c=>c.name&&!serverCustNames.has(c.name));
     const extraMills=(S.mills||[]).filter(m=>m.name&&!serverMillNames.has(m.name));
-    S.customers=uniqueServerCusts.concat(extraCusts);
-    S.mills=uniqueServerMills.concat(extraMills);
-    // Sync any missing entries back to server and update local IDs
     if(extraCusts.length&&typeof syncCustomersToServer==='function')await syncCustomersToServer(extraCusts);
     if(extraMills.length&&typeof syncMillsToServer==='function')await syncMillsToServer(extraMills);
     render();
