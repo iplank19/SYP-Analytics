@@ -311,7 +311,7 @@ async function init(){
     try{
       const result=await cloudSync('pull');
       if(result.success){
-        await loadAllLocal(); // Reload with cloud data
+        // cloudSync('pull') already updated S.* and saved to IndexedDB — no need to reload
         migrateTraderNames();
         if(!localStorage.getItem('syp_entityMigration_v1')){migrateEntityNames();localStorage.setItem('syp_entityMigration_v1','1')}
         console.log('Cloud sync: pulled latest data');

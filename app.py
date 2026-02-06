@@ -2760,6 +2760,17 @@ def mi_submit_quotes():
                 if deleted:
                     app.logger.info(f"Replaced existing quote for {mill_name} {product} {length}")
 
+    # Pre-cache existing CRM mills to avoid per-quote DB lookups and geocoding
+    crm_conn_pre = get_crm_db()
+    _mill_cache = {}
+    for row in crm_conn_pre.execute("SELECT * FROM mills").fetchall():
+        _mill_cache[row['name'].upper()] = dict(row)
+    crm_conn_pre.close()
+
+    # Pre-sync cached mills to MI so mill_id is available
+    for cached_mill in _mill_cache.values():
+        sync_mill_to_mi(cached_mill, mi_conn=conn)
+
     for q in quotes:
         mill_name = q.get('mill', '').strip()
         if not mill_name or not q.get('product') or not q.get('price'):
@@ -2771,19 +2782,24 @@ def mi_submit_quotes():
         except (ValueError, TypeError):
             continue
 
-        # Find or create mill in CRM (single source of truth)
-        city = q.get('city', '')
-        state = mi_extract_state(city) if city else ''
-        region = mi_get_region(state) if state else 'central'
-        lat, lon = None, None
-        if city:
-            coords = mi_geocode_location(city)
-            if coords:
-                lat, lon = coords['lat'], coords['lon']
-        crm_mill = find_or_create_crm_mill(mill_name, city, state, region, lat, lon,
-                                            q.get('trader', 'Unknown'))
-        # Sync to MI mills table for JOIN queries (pass existing conn to avoid lock)
-        sync_mill_to_mi(crm_mill, mi_conn=conn)
+        # Find or create mill in CRM — skip geocoding for known mills
+        company = extract_company_name(mill_name)
+        cached = _mill_cache.get(company.upper())
+        if cached:
+            crm_mill = cached
+        else:
+            city = q.get('city', '')
+            state = mi_extract_state(city) if city else ''
+            region = mi_get_region(state) if state else 'central'
+            lat, lon = None, None
+            if city:
+                coords = mi_geocode_location(city)
+                if coords:
+                    lat, lon = coords['lat'], coords['lon']
+            crm_mill = find_or_create_crm_mill(mill_name, city, state, region, lat, lon,
+                                                q.get('trader', 'Unknown'))
+            _mill_cache[company.upper()] = crm_mill
+            sync_mill_to_mi(crm_mill, mi_conn=conn)
 
         mill_id = crm_mill['id']
         product = q['product']
@@ -2808,7 +2824,7 @@ def mi_submit_quotes():
             (mill_id, mill_name, product, price_val,
              q.get('length', 'RL'), float(q.get('volume', 0)), int(q.get('tls', 0)),
              q.get('shipWindow', q.get('ship_window', '')) or 'Prompt', q.get('notes', ''),
-             today_date,  # Always use today's date for uploads
+             q.get('date', today_date),  # Preserve original date for syncs, default to today
              q.get('trader', 'Unknown'), q.get('source', 'manual'), q.get('raw_text', ''))
         )
         created.append(q)

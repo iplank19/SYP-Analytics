@@ -326,9 +326,11 @@ async function cloudSync(action='push',opts={}){
         await saveAllLocal();
         // Cancel any push that saveAllLocal may have scheduled
         clearTimeout(_cloudPushTimer);
-        // Sync pulled customers/mills into SQLite (fire-and-forget, don't block UI)
+        // Sync pulled data into SQLite and Mill Intel (fire-and-forget, don't block UI)
         syncCustomersToServer(S.customers).catch(e=>console.warn('Customer sync:',e));
         syncMillsToServer(S.mills).catch(e=>console.warn('Mill sync:',e));
+        syncMillQuotesToMillIntel().catch(e=>console.warn('Mill quote sync:',e));
+        syncRLToMillIntel().catch(e=>console.warn('RL sync:',e));
         _isPulling=false;
         return{success:true,action:'pulled',updated:rows[0].updated_at};
       }
@@ -354,39 +356,22 @@ async function saveAllLocal(){
   ;(S.customers||[]).forEach(c=>{if(c&&typeof c==='object')c.updatedAt=c.updatedAt||now})
   ;(S.mills||[]).forEach(m=>{if(m&&typeof m==='object')m.updatedAt=m.updatedAt||now})
 
-  // IndexedDB (primary)
-  await dbSet('buys',S.buys)
-  await dbSet('sells',S.sells)
-  await dbSet('rl',S.rl)
-  await dbSet('customers',S.customers)
-  await dbSet('mills',S.mills)
-  await dbSet('nextId',S.nextId)
-  await dbSet('flatRate',S.flatRate)
-  await dbSet('lanes',S.lanes)
-  // Trader-specific quote data
-  await dbSet('quoteItems_'+S.trader,S.quoteItems)
-  await dbSet('stateRates_'+S.trader,S.stateRates)
-  await dbSet('quoteProfiles_'+S.trader,S.quoteProfiles)
-  await dbSet('quoteProfile_'+S.trader,S.quoteProfile)
-  await dbSet('marketBlurb',S.marketBlurb)
-  await dbSet('freightBase',S.freightBase)
-  await dbSet('shortHaulFloor',S.shortHaulFloor)
-  // Futures data
-  await dbSet('futuresContracts',S.futuresContracts)
-  await dbSet('futuresParams',S.futuresParams)
-  // Mill pricing
-  await dbSet('millQuotes',S.millQuotes)
-  // Risk management
-  await dbSet('riskLimits',S.riskLimits||{})
-  // Trading signals
-  await dbSet('signalConfig',S.signalConfig||null)
-  await dbSet('signalHistory',S.signalHistory||[])
-  // Alerts
-  await dbSet('alertConfig',S.alertConfig||null)
-  await dbSet('alertHistory',S.alertHistory||[])
-  // Reports
-  await dbSet('reportSchedules',S.reportSchedules||[])
-  await dbSet('reportHistory',S.reportHistory||[])
+  // IndexedDB (primary) — parallel writes
+  const t=S.trader
+  await Promise.all([
+    dbSet('buys',S.buys),dbSet('sells',S.sells),dbSet('rl',S.rl),
+    dbSet('customers',S.customers),dbSet('mills',S.mills),
+    dbSet('nextId',S.nextId),dbSet('flatRate',S.flatRate),dbSet('lanes',S.lanes),
+    dbSet('quoteItems_'+t,S.quoteItems),dbSet('stateRates_'+t,S.stateRates),
+    dbSet('quoteProfiles_'+t,S.quoteProfiles),dbSet('quoteProfile_'+t,S.quoteProfile),
+    dbSet('marketBlurb',S.marketBlurb),dbSet('freightBase',S.freightBase),
+    dbSet('shortHaulFloor',S.shortHaulFloor),
+    dbSet('futuresContracts',S.futuresContracts),dbSet('futuresParams',S.futuresParams),
+    dbSet('millQuotes',S.millQuotes),dbSet('riskLimits',S.riskLimits||{}),
+    dbSet('signalConfig',S.signalConfig||null),dbSet('signalHistory',S.signalHistory||[]),
+    dbSet('alertConfig',S.alertConfig||null),dbSet('alertHistory',S.alertHistory||[]),
+    dbSet('reportSchedules',S.reportSchedules||[]),dbSet('reportHistory',S.reportHistory||[])
+  ])
   // localStorage (backup for small data)
   SS('buys',S.buys)
   SS('sells',S.sells)
@@ -432,9 +417,6 @@ async function saveAllLocal(){
     },2000);
   }
 
-  // Auto-sync data to Mill Intel platform (non-blocking)
-  syncRLToMillIntel().catch(e=>console.warn('Mill Intel RL sync:',e));
-  syncMillQuotesToMillIntel().catch(e=>console.warn('Mill Intel quote sync:',e));
 }
 
 // ---------- MILL INTEL CROSS-PLATFORM SYNC ----------
@@ -538,41 +520,53 @@ async function syncMillQuotesToMillIntel(){
 // Load from IndexedDB first, fall back to localStorage
 async function loadAllLocal(){
   await initDB();
-  S.buys=await dbGet('buys',LS('buys',[]));
-  S.sells=await dbGet('sells',LS('sells',[]));
-  S.rl=await dbGet('rl',LS('rl',[]));
-  S.customers=await dbGet('customers',LS('customers',[]));
-  S.mills=await dbGet('mills',LS('mills',[]));
-  S.nextId=await dbGet('nextId',LS('nextId',1));
-  S.flatRate=await dbGet('flatRate',LS('flatRate',3.50));
-  S.lanes=await dbGet('lanes',LS('lanes',[]));
-  // Trader-specific quote data
-  S.quoteItems=await dbGet('quoteItems_'+S.trader,LS('quoteItems_'+S.trader,[]));
-  S.stateRates=await dbGet('stateRates_'+S.trader,LS('stateRates_'+S.trader,{AR:2.25,LA:2.25,TX:2.50,MS:2.25,AL:2.50,FL:2.75,GA:2.50,SC:2.50,NC:2.50}));
-  S.quoteProfiles=await dbGet('quoteProfiles_'+S.trader,LS('quoteProfiles_'+S.trader,{default:{name:'Default',customers:[]}}));
-  S.quoteProfile=await dbGet('quoteProfile_'+S.trader,LS('quoteProfile_'+S.trader,'default'));
-  S.marketBlurb=await dbGet('marketBlurb',LS('marketBlurb',''));
-  S.shortHaulFloor=await dbGet('shortHaulFloor',LS('shortHaulFloor',0));
-  S.freightBase=await dbGet('freightBase',LS('freightBase',450));
-  S.apiKey=LS('apiKey','');
-  S.aiMsgs=LS('aiMsgs',[]);
-  // Futures data
-  S.futuresContracts=await dbGet('futuresContracts',LS('futuresContracts',[]));
-  S.futuresParams=await dbGet('futuresParams',LS('futuresParams',{carryRate:0.08,storageCost:2,insuranceCost:1}));
-  // Mill pricing
-  S.millQuotes=await dbGet('millQuotes',LS('millQuotes',[]));
-  normalizeMillQuotes();
-  // Risk management
-  S.riskLimits=await dbGet('riskLimits',LS('riskLimits',{}));
-  // Trading signals
-  S.signalConfig=await dbGet('signalConfig',LS('signalConfig',null));
-  S.signalHistory=await dbGet('signalHistory',LS('signalHistory',[]));
-  // Alerts
-  S.alertConfig=await dbGet('alertConfig',LS('alertConfig',null));
-  S.alertHistory=await dbGet('alertHistory',LS('alertHistory',[]));
-  // Reports
-  S.reportSchedules=await dbGet('reportSchedules',LS('reportSchedules',[]));
-  S.reportHistory=await dbGet('reportHistory',LS('reportHistory',[]));
+  // Parallel IDB reads (30+ sequential awaits → single Promise.all)
+  const t=S.trader;
+  const [buys,sells,rl,customers,mills,nextId,flatRate,lanes,
+         quoteItems,stateRates,quoteProfiles,quoteProfile,
+         marketBlurb,shortHaulFloor,freightBase,
+         futuresContracts,futuresParams,millQuotes,
+         riskLimits,signalConfig,signalHistory,
+         alertConfig,alertHistory,reportSchedules,reportHistory
+  ]=await Promise.all([
+    dbGet('buys',LS('buys',[])),
+    dbGet('sells',LS('sells',[])),
+    dbGet('rl',LS('rl',[])),
+    dbGet('customers',LS('customers',[])),
+    dbGet('mills',LS('mills',[])),
+    dbGet('nextId',LS('nextId',1)),
+    dbGet('flatRate',LS('flatRate',3.50)),
+    dbGet('lanes',LS('lanes',[])),
+    dbGet('quoteItems_'+t,LS('quoteItems_'+t,[])),
+    dbGet('stateRates_'+t,LS('stateRates_'+t,{AR:2.25,LA:2.25,TX:2.50,MS:2.25,AL:2.50,FL:2.75,GA:2.50,SC:2.50,NC:2.50})),
+    dbGet('quoteProfiles_'+t,LS('quoteProfiles_'+t,{default:{name:'Default',customers:[]}})),
+    dbGet('quoteProfile_'+t,LS('quoteProfile_'+t,'default')),
+    dbGet('marketBlurb',LS('marketBlurb','')),
+    dbGet('shortHaulFloor',LS('shortHaulFloor',0)),
+    dbGet('freightBase',LS('freightBase',450)),
+    dbGet('futuresContracts',LS('futuresContracts',[])),
+    dbGet('futuresParams',LS('futuresParams',{carryRate:0.08,storageCost:2,insuranceCost:1})),
+    dbGet('millQuotes',LS('millQuotes',[])),
+    dbGet('riskLimits',LS('riskLimits',{})),
+    dbGet('signalConfig',LS('signalConfig',null)),
+    dbGet('signalHistory',LS('signalHistory',[])),
+    dbGet('alertConfig',LS('alertConfig',null)),
+    dbGet('alertHistory',LS('alertHistory',[])),
+    dbGet('reportSchedules',LS('reportSchedules',[])),
+    dbGet('reportHistory',LS('reportHistory',[]))
+  ]);
+  S.buys=buys;S.sells=sells;S.rl=rl;S.customers=customers;S.mills=mills;
+  S.nextId=nextId;S.flatRate=flatRate;S.lanes=lanes;
+  S.quoteItems=quoteItems;S.stateRates=stateRates;
+  S.quoteProfiles=quoteProfiles;S.quoteProfile=quoteProfile;
+  S.marketBlurb=marketBlurb;S.shortHaulFloor=shortHaulFloor;S.freightBase=freightBase;
+  S.apiKey=LS('apiKey','');S.aiMsgs=LS('aiMsgs',[]);
+  S.futuresContracts=futuresContracts;S.futuresParams=futuresParams;
+  S.millQuotes=millQuotes;normalizeMillQuotes();
+  S.riskLimits=riskLimits;
+  S.signalConfig=signalConfig;S.signalHistory=signalHistory;
+  S.alertConfig=alertConfig;S.alertHistory=alertHistory;
+  S.reportSchedules=reportSchedules;S.reportHistory=reportHistory;
 }
 
 // Sync pulled customers/mills into SQLite so loadCRMData finds them
