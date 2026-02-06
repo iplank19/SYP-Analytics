@@ -39,7 +39,7 @@ function getMarketContext(product,region='west'){
   if(!currentPrice)return null;
 
   let trend='flat',trendPct=0;
-  if(prevPrice){
+  if(prevPrice&&prevPrice>0){
     trendPct=((currentPrice-prevPrice)/prevPrice)*100;
     trend=trendPct>1?'up':trendPct<-1?'down':'flat';
   }
@@ -51,7 +51,8 @@ function getMarketContext(product,region='west'){
 // CUSTOMER PRODUCT HISTORY
 // ============================================================================
 
-function getCustomerProducts(customerName){
+// Fuzzy product search by customer substring — use getCustomerProducts() in state.js for exact match
+function getCustomerProductsFuzzy(customerName){
   if(!customerName)return[];
   const products=new Set();
   S.sells.filter(s=>(s.customer||'').toLowerCase().includes(customerName.toLowerCase()))
@@ -61,23 +62,25 @@ function getCustomerProducts(customerName){
 
 function getCustomerProfile(customerName){
   if(!customerName)return null;
-  const customerSells=S.sells.filter(s=>(s.customer||'').toLowerCase().includes(customerName.toLowerCase()));
+  const normalized=normalizeCustomerName(customerName);
+  const customerSells=S.sells.filter(s=>s.customer&&s.customer.toLowerCase()===normalized.toLowerCase());
   if(!customerSells.length)return null;
 
   const buyByOrder={};
-  S.buys.forEach(b=>{const ord=String(b.orderNum||b.po||'').trim();if(ord)buyByOrder[ord]=b;});
+  S.buys.forEach(b=>{const ord=normalizeOrderNum(b.orderNum||b.po);if(ord)buyByOrder[ord]=b;});
 
   const productStats={};
   let totalMargin=0,matchedVol=0;
 
   customerSells.forEach(s=>{
     const prod=s.product;
-    if(!productStats[prod])productStats[prod]={product:prod,volume:0,margin:0,trades:0,prices:[]};
+    if(!productStats[prod])productStats[prod]={product:prod,volume:0,margin:0,trades:0,prices:[],priceVolumeSum:0};
     const vol=s.volume||0;
     productStats[prod].trades++;
     productStats[prod].volume+=vol;
     productStats[prod].prices.push(s.price||0);
-    const ord=String(s.orderNum||s.linkedPO||s.oc||'').trim();
+    productStats[prod].priceVolumeSum+=(s.price||0)*vol;
+    const ord=normalizeOrderNum(s.orderNum||s.linkedPO||s.oc);
     const buy=ord?buyByOrder[ord]:null;
     if(buy){
       const freightPerMBF=vol>0?(s.freight||0)/vol:0;
@@ -91,7 +94,7 @@ function getCustomerProfile(customerName){
 
   const byProduct=Object.values(productStats).map(p=>({
     ...p,
-    avgPrice:p.volume?p.prices.reduce((a,b)=>a+b,0)/p.prices.length:0,
+    avgPrice:p.volume>0?p.priceVolumeSum/p.volume:p.prices.length?p.prices.reduce((a,b)=>a+b,0)/p.prices.length:0,
     lastPrice:p.prices[p.prices.length-1]||0,
     avgMargin:p.volume&&p.margin?p.margin/p.volume:null
   }));
@@ -231,15 +234,16 @@ function generateBulkQuotes(customerName,destination,riskLevel=1,marginTarget=25
     // Calculate freight if destination provided
     let freight=null;
     if(destination&&costSource.mill){
-      const origin=MILL_DIRECTORY?.[costSource.mill]?.city;
+      const dirEntry=MILL_DIRECTORY?.[costSource.mill];
+      const origin=dirEntry?.city;
       if(origin&&typeof getLaneMiles==='function'&&typeof calcFreightPerMBF==='function'){
-        const miles=getLaneMiles(origin+', '+MILL_DIRECTORY[costSource.mill]?.state,destination);
+        const miles=getLaneMiles(origin+', '+(dirEntry?.state||''),destination);
         if(miles)freight=calcFreightPerMBF(miles,origin,prod.product.includes('MSR'));
       }
     }
 
-    const landedCost=costSource.price+(freight||0);
-    const suggestedPrice=landedCost+adjustedMargin;
+    const landedCost=freight!=null?costSource.price+freight:null;
+    const suggestedPrice=landedCost!=null?landedCost+adjustedMargin:null;
 
     quotes.push({
       product:prod.product,
@@ -292,7 +296,7 @@ function setQdCustomer(name){
   if(profile){
     S.qdProducts=profile.products;
     // Try to get destination from CRM or sales
-    const cust=(S.customers||[]).find(c=>(c.name||'').toLowerCase()===name.toLowerCase());
+    const cust=findCustomerByName(name);
     S.qdDestination=cust?.destination||cust?.locations?.[0]||'';
   }
   S.qdQuotes=null;
@@ -327,7 +331,7 @@ function copyQuotesToClipboard(){
   if(!S.qdQuotes||!S.qdQuotes.quotes.length)return;
   const lines=['Product\tMill\tFOB\tFreight\tLanded\tMargin\tPrice'];
   S.qdQuotes.quotes.forEach(q=>{
-    lines.push(`${q.product}\t${q.mill}\t$${q.millPrice?.toFixed(0)||'—'}\t$${q.freight?.toFixed(0)||'—'}\t$${q.landedCost?.toFixed(0)||'—'}\t$${q.margin?.toFixed(0)||'—'}\t$${q.suggestedPrice?.toFixed(0)||'—'}`);
+    lines.push(`${q.product}\t${q.mill}\t${q.millPrice!=null?'$'+q.millPrice.toFixed(0):'N/A'}\t${q.freight!=null?'$'+q.freight.toFixed(0):'N/A'}\t${q.landedCost!=null?'$'+q.landedCost.toFixed(0):'N/A'}\t${q.margin!=null?'$'+q.margin.toFixed(0):'N/A'}\t${q.suggestedPrice!=null?'$'+q.suggestedPrice.toFixed(0):'N/A'}`);
   });
   navigator.clipboard.writeText(lines.join('\n'));
   showToast('Quotes copied to clipboard!','positive');

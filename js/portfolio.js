@@ -424,7 +424,7 @@ function getInventoryTurnover(){
       inventoryCount++;
     }
   });
-  const avgInventory=totalInventory;
+  const currentInventory=totalInventory;
 
   // Calculate COGS (cost of goods sold in last 90 days)
   let cogs=0;
@@ -458,7 +458,7 @@ function getInventoryTurnover(){
   const daysToTurn=turnoverRatio?365/turnoverRatio:0;
 
   return{
-    avgInventory,
+    currentInventory,
     avgInventoryValue:avgInvValue,
     cogs90Day:cogs,
     annualizedCOGS,

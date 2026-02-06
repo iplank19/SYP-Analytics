@@ -139,8 +139,8 @@ function miHistoryGrid() {
   const grid = {};
   MI_PRODUCTS.forEach(p => { grid[p] = {}; QUOTE_LENGTHS.forEach(l => { grid[p][l] = false; }); });
   if (!combos.length) {
-    // No history — check everything
-    MI_PRODUCTS.forEach(p => QUOTE_LENGTHS.forEach(l => { grid[p][l] = true; }));
+    // No history — return empty grid and notify user
+    showToast('No order history found for this customer', 'info');
     return grid;
   }
   combos.forEach(c => {
@@ -162,17 +162,19 @@ function miHighlightActiveTemplate() {
 function miSaveTemplate() {
   const name = prompt('Template name:');
   if (!name || !name.trim()) return;
+  const safeName = name.trim().replace(/['"<>&]/g, '');
+  if (!safeName) return;
   const grid = miGetMatrixState();
-  const existing = S.quoteTemplates.findIndex(t => t.name === name.trim());
+  const existing = S.quoteTemplates.findIndex(t => t.name === safeName);
   if (existing >= 0) {
     S.quoteTemplates[existing].grid = grid;
   } else {
-    S.quoteTemplates.push({ name: name.trim(), grid });
+    S.quoteTemplates.push({ name: safeName, grid });
   }
   save('quoteTemplates', S.quoteTemplates);
-  _miActiveTemplate = name.trim();
+  _miActiveTemplate = safeName;
   _miReRenderSource();
-  showToast(`Template "${name.trim()}" saved`, 'positive');
+  showToast(`Template "${safeName}" saved`, 'positive');
 }
 
 function miDeleteTemplate(name) {
@@ -594,7 +596,13 @@ function miSendToQuoteEngine() {
     if (r.best.miles && destination) {
       const existingMiles = typeof getLaneMiles === 'function' ? getLaneMiles(r.best.origin, destination) : null;
       if (!existingMiles) {
-        S.lanes.push({ origin: r.best.origin, dest: destination, miles: r.best.miles, added: new Date().toISOString() });
+        const laneExists = S.lanes.some(l =>
+          l.origin.toLowerCase().trim() === r.best.origin.toLowerCase().trim() &&
+          l.dest.toLowerCase().trim() === destination.toLowerCase().trim()
+        );
+        if (!laneExists) {
+          S.lanes.push({ origin: r.best.origin, dest: destination, miles: r.best.miles, added: new Date().toISOString() });
+        }
       }
     }
   });
@@ -608,7 +616,7 @@ function miSendToQuoteEngine() {
   if (destination) S.specificCity = destination;
 
   if (customerName) {
-    const crmMatch = S.customers.find(c => c.name === customerName && c.type !== 'mill');
+    const crmMatch = S.customers.find(c => c.name && c.name.toLowerCase() === customerName.toLowerCase() && c.type !== 'mill');
     if (crmMatch) {
       S.singleQuoteCustomer = customerName;
       crmMatch.quoteSelected = true;

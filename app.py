@@ -2,20 +2,110 @@
 SYP Analytics - Flask Server
 Handles mileage API proxy, CRM, and static file serving
 """
-from flask import Flask, send_from_directory, request, jsonify
+from flask import Flask, send_from_directory, request, jsonify, g
 from flask_cors import CORS
+from functools import wraps
 import requests
 import os
 import re
 import time
 import sqlite3
 import json
+import hashlib
+import secrets
 from datetime import datetime, timedelta
 import tempfile
 import math
 
+try:
+    import jwt
+except ImportError:
+    jwt = None
+
 app = Flask(__name__, static_folder='.', static_url_path='')
-CORS(app)
+
+# --- CORS: restrict to known origins ---
+ALLOWED_ORIGINS = [
+    origin.strip() for origin in
+    os.environ.get('ALLOWED_ORIGINS', 'http://localhost:5000,http://localhost:5001').split(',')
+]
+# In production (Heroku), ALLOWED_ORIGINS env var should include the app domain
+CORS(app, origins=ALLOWED_ORIGINS, supports_credentials=True)
+
+# --- JWT Auth configuration ---
+JWT_SECRET = os.environ.get('JWT_SECRET', secrets.token_hex(32))
+JWT_EXPIRY_HOURS = int(os.environ.get('JWT_EXPIRY_HOURS', '24'))
+
+# Trader credentials: loaded from TRADER_CREDENTIALS env var as "user:hash,user:hash"
+# To generate a hash: python -c "import hashlib; print(hashlib.sha256('password'.encode()).hexdigest())"
+# Default: single admin user (override via env var in production)
+_DEFAULT_ADMIN_HASH = hashlib.sha256('changeme'.encode()).hexdigest()
+TRADER_CREDENTIALS = {}
+_cred_str = os.environ.get('TRADER_CREDENTIALS', '')
+if _cred_str:
+    for pair in _cred_str.split(','):
+        if ':' in pair:
+            user, pw_hash = pair.strip().split(':', 1)
+            TRADER_CREDENTIALS[user.strip().lower()] = pw_hash.strip()
+if not TRADER_CREDENTIALS:
+    TRADER_CREDENTIALS['admin'] = _DEFAULT_ADMIN_HASH
+
+# Admin users who can access destructive endpoints
+ADMIN_USERS = [u.strip().lower() for u in os.environ.get('ADMIN_USERS', 'admin,ian').split(',')]
+
+# Pricing portal login attempt tracking (simple in-memory rate limiter)
+_pricing_login_attempts = {}  # ip -> {'count': int, 'lockout_until': float}
+PRICING_MAX_ATTEMPTS = 5
+PRICING_LOCKOUT_SECONDS = 300  # 5 minutes
+
+
+def _get_token_from_request():
+    """Extract JWT token from Authorization header or query param."""
+    auth = request.headers.get('Authorization', '')
+    if auth.startswith('Bearer '):
+        return auth[7:]
+    return request.args.get('token')
+
+
+def _decode_token(token):
+    """Decode and validate a JWT token. Returns payload dict or None."""
+    if not jwt or not token:
+        return None
+    try:
+        return jwt.decode(token, JWT_SECRET, algorithms=['HS256'])
+    except (jwt.ExpiredSignatureError, jwt.InvalidTokenError):
+        return None
+
+
+def login_required(f):
+    """Decorator: require a valid JWT token for the endpoint."""
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        token = _get_token_from_request()
+        payload = _decode_token(token)
+        if not payload:
+            return jsonify({'error': 'Authentication required'}), 401
+        g.user = payload.get('user', '')
+        g.trader = payload.get('trader', '')
+        return f(*args, **kwargs)
+    return decorated
+
+
+def admin_required(f):
+    """Decorator: require a valid JWT token AND admin privileges."""
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        token = _get_token_from_request()
+        payload = _decode_token(token)
+        if not payload:
+            return jsonify({'error': 'Authentication required'}), 401
+        user = payload.get('user', '').lower()
+        if user not in ADMIN_USERS:
+            return jsonify({'error': 'Admin privileges required'}), 403
+        g.user = payload.get('user', '')
+        g.trader = payload.get('trader', '')
+        return f(*args, **kwargs)
+    return decorated
 
 # CRM Database Setup
 CRM_DB_PATH = os.path.join(os.path.dirname(__file__), 'crm.db')
@@ -24,6 +114,7 @@ def get_crm_db():
     conn = sqlite3.connect(CRM_DB_PATH, timeout=10)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA foreign_keys=ON")
     return conn
 
 def init_crm_db():
@@ -109,6 +200,54 @@ def init_crm_db():
         CREATE INDEX IF NOT EXISTS idx_mills_trader ON mills(trader);
         CREATE INDEX IF NOT EXISTS idx_mills_name ON mills(name);
         CREATE INDEX IF NOT EXISTS idx_mills_region ON mills(region);
+
+        -- Audit trail
+        CREATE TABLE IF NOT EXISTS audit_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TEXT NOT NULL DEFAULT (datetime('now')),
+            user TEXT,
+            action TEXT NOT NULL,
+            entity_type TEXT NOT NULL,
+            entity_id TEXT,
+            entity_name TEXT,
+            old_value TEXT,
+            new_value TEXT,
+            details TEXT,
+            ip_address TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_log(timestamp);
+        CREATE INDEX IF NOT EXISTS idx_audit_entity ON audit_log(entity_type, entity_id);
+        CREATE INDEX IF NOT EXISTS idx_audit_user ON audit_log(user);
+
+        -- Trade status workflow
+        CREATE TABLE IF NOT EXISTS trade_status (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            trade_id TEXT NOT NULL,
+            trade_type TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'draft',
+            assigned_to TEXT,
+            approved_by TEXT,
+            approved_at TEXT,
+            created_at TEXT DEFAULT (datetime('now')),
+            updated_at TEXT DEFAULT (datetime('now')),
+            notes TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_trade_status_trade ON trade_status(trade_id);
+        CREATE INDEX IF NOT EXISTS idx_trade_status_status ON trade_status(status);
+        CREATE INDEX IF NOT EXISTS idx_trade_status_assigned ON trade_status(assigned_to);
+
+        -- Credit management
+        CREATE TABLE IF NOT EXISTS credit_limits (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            customer_name TEXT NOT NULL UNIQUE,
+            credit_limit REAL DEFAULT 0,
+            current_exposure REAL DEFAULT 0,
+            payment_terms TEXT DEFAULT 'Net 30',
+            last_payment_date TEXT,
+            notes TEXT,
+            updated_at TEXT DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_credit_customer ON credit_limits(customer_name);
     ''')
     # Add locations column if missing (migration)
     try:
@@ -218,12 +357,9 @@ def sync_mill_to_mi(crm_mill, mi_conn=None):
 MI_DB_PATH = os.path.join(os.path.dirname(__file__), 'mill-intel', 'mill_intel.db')
 
 MI_STATE_REGIONS = {
-    'TX':'west','LA':'west','AR':'west','OK':'west','NM':'west',
+    'TX':'west','LA':'west','AR':'west','OK':'west',
     'MS':'central','AL':'central','TN':'central','KY':'central','MO':'central',
-    'GA':'east','FL':'east','SC':'east','NC':'east','VA':'east','WV':'east',
-    'OH':'east','IN':'east','IL':'central','WI':'central','MI':'east','MN':'central',
-    'IA':'central','PA':'east','NY':'east','NJ':'east','MD':'east','DE':'east',
-    'CT':'east','MA':'east','ME':'east','NH':'east','VT':'east','RI':'east'
+    'GA':'east','FL':'east','SC':'east','NC':'east','VA':'east','WV':'east'
 }
 
 # Canonical mill directory (matches MILL_DIRECTORY in state.js)
@@ -285,77 +421,137 @@ MILL_DIRECTORY = {
 
 # Company alias mapping (mirrors _MILL_COMPANY_ALIASES in state.js)
 MILL_COMPANY_ALIASES = {
-    'canfor southern pine': 'Canfor', 'canfor southern pine inc': 'Canfor', 'csp': 'Canfor',
-    'west fraser': 'West Fraser', 'wf': 'West Fraser',
-    'georgia-pacific': 'GP', 'georgia pacific': 'GP', 'gp': 'GP',
-    'weyerhaeuser': 'Weyerhaeuser', 'wey': 'Weyerhaeuser',
-    'interfor': 'Interfor', 'interfor pacific': 'Interfor', 'interfor pacific, inc.': 'Interfor',
+    # Canfor
+    'canfor': 'Canfor', 'canfor southern pine': 'Canfor', 'canfor southern pine inc': 'Canfor',
+    'canfor southern': 'Canfor', 'csp': 'Canfor',
+    # West Fraser
+    'west fraser': 'West Fraser', 'wf': 'West Fraser', 'west fraser inc': 'West Fraser',
+    'west fraser timber': 'West Fraser',
+    # Georgia-Pacific
+    'georgia-pacific': 'GP', 'georgia pacific': 'GP', 'gp': 'GP', 'georgia pacific llc': 'GP',
+    # Weyerhaeuser
+    'weyerhaeuser': 'Weyerhaeuser', 'wey': 'Weyerhaeuser', 'weyer': 'Weyerhaeuser',
+    'weyerhaeuser company': 'Weyerhaeuser', 'weyerhaeuser nr company': 'Weyerhaeuser',
+    # Interfor
+    'interfor': 'Interfor', 'interfor pacific': 'Interfor', 'interfor pacific inc': 'Interfor',
+    'interfor pacific, inc.': 'Interfor',
+    # PotlatchDeltic
     'potlatchdeltic': 'PotlatchDeltic', 'potlatch': 'PotlatchDeltic', 'potlatch deltic': 'PotlatchDeltic',
-    'potlatchdeltic ola': 'PotlatchDeltic',
-    'rex lumber': 'Rex Lumber',
+    'pld': 'PotlatchDeltic', 'pd': 'PotlatchDeltic', 'potlatchdeltic ola': 'PotlatchDeltic',
+    'potlatch - warren': 'PotlatchDeltic', 'potlatchdeltic waldo': 'PotlatchDeltic',
+    'potlatchdeltic - waldo': 'PotlatchDeltic', 'potlatchdeltic - warren': 'PotlatchDeltic',
+    'potlatchdeltic - ola': 'PotlatchDeltic', 'waldo': 'PotlatchDeltic',
+    # Rex Lumber
+    'rex': 'Rex Lumber', 'rex lumber': 'Rex Lumber', 'rex lumber bristol llc': 'Rex Lumber',
+    'rex lumber bristol': 'Rex Lumber',
+    # Tolko
     'tolko': 'Tolko',
+    # Idaho Forest Group
     'idaho forest group': 'Idaho Forest Group', 'ifg': 'Idaho Forest Group',
+    'idaho forest': 'Idaho Forest Group', 'ida forest': 'Idaho Forest Group',
+    'lumberton': 'Idaho Forest Group', 'lumberton lumber': 'Idaho Forest Group',
+    'idaho forest group - lumberton': 'Idaho Forest Group',
+    # Hunt Forest Products
+    'hunt': 'Hunt Forest Products', 'hunt forest': 'Hunt Forest Products',
     'hunt forest products': 'Hunt Forest Products',
+    # Biewer
     'biewer': 'Biewer', 'biewer lumber': 'Biewer',
-    'anthony timberlands': 'Anthony Timberlands',
-    't.r. miller': 'T.R. Miller', 'tr miller': 'T.R. Miller',
-    'lincoln lumber': 'Lincoln Lumber',
+    # Anthony Timberlands
+    'anthony': 'Anthony Timberlands', 'anthony timberlands': 'Anthony Timberlands',
+    'anthony timber': 'Anthony Timberlands',
+    # T.R. Miller
+    't.r. miller': 'T.R. Miller', 'tr miller': 'T.R. Miller', 't r miller': 'T.R. Miller',
+    # Lincoln Lumber
+    'lincoln': 'Lincoln Lumber', 'lincoln lumber': 'Lincoln Lumber',
+    # Barge Forest Products
+    'barge': 'Barge Forest Products', 'barge forest': 'Barge Forest Products',
     'barge forest products': 'Barge Forest Products',
-    'scotch lumber': 'Scotch Lumber',
+    # Scotch Lumber
+    'scotch': 'Scotch Lumber', 'scotch lumber': 'Scotch Lumber',
+    # Binderholz / Klausner
     'klausner': 'Binderholz', 'klausner lumber': 'Binderholz',
-    'hood industries': 'Hood Industries',
-    'mid-south lumber': 'Mid-South Lumber', 'mid south lumber': 'Mid-South Lumber',
-    'mid south lumber company': 'Mid-South Lumber', 'midsouth': 'Mid-South Lumber',
-    'murray lumber': 'Murray Lumber',
-    'langdale forest products': 'Langdale Forest Products',
-    'lasalle lumber': 'LaSalle Lumber',
-    'big river forest products': 'Big River Forest Products',
-    'hankins lumber': 'Hankins Lumber',
-    'westervelt lumber': 'Westervelt Lumber',
-    'beasley forest products': 'Beasley Forest Products',
     'binderholz': 'Binderholz', 'binderholz timber': 'Binderholz', 'binderholz timber llc': 'Binderholz',
+    # Hood Industries
+    'hood': 'Hood Industries', 'hood industries': 'Hood Industries',
+    # Mid-South Lumber
+    'mid-south': 'Mid-South Lumber', 'mid south': 'Mid-South Lumber', 'mid-south lumber': 'Mid-South Lumber',
+    'mid south lumber': 'Mid-South Lumber', 'mid south lumber company': 'Mid-South Lumber',
+    'midsouth': 'Mid-South Lumber', 'midsouth lumber': 'Mid-South Lumber',
+    # Murray Lumber
+    'murray': 'Murray Lumber', 'murray lumber': 'Murray Lumber',
+    # Langdale Forest Products
+    'langdale': 'Langdale Forest Products', 'langdale forest': 'Langdale Forest Products',
+    'langdale forest products': 'Langdale Forest Products',
+    # LaSalle Lumber
+    'lasalle': 'LaSalle Lumber', 'lasalle lumber': 'LaSalle Lumber',
+    # Big River Forest Products
+    'big river': 'Big River Forest Products', 'big river forest': 'Big River Forest Products',
+    'big river forest products': 'Big River Forest Products',
+    # Hankins Lumber
+    'hankins': 'Hankins Lumber', 'hankins lumber': 'Hankins Lumber', 'harrigan lumber co': 'Harrigan Lumber',
+    # Westervelt Lumber
+    'westervelt': 'Westervelt Lumber', 'westervelt lumber': 'Westervelt Lumber',
+    # Beasley Forest Products
+    'beasley': 'Beasley Forest Products', 'beasley forest': 'Beasley Forest Products',
+    'beasley forest products': 'Beasley Forest Products',
+    # Charles Ingram Lumber
     'charles ingram': 'Charles Ingram Lumber', 'charles ingram lumber': 'Charles Ingram Lumber',
     'charles ingram lumber co': 'Charles Ingram Lumber',
-    'grayson lumber': 'Grayson Lumber', 'grayson lumber corp': 'Grayson Lumber',
-    'great south timber': 'Great South Timber', 'great south timber & lbr': 'Great South Timber',
-    'green bay packaging': 'Green Bay Packaging', 'green bay packaging inc.': 'Green Bay Packaging',
-    'hardy': 'Idaho Forest Group', 'hardy technologies': 'Idaho Forest Group', 'hardy technologies llc': 'Idaho Forest Group',
-    'resolute': 'Resolute FP', 'resolute fp': 'Resolute FP', 'resolute fp us inc': 'Resolute FP',
+    # Grayson Lumber
+    'grayson': 'Grayson Lumber', 'grayson lumber': 'Grayson Lumber', 'grayson lumber corp': 'Grayson Lumber',
+    # Great South Timber
+    'great south': 'Great South Timber', 'great south timber': 'Great South Timber',
+    'great south timber & lbr': 'Great South Timber',
+    # Green Bay Packaging
+    'green bay': 'Green Bay Packaging', 'green bay packaging': 'Green Bay Packaging',
+    'green bay packaging inc': 'Green Bay Packaging', 'green bay packaging inc.': 'Green Bay Packaging',
+    # Hardy Technologies (→ Idaho Forest Group)
+    'hardy': 'Idaho Forest Group', 'hardy technologies': 'Idaho Forest Group',
+    'hardy technologies llc': 'Idaho Forest Group',
+    # Resolute FP
+    'resolute': 'Resolute FP', 'resolute fp': 'Resolute FP', 'resolute fp us': 'Resolute FP',
+    'resolute fp us inc': 'Resolute FP',
+    # DuPont Pine Products
+    'dupont pine': 'DuPont Pine Products', 'dupont pine products': 'DuPont Pine Products',
+    # Two Rivers Lumber
     'two rivers': 'Two Rivers Lumber', 'two rivers lumber': 'Two Rivers Lumber',
     'two rivers lumber co llc': 'Two Rivers Lumber',
-    'vicksburg forest products': 'Vicksburg Forest Products',
-    'wm sheppard': 'WM Sheppard Lumber', 'wm sheppard lumber': 'WM Sheppard Lumber',
-    'wm sheppard lumber co inc': 'WM Sheppard Lumber', 'wm shepard': 'WM Sheppard Lumber', 'wm shepard lumber': 'WM Sheppard Lumber',
-    'beasley': 'Beasley Forest Products', 'beasley forest': 'Beasley Forest Products',
-    'dupont pine': 'DuPont Pine Products', 'dupont pine products': 'DuPont Pine Products',
-    'grayson': 'Grayson Lumber', 'great south': 'Great South Timber',
-    'green bay': 'Green Bay Packaging', 'green bay packaging inc': 'Green Bay Packaging',
-    'jordan': 'Jordan Lumber', 'jordan lumber': 'Jordan Lumber',
+    # Vicksburg Forest Products
     'vicksburg': 'Vicksburg Forest Products', 'vicksburg forest': 'Vicksburg Forest Products',
-    'harrigan': 'Harrigan Lumber', 'harrigan lumber': 'Harrigan Lumber', 'harrigan lumber co': 'Harrigan Lumber',
-    'lumberton': 'Idaho Forest Group', 'lumberton lumber': 'Idaho Forest Group',
-    'waldo': 'PotlatchDeltic', 'resolute fp us': 'Resolute FP',
-    'idaho forest': 'Idaho Forest Group',
+    'vicksburg forest products': 'Vicksburg Forest Products',
+    # Harrigan Lumber
+    'harrigan': 'Harrigan Lumber', 'harrigan lumber': 'Harrigan Lumber',
+    # WM Sheppard Lumber
+    'wm sheppard': 'WM Sheppard Lumber', 'wm sheppard lumber': 'WM Sheppard Lumber',
+    'wm sheppard lumber co inc': 'WM Sheppard Lumber', 'wm shepard': 'WM Sheppard Lumber',
+    'wm shepard lumber': 'WM Sheppard Lumber',
+    # Jordan Lumber
+    'jordan': 'Jordan Lumber', 'jordan lumber': 'Jordan Lumber',
 }
 
 def extract_company_name(mill_name):
-    """Extract company name from 'Company - City' format or via alias lookup."""
+    """Extract company name from 'Company - City' format or via alias lookup.
+    Handles em-dash/en-dash like the frontend normalizer does."""
     if not mill_name:
         return mill_name
     name = mill_name.strip()
-    # Direct "Company - City" format
+    # Direct "Company - City" format (handle regular dash, en-dash, em-dash)
     if ' - ' in name:
         return name.split(' - ')[0].strip()
+    if ' \u2013 ' in name:  # en-dash
+        return name.split(' \u2013 ')[0].strip()
+    if ' \u2014 ' in name:  # em-dash
+        return name.split(' \u2014 ')[0].strip()
     # Alias lookup (longest-first for greedy match)
-    lower = name.lower().replace('_', ' ').replace('-', ' ').strip()
+    # Normalize dashes/underscores to spaces (mirrors frontend behavior)
+    lower = re.sub(r'[_\-\u2013\u2014]+', ' ', name.lower()).strip()
+    lower = re.sub(r'\s+', ' ', lower)
     for alias, canonical in sorted(MILL_COMPANY_ALIASES.items(), key=lambda x: -len(x[0])):
-        a = alias.replace('-', ' ')
-        if lower == a:
+        if lower == alias:
             return canonical
     # Partial prefix match (require word boundary to avoid false positives)
     for alias, canonical in sorted(MILL_COMPANY_ALIASES.items(), key=lambda x: -len(x[0])):
-        a = alias.replace('-', ' ')
-        if lower.startswith(a + ' ') or lower == a:
+        if lower.startswith(alias + ' '):
             return canonical
     return name
 
@@ -790,8 +986,11 @@ def mileage_lookup():
     if not origin_coords:
         return jsonify({'error': f'Could not geocode origin: {origin}'}), 404
     
-    time.sleep(0.5)  # Rate limit for Nominatim
-    
+    # Rate limit for Nominatim's 1 req/s policy. This blocks the worker thread;
+    # acceptable for low-traffic internal tool. For high concurrency, consider
+    # a token-bucket rate limiter or async approach.
+    time.sleep(0.5)
+
     dest_coords = geocode_location(dest)
     if not dest_coords:
         return jsonify({'error': f'Could not geocode destination: {dest}'}), 404
@@ -828,7 +1027,7 @@ def mileage_bulk():
         # Geocode origin (only hit Nominatim rate limit if not cached)
         origin_cached = origin.lower().strip() in geo_cache
         if need_nominatim and not origin_cached:
-            time.sleep(0.3)
+            time.sleep(0.3)  # Nominatim 1 req/s; blocking is acceptable for internal tool
         origin_coords = geocode_location(origin)
         if not origin_coords:
             results.append({'origin': origin, 'dest': dest, 'miles': None, 'error': f'Could not geocode: {origin}'})
@@ -840,7 +1039,7 @@ def mileage_bulk():
         if dest not in dest_cache:
             dest_cached = dest.lower().strip() in geo_cache
             if need_nominatim and not dest_cached:
-                time.sleep(0.3)
+                time.sleep(0.3)  # Nominatim 1 req/s; blocking is acceptable for internal tool
             dest_cache[dest] = geocode_location(dest)
             if not dest_cached:
                 need_nominatim = True
@@ -937,11 +1136,38 @@ def create_prospect():
     try:
         data = request.json
         conn = get_crm_db()
+        normalized_name = normalize_customer_name(data.get('company_name'))
+
+        # Duplicate detection: check if prospect with same name already exists
+        existing_prospect = conn.execute(
+            'SELECT * FROM prospects WHERE UPPER(company_name) = UPPER(?)',
+            (normalized_name,)
+        ).fetchone()
+        if existing_prospect:
+            conn.close()
+            result = dict(existing_prospect)
+            result['existing'] = True
+            result['existing_type'] = 'prospect'
+            return jsonify(result), 200
+
+        # Check if company already exists as a customer
+        existing_customer = conn.execute(
+            'SELECT * FROM customers WHERE UPPER(name) = UPPER(?)',
+            (normalized_name,)
+        ).fetchone()
+        if existing_customer:
+            conn.close()
+            return jsonify({
+                'warning': 'already_customer',
+                'customer': dict(existing_customer),
+                'message': f'{normalized_name} already exists as a customer'
+            }), 200
+
         cursor = conn.execute('''
             INSERT INTO prospects (company_name, contact_name, phone, email, address, notes, status, source, trader)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         ''', (
-            normalize_customer_name(data.get('company_name')),
+            normalized_name,
             data.get('contact_name'),
             data.get('phone'),
             data.get('email'),
@@ -956,6 +1182,11 @@ def create_prospect():
 
         prospect = conn.execute('SELECT * FROM prospects WHERE id = ?', (prospect_id,)).fetchone()
         conn.close()
+        _log_audit(
+            getattr(g, 'user', data.get('trader', 'unknown')),
+            'prospect_create', 'prospect', prospect_id, normalized_name,
+            ip_address=request.remote_addr
+        )
         return jsonify(dict(prospect)), 201
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -967,10 +1198,12 @@ def update_prospect(id):
         data = request.json
         conn = get_crm_db()
         # Only update fields that are present in the request (partial update support)
+        # SECURITY: field names come from the hardcoded allowlist below, never from user input
         allowed = ['company_name', 'contact_name', 'phone', 'email', 'address', 'notes', 'status', 'source', 'trader']
         fields = [f for f in allowed if f in data]
         if not fields:
             return jsonify({'error': 'No fields to update'}), 400
+        assert all(f in allowed for f in fields), "Field not in allowlist"
         set_clause = ', '.join(f'{f} = ?' for f in fields) + ', updated_at = CURRENT_TIMESTAMP'
         values = [data[f] for f in fields] + [id]
         conn.execute(f'UPDATE prospects SET {set_clause} WHERE id = ?', values)
@@ -980,6 +1213,12 @@ def update_prospect(id):
         conn.close()
         if not prospect:
             return jsonify({'error': 'Prospect not found'}), 404
+        _log_audit(
+            getattr(g, 'user', data.get('trader', 'unknown')),
+            'prospect_update', 'prospect', id, prospect['company_name'],
+            details=f'Updated fields: {", ".join(fields)}',
+            ip_address=request.remote_addr
+        )
         return jsonify(dict(prospect))
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -989,9 +1228,16 @@ def update_prospect(id):
 def delete_prospect(id):
     try:
         conn = get_crm_db()
+        old = conn.execute('SELECT company_name FROM prospects WHERE id = ?', (id,)).fetchone()
         conn.execute('DELETE FROM prospects WHERE id = ?', (id,))
         conn.commit()
         conn.close()
+        _log_audit(
+            getattr(g, 'user', 'unknown'),
+            'prospect_delete', 'prospect', id,
+            old['company_name'] if old else None,
+            ip_address=request.remote_addr
+        )
         return jsonify({'message': 'Prospect deleted'})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -1110,41 +1356,44 @@ def crm_dashboard():
         conn = get_crm_db()
         trader = request.args.get('trader')
 
-        trader_filter = ' AND trader = ?' if trader and trader != 'Admin' else ''
+        # Build trader filter fragments for prospect-only and joined queries
+        # Using explicit table aliases avoids fragile string replacement
+        prospect_filter = ' AND trader = ?' if trader and trader != 'Admin' else ''
+        joined_filter = ' AND p.trader = ?' if trader and trader != 'Admin' else ''
         params = [trader] if trader and trader != 'Admin' else []
 
         today = datetime.now().strftime('%Y-%m-%d')
 
         stats = {
-            'total_prospects': conn.execute(f'SELECT COUNT(*) FROM prospects WHERE 1=1{trader_filter}', params).fetchone()[0],
-            'new_prospects': conn.execute(f"SELECT COUNT(*) FROM prospects WHERE status='prospect'{trader_filter}", params).fetchone()[0],
-            'qualified': conn.execute(f"SELECT COUNT(*) FROM prospects WHERE status='qualified'{trader_filter}", params).fetchone()[0],
-            'converted': conn.execute(f"SELECT COUNT(*) FROM prospects WHERE status='converted'{trader_filter}", params).fetchone()[0],
+            'total_prospects': conn.execute(f'SELECT COUNT(*) FROM prospects WHERE 1=1{prospect_filter}', params).fetchone()[0],
+            'new_prospects': conn.execute(f"SELECT COUNT(*) FROM prospects WHERE status='prospect'{prospect_filter}", params).fetchone()[0],
+            'qualified': conn.execute(f"SELECT COUNT(*) FROM prospects WHERE status='qualified'{prospect_filter}", params).fetchone()[0],
+            'converted': conn.execute(f"SELECT COUNT(*) FROM prospects WHERE status='converted'{prospect_filter}", params).fetchone()[0],
             'touches_today': conn.execute(f'''
                 SELECT COUNT(*) FROM contact_touches t
                 JOIN prospects p ON t.prospect_id = p.id
-                WHERE DATE(t.created_at) = DATE('now'){trader_filter.replace('trader', 'p.trader')}
+                WHERE DATE(t.created_at) = DATE('now'){joined_filter}
             ''', params).fetchone()[0],
         }
 
         follow_ups_today = conn.execute(f'''
             SELECT t.*, p.company_name, p.contact_name FROM contact_touches t
             JOIN prospects p ON t.prospect_id = p.id
-            WHERE t.follow_up_date = ?{trader_filter.replace('trader', 'p.trader')}
+            WHERE t.follow_up_date = ?{joined_filter}
             ORDER BY t.created_at DESC
         ''', [today] + params).fetchall()
 
         overdue = conn.execute(f'''
             SELECT t.*, p.company_name, p.contact_name FROM contact_touches t
             JOIN prospects p ON t.prospect_id = p.id
-            WHERE t.follow_up_date < ? AND t.follow_up_date IS NOT NULL{trader_filter.replace('trader', 'p.trader')}
+            WHERE t.follow_up_date < ? AND t.follow_up_date IS NOT NULL{joined_filter}
             ORDER BY t.follow_up_date ASC LIMIT 10
         ''', [today] + params).fetchall()
 
         recent = conn.execute(f'''
             SELECT t.*, p.company_name, p.contact_name FROM contact_touches t
             JOIN prospects p ON t.prospect_id = p.id
-            WHERE 1=1{trader_filter.replace('trader', 'p.trader')}
+            WHERE 1=1{joined_filter}
             ORDER BY t.created_at DESC LIMIT 10
         ''', params).fetchall()
 
@@ -1156,7 +1405,7 @@ def crm_dashboard():
                    CAST(julianday('now') - julianday(COALESCE(MAX(t.created_at), p.created_at)) AS INTEGER) as days_since_touch
             FROM prospects p
             LEFT JOIN contact_touches t ON p.id = t.prospect_id
-            WHERE p.status IN ('prospect', 'qualified'){trader_filter.replace('trader', 'p.trader')}
+            WHERE p.status IN ('prospect', 'qualified'){joined_filter}
             GROUP BY p.id
             HAVING days_since_touch >= 14
             ORDER BY days_since_touch DESC
@@ -1169,7 +1418,7 @@ def crm_dashboard():
                    CAST(julianday('now') - julianday(COALESCE(MAX(t.created_at), p.created_at)) AS INTEGER) as days_since_touch
             FROM prospects p
             LEFT JOIN contact_touches t ON p.id = t.prospect_id
-            WHERE p.status IN ('prospect', 'qualified'){trader_filter.replace('trader', 'p.trader')}
+            WHERE p.status IN ('prospect', 'qualified'){joined_filter}
             GROUP BY p.id
             HAVING days_since_touch >= 7 AND days_since_touch < 14
             ORDER BY days_since_touch DESC
@@ -1182,7 +1431,7 @@ def crm_dashboard():
                    CAST(julianday('now') - julianday(p.created_at) AS INTEGER) as days_since_created
             FROM prospects p
             LEFT JOIN contact_touches t ON p.id = t.prospect_id
-            WHERE p.status IN ('prospect', 'qualified'){trader_filter.replace('trader', 'p.trader')}
+            WHERE p.status IN ('prospect', 'qualified'){joined_filter}
             GROUP BY p.id
             HAVING COUNT(t.id) = 0
             ORDER BY p.created_at ASC
@@ -1209,6 +1458,7 @@ def crm_dashboard():
 
 # Seed mock data for testing
 @app.route('/api/crm/seed-mock', methods=['POST'])
+@admin_required
 def seed_mock_data():
     try:
         conn = get_crm_db()
@@ -1348,6 +1598,7 @@ def convert_prospect(id):
 
 # Wipe ALL CRM data (prospects, customers, mills)
 @app.route('/api/crm/wipe-all', methods=['POST'])
+@admin_required
 def wipe_all_crm():
     try:
         conn = get_crm_db()
@@ -1364,6 +1615,7 @@ def wipe_all_crm():
 
 # Cleanup endpoint - wipe all CRM data except Ian's
 @app.route('/api/crm/cleanup-non-ian', methods=['POST'])
+@admin_required
 def cleanup_non_ian():
     try:
         conn = get_crm_db()
@@ -1444,6 +1696,11 @@ def create_customer():
         conn.commit()
         customer = conn.execute('SELECT * FROM customers WHERE id = ?', (cursor.lastrowid,)).fetchone()
         conn.close()
+        _log_audit(
+            getattr(g, 'user', data.get('trader', 'unknown')),
+            'customer_create', 'customer', cursor.lastrowid, normalized_name,
+            ip_address=request.remote_addr
+        )
         return jsonify(dict(customer)), 201
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -1454,10 +1711,12 @@ def update_customer(id):
         data = request.get_json()
         conn = get_crm_db()
         # Only update fields that are present in the request (partial update support)
+        # SECURITY: field names come from the hardcoded allowlist below, never from user input
         allowed = ['name', 'contact', 'phone', 'email', 'destination', 'locations', 'notes', 'trader']
         fields = [f for f in allowed if f in data]
         if not fields:
             return jsonify({'error': 'No fields to update'}), 400
+        assert all(f in allowed for f in fields), "Field not in allowlist"
         set_parts = []
         values = []
         for f in fields:
@@ -1474,6 +1733,12 @@ def update_customer(id):
         conn.close()
         if not customer:
             return jsonify({'error': 'Customer not found'}), 404
+        _log_audit(
+            getattr(g, 'user', 'unknown'),
+            'customer_update', 'customer', id, customer['name'],
+            details=f'Updated fields: {", ".join(fields)}',
+            ip_address=request.remote_addr
+        )
         return jsonify(dict(customer))
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -1482,9 +1747,16 @@ def update_customer(id):
 def delete_customer(id):
     try:
         conn = get_crm_db()
+        old = conn.execute('SELECT name FROM customers WHERE id = ?', (id,)).fetchone()
         conn.execute('DELETE FROM customers WHERE id = ?', (id,))
         conn.commit()
         conn.close()
+        _log_audit(
+            getattr(g, 'user', 'unknown'),
+            'customer_delete', 'customer', id,
+            old['name'] if old else None,
+            ip_address=request.remote_addr
+        )
         return jsonify({'message': 'Customer deleted'})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -1559,6 +1831,11 @@ def create_mill():
         # Sync to MI
         if mill:
             sync_mill_to_mi(dict(mill))
+        _log_audit(
+            getattr(g, 'user', data.get('trader', 'unknown')),
+            'mill_create', 'mill', cursor.lastrowid, company,
+            ip_address=request.remote_addr
+        )
         return jsonify(dict(mill)), 201
     except Exception as e:
         print(f"[create_mill ERROR] {e} | data={request.get_json()}", flush=True)
@@ -1570,10 +1847,12 @@ def update_mill(id):
         data = request.get_json()
         conn = get_crm_db()
         # Only update fields that are present in the request (partial update support)
+        # SECURITY: field names come from the hardcoded allowlist below, never from user input
         allowed = ['name', 'contact', 'phone', 'email', 'location', 'locations', 'city', 'state', 'region', 'products', 'notes', 'trader']
         fields = [f for f in allowed if f in data]
         if not fields:
             return jsonify({'error': 'No fields to update'}), 400
+        assert all(f in allowed for f in fields), "Field not in allowlist"
         set_parts = []
         values = []
         for f in fields:
@@ -1607,6 +1886,12 @@ def update_mill(id):
             mi_conn.commit()
             mi_conn.close()
 
+        _log_audit(
+            getattr(g, 'user', 'unknown'),
+            'mill_update', 'mill', id, mill_dict.get('name'),
+            details=f'Updated fields: {", ".join(fields)}',
+            ip_address=request.remote_addr
+        )
         return jsonify(mill_dict)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -1615,10 +1900,83 @@ def update_mill(id):
 def delete_mill(id):
     try:
         conn = get_crm_db()
+        old = conn.execute('SELECT name FROM mills WHERE id = ?', (id,)).fetchone()
         conn.execute('DELETE FROM mills WHERE id = ?', (id,))
         conn.commit()
         conn.close()
+        _log_audit(
+            getattr(g, 'user', 'unknown'),
+            'mill_delete', 'mill', id,
+            old['name'] if old else None,
+            ip_address=request.remote_addr
+        )
+        # Cascade delete from Mill Intel database
+        try:
+            mi_conn = get_mi_db()
+            mi_conn.execute('DELETE FROM mill_quotes WHERE mill_id = ?', (id,))
+            mi_conn.execute('DELETE FROM mills WHERE id = ?', (id,))
+            mi_conn.commit()
+            mi_conn.close()
+        except Exception:
+            pass  # MI db may not exist yet
         return jsonify({'message': 'Mill deleted'})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+# Rename customer with old name returned for frontend trade-record sweep
+@app.route('/api/crm/customers/<int:id>/rename', methods=['POST'])
+def rename_customer(id):
+    try:
+        data = request.get_json()
+        new_name = normalize_customer_name(data.get('name', '').strip())
+        if not new_name:
+            return jsonify({'error': 'New name required'}), 400
+        conn = get_crm_db()
+        old_row = conn.execute('SELECT name FROM customers WHERE id = ?', (id,)).fetchone()
+        if not old_row:
+            conn.close()
+            return jsonify({'error': 'Customer not found'}), 404
+        old_name = old_row['name']
+        conn.execute('UPDATE customers SET name = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', (new_name, id))
+        conn.commit()
+        customer = conn.execute('SELECT * FROM customers WHERE id = ?', (id,)).fetchone()
+        conn.close()
+        result = dict(customer)
+        result['old_name'] = old_name
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+# Rename mill with old name returned for frontend trade-record sweep
+@app.route('/api/crm/mills/<int:id>/rename', methods=['POST'])
+def rename_mill(id):
+    try:
+        data = request.get_json()
+        new_name = data.get('name', '').strip()
+        if not new_name:
+            return jsonify({'error': 'New name required'}), 400
+        conn = get_crm_db()
+        old_row = conn.execute('SELECT name FROM mills WHERE id = ?', (id,)).fetchone()
+        if not old_row:
+            conn.close()
+            return jsonify({'error': 'Mill not found'}), 404
+        old_name = old_row['name']
+        conn.execute('UPDATE mills SET name = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', (new_name, id))
+        conn.commit()
+        mill = conn.execute('SELECT * FROM mills WHERE id = ?', (id,)).fetchone()
+        conn.close()
+        # Also update Mill Intel database
+        try:
+            mi_conn = get_mi_db()
+            mi_conn.execute('UPDATE mills SET name = ? WHERE id = ?', (new_name, id))
+            mi_conn.execute('UPDATE mill_quotes SET mill_name = ? WHERE mill_id = ?', (new_name, id))
+            mi_conn.commit()
+            mi_conn.close()
+        except Exception:
+            pass  # MI db may not exist yet
+        result = dict(mill)
+        result['old_name'] = old_name
+        return jsonify(result)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -1727,7 +2085,7 @@ def futures_quotes():
                             })
             except Exception as e:
                 print(f"Contract fetch error {symbol}: {e}")
-            time.sleep(0.2)  # Rate limit
+            time.sleep(0.2)  # Yahoo Finance rate limit; blocking OK since results are cached 5min
 
     # Sort contracts by year then month order
     month_order = {'F': 0, 'H': 1, 'K': 2, 'N': 3, 'U': 4, 'X': 5}
@@ -1861,11 +2219,58 @@ def parse_pdf():
 def health():
     return jsonify({'status': 'ok', 'cache_size': len(geo_cache)})
 
+# ==================== AUTH ENDPOINTS ====================
+
+@app.route('/api/auth/login', methods=['POST'])
+def auth_login():
+    """Authenticate a trader and return a JWT token."""
+    if not jwt:
+        return jsonify({'error': 'JWT support not available (pip install PyJWT)'}), 500
+    data = request.json or {}
+    username = (data.get('username') or '').strip().lower()
+    password = data.get('password') or ''
+    if not username or not password:
+        return jsonify({'error': 'Username and password required'}), 400
+    pw_hash = hashlib.sha256(password.encode()).hexdigest()
+    expected = TRADER_CREDENTIALS.get(username)
+    if not expected or not secrets.compare_digest(pw_hash, expected):
+        return jsonify({'error': 'Invalid credentials'}), 401
+    payload = {
+        'user': username,
+        'trader': data.get('trader', username),
+        'exp': datetime.utcnow() + timedelta(hours=JWT_EXPIRY_HOURS),
+        'iat': datetime.utcnow()
+    }
+    token = jwt.encode(payload, JWT_SECRET, algorithm='HS256')
+    return jsonify({'token': token, 'user': username, 'expires_in': JWT_EXPIRY_HOURS * 3600})
+
+@app.route('/api/auth/verify', methods=['GET'])
+def auth_verify():
+    """Verify a JWT token is still valid."""
+    token = _get_token_from_request()
+    payload = _decode_token(token)
+    if payload:
+        return jsonify({'valid': True, 'user': payload.get('user', ''), 'trader': payload.get('trader', '')})
+    return jsonify({'valid': False}), 401
+
+# ==================== CONFIG ENDPOINT ====================
+
+@app.route('/api/config', methods=['GET'])
+@login_required
+def get_config():
+    """Return Supabase credentials (behind auth so frontend doesn't hardcode them)."""
+    return jsonify({
+        'supabase_url': os.environ.get('SUPABASE_URL', ''),
+        'supabase_anon_key': os.environ.get('SUPABASE_ANON_KEY', ''),
+    })
+
 # ==========================================
 # PRICING MATRIX — standalone read-only view
 # ==========================================
 
-PRICING_PASSWORD = os.environ.get('PRICING_PASSWORD', '2026')
+PRICING_PASSWORD = os.environ.get('PRICING_PASSWORD')
+if not PRICING_PASSWORD:
+    print("WARNING: PRICING_PASSWORD env var not set. Pricing portal auth is disabled until configured.")
 
 @app.route('/pricing')
 def pricing_page():
@@ -1873,9 +2278,29 @@ def pricing_page():
 
 @app.route('/api/pricing/auth', methods=['POST'])
 def pricing_auth():
+    if not PRICING_PASSWORD:
+        return jsonify({'ok': False, 'error': 'Pricing portal not configured. Set PRICING_PASSWORD env var.'}), 503
+
+    # Rate limit by IP
+    ip = request.remote_addr or 'unknown'
+    now = time.time()
+    record = _pricing_login_attempts.get(ip, {'count': 0, 'lockout_until': 0})
+    if record['lockout_until'] > now:
+        remaining = int(record['lockout_until'] - now)
+        return jsonify({'ok': False, 'error': f'Too many attempts. Try again in {remaining}s.'}), 429
+
     data = request.json or {}
     if data.get('password') == PRICING_PASSWORD:
+        # Reset on success
+        _pricing_login_attempts.pop(ip, None)
         return jsonify({'ok': True})
+
+    # Track failed attempt
+    record['count'] = record.get('count', 0) + 1
+    if record['count'] >= PRICING_MAX_ATTEMPTS:
+        record['lockout_until'] = now + PRICING_LOCKOUT_SECONDS
+        record['count'] = 0
+    _pricing_login_attempts[ip] = record
     return jsonify({'ok': False, 'error': 'Invalid password'}), 401
 
 @app.route('/api/pricing/customers', methods=['GET'])
@@ -2023,6 +2448,7 @@ def mi_geocode_mill():
     return jsonify({'error': f'Could not geocode: {location}'}), 404
 
 @app.route('/api/admin/consolidate-mills', methods=['POST'])
+@admin_required
 def consolidate_mills():
     """One-time migration: consolidate per-location mill entries into per-company entries."""
     conn = get_crm_db()
@@ -2851,7 +3277,7 @@ def mi_add_rl():
                 if 'locked' in str(e) and attempt < 2:
                     try: conn.close()
                     except: pass
-                    import time; time.sleep(1)
+                    import time; time.sleep(1)  # Retry delay for SQLite lock contention
                     continue
                 raise
     return jsonify({'created': 0}), 201
@@ -2901,7 +3327,7 @@ def mi_mileage_lookup():
     origin_coords = mi_geocode_location(origin)
     if not origin_coords:
         return jsonify({'error': f'Could not geocode origin: {origin}'}), 404
-    time.sleep(0.5)
+    time.sleep(0.5)  # Nominatim 1 req/s; blocking is acceptable for internal tool
     dest_coords = mi_geocode_location(dest)
     if not dest_coords:
         return jsonify({'error': f'Could not geocode destination: {dest}'}), 404
@@ -2932,6 +3358,804 @@ def mi_update_settings():
     conn.commit()
     conn.close()
     return jsonify({'ok': True})
+
+# ==================== AUDIT TRAIL ====================
+
+def _log_audit(user, action, entity_type, entity_id=None, entity_name=None,
+               old_value=None, new_value=None, details=None, ip_address=None):
+    """Log an action to the audit trail."""
+    try:
+        conn = get_crm_db()
+        conn.execute('''
+            INSERT INTO audit_log (user, action, entity_type, entity_id, entity_name,
+                                   old_value, new_value, details, ip_address)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (
+            user, action, entity_type,
+            str(entity_id) if entity_id is not None else None,
+            entity_name,
+            json.dumps(old_value) if isinstance(old_value, (dict, list)) else old_value,
+            json.dumps(new_value) if isinstance(new_value, (dict, list)) else new_value,
+            details,
+            ip_address
+        ))
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"[audit_log ERROR] {e}", flush=True)
+
+
+@app.route('/api/audit/log', methods=['POST'])
+@login_required
+def create_audit_entry():
+    """Accept audit log entries from the frontend."""
+    try:
+        data = request.json or {}
+        _log_audit(
+            user=data.get('user', g.user),
+            action=data.get('action', 'unknown'),
+            entity_type=data.get('entity_type', 'unknown'),
+            entity_id=data.get('entity_id'),
+            entity_name=data.get('entity_name'),
+            old_value=data.get('old_value'),
+            new_value=data.get('new_value'),
+            details=data.get('details'),
+            ip_address=request.remote_addr
+        )
+        return jsonify({'ok': True}), 201
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/audit/log', methods=['GET'])
+@login_required
+def list_audit_log():
+    """Paginated audit log retrieval with filters."""
+    try:
+        conn = get_crm_db()
+        conditions = ['1=1']
+        params = []
+
+        entity_type = request.args.get('entity_type')
+        if entity_type:
+            conditions.append('entity_type = ?')
+            params.append(entity_type)
+
+        user = request.args.get('user')
+        if user:
+            conditions.append('user = ?')
+            params.append(user)
+
+        action = request.args.get('action')
+        if action:
+            conditions.append('action = ?')
+            params.append(action)
+
+        date_from = request.args.get('from')
+        if date_from:
+            conditions.append('timestamp >= ?')
+            params.append(date_from)
+
+        date_to = request.args.get('to')
+        if date_to:
+            conditions.append('timestamp <= ?')
+            params.append(date_to)
+
+        entity_id = request.args.get('entity_id')
+        if entity_id:
+            conditions.append('entity_id = ?')
+            params.append(entity_id)
+
+        try:
+            page = max(1, int(request.args.get('page', 1)))
+        except (ValueError, TypeError):
+            page = 1
+        try:
+            per_page = min(200, max(1, int(request.args.get('per_page', 50))))
+        except (ValueError, TypeError):
+            per_page = 50
+
+        offset = (page - 1) * per_page
+        where = ' AND '.join(conditions)
+
+        total = conn.execute(f'SELECT COUNT(*) FROM audit_log WHERE {where}', params).fetchone()[0]
+        rows = conn.execute(
+            f'SELECT * FROM audit_log WHERE {where} ORDER BY timestamp DESC LIMIT ? OFFSET ?',
+            params + [per_page, offset]
+        ).fetchall()
+        conn.close()
+
+        return jsonify({
+            'entries': [dict(r) for r in rows],
+            'total': total,
+            'page': page,
+            'per_page': per_page,
+            'pages': math.ceil(total / per_page) if total else 0
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+# ==================== TRADE STATUS WORKFLOW ====================
+
+VALID_TRADE_STATUSES = ['draft', 'pending', 'approved', 'confirmed', 'shipped', 'delivered', 'settled', 'cancelled']
+TRADE_STATUS_FLOW = {
+    'draft': ['pending', 'cancelled'],
+    'pending': ['approved', 'cancelled'],
+    'approved': ['confirmed', 'cancelled'],
+    'confirmed': ['shipped', 'cancelled'],
+    'shipped': ['delivered', 'cancelled'],
+    'delivered': ['settled'],
+    'settled': [],
+    'cancelled': []
+}
+
+
+@app.route('/api/trades/status', methods=['POST'])
+@login_required
+def upsert_trade_status():
+    """Create or update a trade status record."""
+    try:
+        data = request.json or {}
+        trade_id = data.get('trade_id', '').strip()
+        trade_type = data.get('trade_type', '').strip()
+        status = data.get('status', 'draft').strip()
+
+        if not trade_id or not trade_type:
+            return jsonify({'error': 'trade_id and trade_type required'}), 400
+        if status not in VALID_TRADE_STATUSES:
+            return jsonify({'error': f'Invalid status. Must be one of: {", ".join(VALID_TRADE_STATUSES)}'}), 400
+
+        conn = get_crm_db()
+        existing = conn.execute('SELECT * FROM trade_status WHERE trade_id = ?', (trade_id,)).fetchone()
+
+        if existing:
+            old_status = existing['status']
+            conn.execute('''
+                UPDATE trade_status SET status = ?, trade_type = ?, assigned_to = ?,
+                       notes = ?, updated_at = datetime('now')
+                WHERE trade_id = ?
+            ''', (status, trade_type, data.get('assigned_to'), data.get('notes'), trade_id))
+            conn.commit()
+            row = conn.execute('SELECT * FROM trade_status WHERE trade_id = ?', (trade_id,)).fetchone()
+            conn.close()
+            _log_audit(g.user, 'trade_status_update', 'trade', trade_id,
+                       details=f'Status changed from {old_status} to {status}',
+                       old_value=old_status, new_value=status,
+                       ip_address=request.remote_addr)
+            return jsonify(dict(row))
+        else:
+            conn.execute('''
+                INSERT INTO trade_status (trade_id, trade_type, status, assigned_to, notes)
+                VALUES (?, ?, ?, ?, ?)
+            ''', (trade_id, trade_type, status, data.get('assigned_to'), data.get('notes')))
+            conn.commit()
+            row = conn.execute('SELECT * FROM trade_status WHERE trade_id = ?', (trade_id,)).fetchone()
+            conn.close()
+            _log_audit(g.user, 'trade_status_create', 'trade', trade_id,
+                       details=f'Trade created with status {status}',
+                       new_value=status, ip_address=request.remote_addr)
+            return jsonify(dict(row)), 201
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/trades/status/<trade_id>', methods=['GET'])
+@login_required
+def get_trade_status(trade_id):
+    """Get status for a specific trade."""
+    try:
+        conn = get_crm_db()
+        row = conn.execute('SELECT * FROM trade_status WHERE trade_id = ?', (trade_id,)).fetchone()
+        conn.close()
+        if not row:
+            return jsonify({'error': 'Trade not found'}), 404
+        return jsonify(dict(row))
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/trades/status', methods=['GET'])
+@login_required
+def list_trade_statuses():
+    """List all trade statuses with optional filters."""
+    try:
+        conn = get_crm_db()
+        conditions = ['1=1']
+        params = []
+
+        status = request.args.get('status')
+        if status:
+            conditions.append('status = ?')
+            params.append(status)
+
+        trade_type = request.args.get('trade_type')
+        if trade_type:
+            conditions.append('trade_type = ?')
+            params.append(trade_type)
+
+        assigned_to = request.args.get('assigned_to')
+        if assigned_to:
+            conditions.append('assigned_to = ?')
+            params.append(assigned_to)
+
+        where = ' AND '.join(conditions)
+        rows = conn.execute(
+            f'SELECT * FROM trade_status WHERE {where} ORDER BY updated_at DESC LIMIT 500',
+            params
+        ).fetchall()
+        conn.close()
+        return jsonify([dict(r) for r in rows])
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/trades/<trade_id>/approve', methods=['POST'])
+@login_required
+def approve_trade(trade_id):
+    """Approve a trade (admin or senior trader)."""
+    try:
+        user = g.user.lower()
+        if user not in ADMIN_USERS:
+            return jsonify({'error': 'Only admin/senior traders can approve trades'}), 403
+
+        conn = get_crm_db()
+        row = conn.execute('SELECT * FROM trade_status WHERE trade_id = ?', (trade_id,)).fetchone()
+        if not row:
+            conn.close()
+            return jsonify({'error': 'Trade not found'}), 404
+
+        if row['status'] != 'pending':
+            conn.close()
+            return jsonify({'error': f'Cannot approve trade in "{row["status"]}" status. Must be "pending".'}), 400
+
+        conn.execute('''
+            UPDATE trade_status SET status = 'approved', approved_by = ?, approved_at = datetime('now'),
+                   updated_at = datetime('now')
+            WHERE trade_id = ?
+        ''', (g.user, trade_id))
+        conn.commit()
+        updated = conn.execute('SELECT * FROM trade_status WHERE trade_id = ?', (trade_id,)).fetchone()
+        conn.close()
+
+        _log_audit(g.user, 'trade_approve', 'trade', trade_id,
+                   details=f'Trade approved by {g.user}',
+                   old_value='pending', new_value='approved',
+                   ip_address=request.remote_addr)
+        return jsonify(dict(updated))
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/trades/<trade_id>/advance', methods=['POST'])
+@login_required
+def advance_trade(trade_id):
+    """Advance a trade to the next status in the workflow."""
+    try:
+        conn = get_crm_db()
+        row = conn.execute('SELECT * FROM trade_status WHERE trade_id = ?', (trade_id,)).fetchone()
+        if not row:
+            conn.close()
+            return jsonify({'error': 'Trade not found'}), 404
+
+        current = row['status']
+        allowed_next = TRADE_STATUS_FLOW.get(current, [])
+        if not allowed_next:
+            conn.close()
+            return jsonify({'error': f'Trade in "{current}" status cannot be advanced.'}), 400
+
+        # Use requested status if provided and valid, otherwise take the first allowed
+        data = request.json or {}
+        requested = data.get('status', '').strip()
+        if requested:
+            if requested not in allowed_next:
+                conn.close()
+                return jsonify({
+                    'error': f'Cannot move from "{current}" to "{requested}". Allowed: {", ".join(allowed_next)}'
+                }), 400
+            next_status = requested
+        else:
+            # Default: first non-cancelled option, or cancelled if that's the only option
+            next_status = next((s for s in allowed_next if s != 'cancelled'), allowed_next[0])
+
+        # Approval requires admin
+        if next_status == 'approved':
+            user = g.user.lower()
+            if user not in ADMIN_USERS:
+                conn.close()
+                return jsonify({'error': 'Only admin/senior traders can approve trades'}), 403
+            conn.execute('''
+                UPDATE trade_status SET status = ?, approved_by = ?, approved_at = datetime('now'),
+                       updated_at = datetime('now'), notes = COALESCE(?, notes)
+                WHERE trade_id = ?
+            ''', (next_status, g.user, data.get('notes'), trade_id))
+        else:
+            conn.execute('''
+                UPDATE trade_status SET status = ?, updated_at = datetime('now'),
+                       notes = COALESCE(?, notes)
+                WHERE trade_id = ?
+            ''', (next_status, data.get('notes'), trade_id))
+
+        conn.commit()
+        updated = conn.execute('SELECT * FROM trade_status WHERE trade_id = ?', (trade_id,)).fetchone()
+        conn.close()
+
+        _log_audit(g.user, 'trade_advance', 'trade', trade_id,
+                   details=f'Trade advanced from {current} to {next_status}',
+                   old_value=current, new_value=next_status,
+                   ip_address=request.remote_addr)
+        return jsonify(dict(updated))
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+# ==================== TRADE VALIDATION ====================
+
+VALID_PRODUCTS = [
+    '2x4#2', '2x6#2', '2x8#2', '2x10#2', '2x12#2',
+    '2x4#3', '2x6#3', '2x8#3',
+    'MSR', 'Wides', 'Studs'
+]
+
+@app.route('/api/trades/validate', methods=['POST'])
+@login_required
+def validate_trade():
+    """Validate a trade before saving."""
+    try:
+        data = request.json or {}
+        errors = []
+        warnings = []
+
+        # Required fields
+        if not data.get('product'):
+            errors.append('Product is required')
+        elif data['product'] not in VALID_PRODUCTS:
+            warnings.append(f'Product "{data["product"]}" is not in the standard product list')
+
+        volume = data.get('volume')
+        if volume is None:
+            errors.append('Volume is required')
+        else:
+            try:
+                vol = float(volume)
+                if vol <= 0:
+                    errors.append('Volume must be greater than 0')
+            except (ValueError, TypeError):
+                errors.append('Volume must be a number')
+
+        price = data.get('price')
+        if price is None:
+            errors.append('Price is required')
+        else:
+            try:
+                p = float(price)
+                if p <= 0:
+                    errors.append('Price must be greater than 0')
+                elif p < 100:
+                    warnings.append(f'Price ${p} seems unusually low')
+                elif p > 1000:
+                    warnings.append(f'Price ${p} seems unusually high')
+            except (ValueError, TypeError):
+                errors.append('Price must be a number')
+
+        if not data.get('date'):
+            errors.append('Date is required')
+
+        # Customer/mill CRM validation
+        customer = data.get('customer', '').strip()
+        mill = data.get('mill', '').strip()
+
+        if customer:
+            conn = get_crm_db()
+            cust_row = conn.execute(
+                'SELECT id FROM customers WHERE UPPER(name) = UPPER(?)', (customer,)
+            ).fetchone()
+            if not cust_row:
+                warnings.append(f'Customer "{customer}" not found in CRM')
+            conn.close()
+
+        if mill:
+            conn = get_crm_db()
+            mill_row = conn.execute(
+                'SELECT id FROM mills WHERE UPPER(name) = UPPER(?)', (mill,)
+            ).fetchone()
+            if not mill_row:
+                warnings.append(f'Mill "{mill}" not found in CRM')
+            conn.close()
+
+        # Credit check
+        if customer and not errors:
+            try:
+                conn = get_crm_db()
+                credit = conn.execute(
+                    'SELECT * FROM credit_limits WHERE UPPER(customer_name) = UPPER(?)',
+                    (customer,)
+                ).fetchone()
+                conn.close()
+                if credit:
+                    trade_value = float(data.get('volume', 0)) * float(data.get('price', 0))
+                    new_exposure = (credit['current_exposure'] or 0) + trade_value
+                    limit = credit['credit_limit'] or 0
+                    if limit > 0 and new_exposure > limit:
+                        warnings.append(
+                            f'Credit limit exceeded: exposure would be ${new_exposure:,.0f} vs limit ${limit:,.0f}'
+                        )
+                    elif limit > 0 and new_exposure > limit * 0.8:
+                        warnings.append(
+                            f'Near credit limit: exposure would be ${new_exposure:,.0f} (limit ${limit:,.0f})'
+                        )
+            except Exception:
+                pass
+
+        return jsonify({
+            'valid': len(errors) == 0,
+            'errors': errors,
+            'warnings': warnings
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+# ==================== CREDIT MANAGEMENT ====================
+
+@app.route('/api/credit/<customer>', methods=['GET'])
+@login_required
+def get_credit(customer):
+    """Get credit status for a customer."""
+    try:
+        conn = get_crm_db()
+        row = conn.execute(
+            'SELECT * FROM credit_limits WHERE UPPER(customer_name) = UPPER(?)',
+            (customer,)
+        ).fetchone()
+        conn.close()
+        if not row:
+            return jsonify({
+                'customer_name': customer,
+                'credit_limit': 0,
+                'current_exposure': 0,
+                'payment_terms': 'Net 30',
+                'last_payment_date': None,
+                'notes': None,
+                'exists': False
+            })
+        result = dict(row)
+        result['exists'] = True
+        result['available'] = max(0, (result['credit_limit'] or 0) - (result['current_exposure'] or 0))
+        result['utilization'] = round(
+            (result['current_exposure'] or 0) / result['credit_limit'] * 100, 1
+        ) if result['credit_limit'] else 0
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/credit/<customer>', methods=['PUT'])
+@login_required
+def update_credit(customer):
+    """Update credit limit and terms for a customer."""
+    try:
+        data = request.json or {}
+        conn = get_crm_db()
+        existing = conn.execute(
+            'SELECT * FROM credit_limits WHERE UPPER(customer_name) = UPPER(?)',
+            (customer,)
+        ).fetchone()
+
+        if existing:
+            old_limit = existing['credit_limit']
+            old_terms = existing['payment_terms']
+            # SECURITY: only update fields from hardcoded allowlist
+            allowed = ['credit_limit', 'current_exposure', 'payment_terms', 'last_payment_date', 'notes']
+            fields = [f for f in allowed if f in data]
+            if not fields:
+                conn.close()
+                return jsonify({'error': 'No fields to update'}), 400
+            set_clause = ', '.join(f'{f} = ?' for f in fields) + ', updated_at = datetime(\'now\')'
+            values = [data[f] for f in fields] + [existing['id']]
+            conn.execute(f'UPDATE credit_limits SET {set_clause} WHERE id = ?', values)
+            conn.commit()
+            row = conn.execute('SELECT * FROM credit_limits WHERE id = ?', (existing['id'],)).fetchone()
+            conn.close()
+            _log_audit(g.user, 'credit_update', 'credit', customer, customer,
+                       old_value={'limit': old_limit, 'terms': old_terms},
+                       new_value={'limit': data.get('credit_limit', old_limit),
+                                  'terms': data.get('payment_terms', old_terms)},
+                       ip_address=request.remote_addr)
+            return jsonify(dict(row))
+        else:
+            conn.execute('''
+                INSERT INTO credit_limits (customer_name, credit_limit, current_exposure,
+                                           payment_terms, last_payment_date, notes)
+                VALUES (?, ?, ?, ?, ?, ?)
+            ''', (
+                customer,
+                data.get('credit_limit', 0),
+                data.get('current_exposure', 0),
+                data.get('payment_terms', 'Net 30'),
+                data.get('last_payment_date'),
+                data.get('notes')
+            ))
+            conn.commit()
+            row = conn.execute(
+                'SELECT * FROM credit_limits WHERE UPPER(customer_name) = UPPER(?)',
+                (customer,)
+            ).fetchone()
+            conn.close()
+            _log_audit(g.user, 'credit_create', 'credit', customer, customer,
+                       new_value={'limit': data.get('credit_limit', 0),
+                                  'terms': data.get('payment_terms', 'Net 30')},
+                       ip_address=request.remote_addr)
+            return jsonify(dict(row)), 201
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/credit/summary', methods=['GET'])
+@login_required
+def credit_summary():
+    """List all customers with their credit exposure vs limit."""
+    try:
+        conn = get_crm_db()
+        rows = conn.execute(
+            'SELECT * FROM credit_limits ORDER BY customer_name'
+        ).fetchall()
+        conn.close()
+        result = []
+        for r in rows:
+            d = dict(r)
+            d['available'] = max(0, (d['credit_limit'] or 0) - (d['current_exposure'] or 0))
+            d['utilization'] = round(
+                (d['current_exposure'] or 0) / d['credit_limit'] * 100, 1
+            ) if d['credit_limit'] else 0
+            result.append(d)
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+# ==================== FREIGHT RECONCILIATION ====================
+
+@app.route('/api/freight/reconcile', methods=['POST'])
+@login_required
+def freight_reconcile():
+    """Compare estimated vs actual freight for a trade or set of trades."""
+    try:
+        data = request.json or {}
+        trades = data.get('trades', [data] if 'trade_id' in data else [])
+        results = []
+
+        for trade in trades:
+            trade_id = trade.get('trade_id', '')
+            estimated = trade.get('estimated_freight')
+            actual = trade.get('actual_freight')
+
+            if estimated is None or actual is None:
+                results.append({
+                    'trade_id': trade_id,
+                    'error': 'Both estimated_freight and actual_freight required'
+                })
+                continue
+
+            try:
+                est = float(estimated)
+                act = float(actual)
+            except (ValueError, TypeError):
+                results.append({
+                    'trade_id': trade_id,
+                    'error': 'Freight values must be numbers'
+                })
+                continue
+
+            variance = act - est
+            variance_pct = round((variance / est * 100), 2) if est != 0 else 0
+
+            entry = {
+                'trade_id': trade_id,
+                'estimated_freight': est,
+                'actual_freight': act,
+                'variance': round(variance, 2),
+                'variance_pct': variance_pct,
+                'status': 'over' if variance > 0 else 'under' if variance < 0 else 'match'
+            }
+            results.append(entry)
+
+            _log_audit(g.user, 'freight_reconcile', 'freight', trade_id,
+                       details=f'Variance: ${variance:+.2f} ({variance_pct:+.1f}%)',
+                       old_value=str(est), new_value=str(act),
+                       ip_address=request.remote_addr)
+
+        total_estimated = sum(r.get('estimated_freight', 0) for r in results if 'error' not in r)
+        total_actual = sum(r.get('actual_freight', 0) for r in results if 'error' not in r)
+        total_variance = round(total_actual - total_estimated, 2)
+
+        return jsonify({
+            'trades': results,
+            'summary': {
+                'count': len([r for r in results if 'error' not in r]),
+                'total_estimated': round(total_estimated, 2),
+                'total_actual': round(total_actual, 2),
+                'total_variance': total_variance,
+                'total_variance_pct': round(
+                    (total_variance / total_estimated * 100), 2
+                ) if total_estimated else 0
+            }
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/freight/variance', methods=['GET'])
+@login_required
+def freight_variance():
+    """List freight variances from audit log entries."""
+    try:
+        conn = get_crm_db()
+        conditions = ["action = 'freight_reconcile'"]
+        params = []
+
+        date_from = request.args.get('from')
+        if date_from:
+            conditions.append('timestamp >= ?')
+            params.append(date_from)
+
+        date_to = request.args.get('to')
+        if date_to:
+            conditions.append('timestamp <= ?')
+            params.append(date_to)
+
+        where = ' AND '.join(conditions)
+        rows = conn.execute(
+            f'SELECT * FROM audit_log WHERE {where} ORDER BY timestamp DESC LIMIT 200',
+            params
+        ).fetchall()
+        conn.close()
+
+        variances = []
+        for r in rows:
+            try:
+                est = float(r['old_value']) if r['old_value'] else 0
+                act = float(r['new_value']) if r['new_value'] else 0
+                variance = act - est
+                variances.append({
+                    'trade_id': r['entity_id'],
+                    'timestamp': r['timestamp'],
+                    'user': r['user'],
+                    'estimated': est,
+                    'actual': act,
+                    'variance': round(variance, 2),
+                    'variance_pct': round((variance / est * 100), 2) if est else 0,
+                    'details': r['details']
+                })
+            except (ValueError, TypeError):
+                continue
+
+        return jsonify(variances)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+# ==================== ENHANCED DASHBOARD ====================
+
+@app.route('/api/dashboard/summary', methods=['GET'])
+@login_required
+def dashboard_summary():
+    """Aggregated KPI data for the enterprise dashboard."""
+    try:
+        conn = get_crm_db()
+        now = datetime.now()
+        today = now.strftime('%Y-%m-%d')
+        week_ago = (now - timedelta(days=7)).strftime('%Y-%m-%d')
+        month_ago = (now - timedelta(days=30)).strftime('%Y-%m-%d')
+        year_start = f'{now.year}-01-01'
+
+        # Trade status counts
+        status_counts = {}
+        for s in VALID_TRADE_STATUSES:
+            cnt = conn.execute(
+                'SELECT COUNT(*) FROM trade_status WHERE status = ?', (s,)
+            ).fetchone()[0]
+            status_counts[s] = cnt
+
+        pending_approvals = status_counts.get('pending', 0)
+        open_positions = sum(status_counts.get(s, 0) for s in ['approved', 'confirmed', 'shipped'])
+
+        # Recent audit entries
+        recent_audit = conn.execute(
+            'SELECT * FROM audit_log ORDER BY timestamp DESC LIMIT 10'
+        ).fetchall()
+
+        # Credit exposure summary
+        credit_rows = conn.execute('SELECT * FROM credit_limits').fetchall()
+        total_credit_limit = sum((r['credit_limit'] or 0) for r in credit_rows)
+        total_exposure = sum((r['current_exposure'] or 0) for r in credit_rows)
+        over_limit = [dict(r) for r in credit_rows
+                      if (r['credit_limit'] or 0) > 0 and (r['current_exposure'] or 0) > (r['credit_limit'] or 0)]
+
+        # CRM stats
+        total_customers = conn.execute('SELECT COUNT(*) FROM customers').fetchone()[0]
+        total_mills = conn.execute('SELECT COUNT(*) FROM mills').fetchone()[0]
+        total_prospects = conn.execute(
+            "SELECT COUNT(*) FROM prospects WHERE status IN ('prospect', 'qualified')"
+        ).fetchone()[0]
+
+        # Audit activity counts
+        audit_today = conn.execute(
+            "SELECT COUNT(*) FROM audit_log WHERE timestamp >= ?", (today,)
+        ).fetchone()[0]
+        audit_week = conn.execute(
+            "SELECT COUNT(*) FROM audit_log WHERE timestamp >= ?", (week_ago,)
+        ).fetchone()[0]
+
+        conn.close()
+
+        # Mill Intel stats
+        mi_stats = {}
+        try:
+            mi_conn = get_mi_db()
+            mi_stats['total_quotes'] = mi_conn.execute('SELECT COUNT(*) FROM mill_quotes').fetchone()[0]
+            mi_stats['quotes_today'] = mi_conn.execute(
+                'SELECT COUNT(*) FROM mill_quotes WHERE date = ?', (today,)
+            ).fetchone()[0]
+            mi_stats['quotes_this_week'] = mi_conn.execute(
+                'SELECT COUNT(*) FROM mill_quotes WHERE date >= ?', (week_ago,)
+            ).fetchone()[0]
+            mi_stats['active_mills'] = mi_conn.execute(
+                'SELECT COUNT(DISTINCT mill_name) FROM mill_quotes WHERE date >= ?', (week_ago,)
+            ).fetchone()[0]
+
+            # Top movers (biggest price changes in last 7 days)
+            top_movers = mi_conn.execute('''
+                SELECT product,
+                       ROUND(AVG(CASE WHEN date >= ? THEN price END), 2) as current_avg,
+                       ROUND(AVG(CASE WHEN date < ? AND date >= ? THEN price END), 2) as prev_avg,
+                       COUNT(CASE WHEN date >= ? THEN 1 END) as recent_quotes
+                FROM mill_quotes
+                WHERE date >= ?
+                GROUP BY product
+                HAVING current_avg IS NOT NULL AND prev_avg IS NOT NULL
+                ORDER BY ABS(current_avg - prev_avg) DESC
+                LIMIT 5
+            ''', (week_ago, week_ago, month_ago, week_ago, month_ago)).fetchall()
+            mi_stats['top_movers'] = []
+            for m in top_movers:
+                d = dict(m)
+                if d['prev_avg'] and d['current_avg']:
+                    d['change'] = round(d['current_avg'] - d['prev_avg'], 2)
+                    d['change_pct'] = round(d['change'] / d['prev_avg'] * 100, 1) if d['prev_avg'] else 0
+                    mi_stats['top_movers'].append(d)
+
+            mi_conn.close()
+        except Exception:
+            pass
+
+        return jsonify({
+            'trade_statuses': status_counts,
+            'pending_approvals': pending_approvals,
+            'open_positions': open_positions,
+            'credit': {
+                'total_limit': total_credit_limit,
+                'total_exposure': total_exposure,
+                'available': max(0, total_credit_limit - total_exposure),
+                'utilization': round(total_exposure / total_credit_limit * 100, 1) if total_credit_limit else 0,
+                'over_limit_count': len(over_limit),
+                'over_limit': over_limit[:5]
+            },
+            'crm': {
+                'customers': total_customers,
+                'mills': total_mills,
+                'active_prospects': total_prospects
+            },
+            'mill_intel': mi_stats,
+            'audit': {
+                'today': audit_today,
+                'this_week': audit_week,
+                'recent': [dict(r) for r in recent_audit]
+            }
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))

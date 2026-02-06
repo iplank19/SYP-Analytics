@@ -90,16 +90,16 @@ function generatePositionBreachAlerts(){
     const breaches=checkPositionLimits();
     breaches.forEach(b=>{
       alerts.push({
-        id:`breach-${b.product||b.trader||'portfolio'}-${Date.now()}`,
+        id:`breach-${b.name||'portfolio'}-${Date.now()}`,
         type:'positionBreach',
         severity:'critical',
-        title:`Position Limit Breach: ${b.product||b.trader||'Portfolio'}`,
-        message:`${b.type} position of ${b.current.toFixed(0)} MBF exceeds limit of ${b.limit.toFixed(0)} MBF by ${b.breach.toFixed(0)} MBF.`,
-        product:b.product,
-        trader:b.trader,
+        title:`Position Limit Breach: ${b.name||'Portfolio'}`,
+        message:`${b.type} position of ${b.current.toFixed(0)} exceeds limit of ${b.limit.toFixed(0)} by ${b.pctOver.toFixed(0)}%.`,
+        name:b.name,
+        level:b.level,
         current:b.current,
         limit:b.limit,
-        breach:b.breach,
+        pctOver:b.pctOver,
         timestamp:new Date().toISOString(),
         read:false
       });
@@ -480,6 +480,38 @@ function getSpreadAnalysis(){
 }
 
 // ============================================================================
+// ALERT TIERS — Escalation System
+// ============================================================================
+
+const ALERT_TIERS={
+  info:{color:'#3b82f6',label:'Info',priority:0,autoExpire:24*60*60*1000},
+  warning:{color:'#f59e0b',label:'Warning',priority:1,autoExpire:72*60*60*1000},
+  critical:{color:'#ef4444',label:'Critical',priority:2,autoExpire:null},
+  urgent:{color:'#dc2626',label:'Urgent',priority:3,autoExpire:null,requiresAck:true}
+}
+
+// Map alert types to default tiers
+const ALERT_TYPE_TIERS={
+  positionBreach:'critical',
+  spreadAnomaly:'critical',
+  priceChange:'warning',
+  inventoryAging:'warning',
+  priceAnomaly:'info'
+}
+
+function assignAlertTier(alert){
+  // Use severity if already set, else map from type
+  if(alert.severity==='critical')return alert.severity==='critical'&&alert.type==='positionBreach'?'urgent':'critical'
+  const mapped=ALERT_TYPE_TIERS[alert.type]||'info'
+  // Upgrade severity-based: critical severity → critical tier, warning → warning, etc.
+  const severityMap={critical:'critical',warning:'warning',info:'info'}
+  const fromSev=severityMap[alert.severity]||'info'
+  // Use the higher priority tier
+  const tierPriority={info:0,warning:1,critical:2,urgent:3}
+  return(tierPriority[fromSev]||0)>=(tierPriority[mapped]||0)?fromSev:mapped
+}
+
+// ============================================================================
 // MASTER ALERT GENERATOR
 // ============================================================================
 
@@ -494,22 +526,161 @@ function generateAlerts(){
     ...generateSpreadAlerts()
   ];
 
+  // Assign tier to each alert
+  allAlerts.forEach(a=>{
+    if(!a.tier)a.tier=assignAlertTier(a)
+    if(!a.acknowledged)a.acknowledged=false
+    if(!a.createdAt)a.createdAt=a.timestamp||new Date().toISOString()
+  })
+
   // Deduplicate by combining similar alerts
   const seen=new Set();
   const unique=allAlerts.filter(a=>{
-    // Create a key that identifies similar alerts (ignore timestamp and id)
     const key=`${a.type}-${a.title}`;
     if(seen.has(key))return false;
     seen.add(key);
     return true;
   });
 
-  // Sort by severity (critical > warning > info)
-  const severityOrder={critical:0,warning:1,info:2};
-  unique.sort((a,b)=>(severityOrder[a.severity]||2)-(severityOrder[b.severity]||2));
+  // Sort by tier priority (urgent > critical > warning > info)
+  unique.sort((a,b)=>(ALERT_TIERS[b.tier]?.priority||0)-(ALERT_TIERS[a.tier]?.priority||0));
 
   S.alerts=unique;
   return unique;
+}
+
+// ============================================================================
+// ALERT ESCALATION
+// ============================================================================
+
+function escalateAlert(alertId){
+  const alert=S.alerts.find(a=>a.id===alertId)
+  if(!alert)return null
+
+  const tierOrder=['info','warning','critical','urgent']
+  const idx=tierOrder.indexOf(alert.tier)
+  if(idx<0||idx>=tierOrder.length-1)return alert // Already at max
+
+  alert.tier=tierOrder[idx+1]
+  alert.escalatedAt=new Date().toISOString()
+  alert.severity=alert.tier // Keep severity in sync
+  return alert
+}
+
+function acknowledgeAlert(alertId,user){
+  const alert=S.alerts.find(a=>a.id===alertId)
+  if(!alert)return null
+
+  alert.acknowledged=true
+  alert.acknowledgedBy=user||S.trader||'Unknown'
+  alert.acknowledgedAt=new Date().toISOString()
+
+  // Add to history with ack info
+  if(!S.alertAuditLog)S.alertAuditLog=[]
+  S.alertAuditLog.unshift({
+    alertId,
+    action:'acknowledged',
+    user:alert.acknowledgedBy,
+    tier:alert.tier,
+    title:alert.title,
+    timestamp:alert.acknowledgedAt
+  })
+  S.alertAuditLog=S.alertAuditLog.slice(0,200)
+  SS('alertAuditLog',S.alertAuditLog)
+
+  return alert
+}
+
+function getAlertsByTier(){
+  const grouped={info:[],warning:[],critical:[],urgent:[]}
+  ;(S.alerts||[]).forEach(a=>{
+    const tier=a.tier||'info'
+    if(grouped[tier])grouped[tier].push(a)
+  })
+  return grouped
+}
+
+function checkAutoEscalation(){
+  const now=Date.now()
+  const escalationThreshold=24*60*60*1000 // 24 hours
+
+  ;(S.alerts||[]).forEach(a=>{
+    if(a.acknowledged)return
+    if(a.tier!=='warning')return
+    const created=new Date(a.createdAt||a.timestamp).getTime()
+    if(now-created>escalationThreshold){
+      escalateAlert(a.id)
+    }
+  })
+}
+
+function getAlertSummary(){
+  const byTier=getAlertsByTier()
+  return{
+    total:(S.alerts||[]).length,
+    unread:(S.alerts||[]).filter(a=>!a.read).length,
+    unacknowledged:(S.alerts||[]).filter(a=>!a.acknowledged&&ALERT_TIERS[a.tier]?.requiresAck).length,
+    info:byTier.info.length,
+    warning:byTier.warning.length,
+    critical:byTier.critical.length,
+    urgent:byTier.urgent.length
+  }
+}
+
+// ============================================================================
+// ALERT PANEL RENDERING
+// ============================================================================
+
+function renderAlertPanel(){
+  const byTier=getAlertsByTier()
+  const summary=getAlertSummary()
+
+  const renderTierSection=(tierName,alerts)=>{
+    if(!alerts.length)return''
+    const tier=ALERT_TIERS[tierName]
+    return`
+      <div style="margin-bottom:12px">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;padding:4px 0;border-bottom:1px solid var(--border)">
+          <span style="width:8px;height:8px;border-radius:50%;background:${tier.color};display:inline-block"></span>
+          <span style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:${tier.color}">${escapeHtml(tier.label)}</span>
+          <span style="font-size:10px;color:var(--muted);margin-left:auto">${alerts.length}</span>
+        </div>
+        ${alerts.map(a=>`
+          <div style="padding:8px 10px;margin-bottom:4px;background:var(--panel-alt);border-radius:4px;border-left:3px solid ${tier.color};${a.acknowledged?'opacity:0.6':''}">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
+              <div style="font-size:11px;font-weight:600;color:var(--fg)">${escapeHtml(a.title)}</div>
+              <div style="display:flex;gap:4px;flex-shrink:0">
+                ${!a.acknowledged&&ALERT_TIERS[a.tier]?.requiresAck?`<button onclick="acknowledgeAlert('${a.id}')" style="font-size:9px;padding:2px 6px;background:${tier.color};color:#fff;border:none;border-radius:3px;cursor:pointer">ACK</button>`:''}
+                ${!a.read?`<button onclick="markAlertRead('${a.id}');this.closest('[style]').style.opacity='0.5'" style="font-size:9px;padding:2px 6px;background:var(--border);color:var(--fg);border:none;border-radius:3px;cursor:pointer">Dismiss</button>`:''}
+              </div>
+            </div>
+            <div style="font-size:10px;color:var(--muted);margin-top:4px">${escapeHtml(a.message)}</div>
+            <div style="font-size:9px;color:var(--muted);margin-top:4px">${new Date(a.timestamp).toLocaleString()}${a.acknowledged?' | ACK by '+escapeHtml(a.acknowledgedBy||''):''}</div>
+          </div>
+        `).join('')}
+      </div>`
+  }
+
+  const hasAlerts=summary.total>0
+
+  return`
+    <div style="padding:12px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+        <div style="font-size:13px;font-weight:700;color:var(--fg)">Alert Center</div>
+        <div style="display:flex;gap:8px;font-size:10px">
+          ${summary.urgent?`<span style="background:#dc2626;color:#fff;padding:2px 8px;border-radius:10px;font-weight:600">${summary.urgent} urgent</span>`:''}
+          ${summary.critical?`<span style="background:#ef4444;color:#fff;padding:2px 8px;border-radius:10px;font-weight:600">${summary.critical} critical</span>`:''}
+          ${summary.warning?`<span style="background:#f59e0b;color:#000;padding:2px 8px;border-radius:10px;font-weight:600">${summary.warning} warning</span>`:''}
+        </div>
+      </div>
+      ${hasAlerts?
+        renderTierSection('urgent',byTier.urgent)+
+        renderTierSection('critical',byTier.critical)+
+        renderTierSection('warning',byTier.warning)+
+        renderTierSection('info',byTier.info)
+        :'<div style="text-align:center;color:var(--muted);font-size:11px;padding:20px 0">No active alerts</div>'
+      }
+    </div>`
 }
 
 // ============================================================================

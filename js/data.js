@@ -1,4 +1,15 @@
 // SYP Analytics - Data & Storage Functions
+//
+// Save Pattern (all state mutations MUST follow one of these):
+//   1. save(key, value)         — single key → IndexedDB + LS + debounced cloud push
+//   2. saveAllLocal()           — full state → IndexedDB + LS + debounced cloud push
+//   3. cloudSync('push')        — full state → Supabase (called automatically by 1 & 2)
+//   4. cloudSync('pull')        — Supabase → merge into S → saveAllLocal()
+//
+// Data priority: Supabase (source of truth) > IndexedDB (primary local) > localStorage (backup)
+// Merge strategy: _mergeById uses updatedAt timestamps — local wins ties only when updatedAt > remote
+// RL data: merged by 'date' key (not full replacement) to preserve local-only entries
+//
 // IndexedDB for larger local storage
 const DB_NAME='SYPAnalytics';
 const DB_VERSION=1;
@@ -46,11 +57,29 @@ async function dbSet(key,value){
 
 // Supabase Cloud Sync
 let supabase=null;
-// Pre-configured Supabase (auto-connect on any device)
-const DEFAULT_SUPABASE_URL='https://miydcdlywbcemcmqqocv.supabase.co';
-const DEFAULT_SUPABASE_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1peWRjZGx5d2JjZW1jbXFxb2N2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjkxMDA0NjIsImV4cCI6MjA4NDY3NjQ2Mn0.LDe7owtdqhGUyE5O5DE8krJI7OdCPCv7I4l7RVl0CqI';
-const SUPABASE_URL=LS('supabaseUrl','')||DEFAULT_SUPABASE_URL;
-const SUPABASE_KEY=LS('supabaseKey','')||DEFAULT_SUPABASE_KEY;
+// Credentials loaded from backend /api/config or user settings — never hardcoded
+let _supabaseConfigLoaded=false
+let SUPABASE_URL=LS('supabaseUrl','')
+let SUPABASE_KEY=LS('supabaseKey','')
+
+async function loadSupabaseConfig(){
+  if(_supabaseConfigLoaded)return
+  _supabaseConfigLoaded=true
+  // Try backend config endpoint first
+  try{
+    const res=await fetch('/api/config')
+    if(res.ok){
+      const cfg=await res.json()
+      if(cfg.supabaseUrl)SUPABASE_URL=cfg.supabaseUrl
+      if(cfg.supabaseKey)SUPABASE_KEY=cfg.supabaseKey
+      return
+    }
+  }catch(e){console.debug('Backend config not available:',e.message)}
+  // Fall back to user-configured values from localStorage
+  if(!SUPABASE_URL||!SUPABASE_KEY){
+    console.warn('Supabase not configured — set URL and key in Settings')
+  }
+}
 
 function initSupabase(url,key){
   if(url&&key){
@@ -59,6 +88,35 @@ function initSupabase(url,key){
     return true;
   }
   return false;
+}
+
+// Merge two arrays by item ID (or custom key), preferring items with later updatedAt
+// Guards: items with undefined/null/empty-string keys are skipped to prevent false grouping
+function _mergeById(local,remote,key='id'){
+  const merged=new Map()
+  // Index local items — skip items without a valid key
+  ;(local||[]).forEach(item=>{
+    if(!item||typeof item!=='object')return
+    const k=item[key]
+    if(k==null||k==='')return
+    merged.set(k,item)
+  })
+  // Merge remote items — remote wins if it has a later updatedAt, or if local lacks the item
+  ;(remote||[]).forEach(item=>{
+    if(!item||typeof item!=='object')return
+    const k=item[key]
+    if(k==null||k==='')return
+    const existing=merged.get(k)
+    if(!existing){
+      merged.set(k,item)
+    }else{
+      // Compare updatedAt timestamps if available, otherwise remote wins
+      const localTime=existing.updatedAt?new Date(existing.updatedAt).getTime():0
+      const remoteTime=item.updatedAt?new Date(item.updatedAt).getTime():0
+      if(remoteTime>=localTime)merged.set(k,item)
+    }
+  })
+  return[...merged.values()]
 }
 
 async function cloudSync(action='push'){
@@ -96,6 +154,13 @@ async function cloudSync(action='push'){
       const localPasswords=safeJSONParse(localStorage.getItem('traderPasswords'),{});
       Object.assign(existingPasswords,localPasswords);
       
+      // Fetch prospect summary from SQLite as cloud backup (prospects live in SQLite only)
+      let prospectBackup=[]
+      try{
+        const pRes=await fetch('/api/crm/prospects')
+        if(pRes.ok)prospectBackup=await pRes.json()
+      }catch(e){console.debug('Prospect backup fetch skipped:',e.message)}
+
       // Upload local data to cloud
       const data={
         buys:S.buys,
@@ -121,6 +186,19 @@ async function cloudSync(action='push'){
         futuresContracts:S.futuresContracts,
         futuresParams:S.futuresParams,
         millQuotes:S.millQuotes,
+        // Risk management
+        riskLimits:S.riskLimits||{},
+        // Trading signals
+        signalConfig:S.signalConfig||null,
+        signalHistory:S.signalHistory||[],
+        // Alerts
+        alertConfig:S.alertConfig||null,
+        alertHistory:S.alertHistory||[],
+        // Reports
+        reportSchedules:S.reportSchedules||[],
+        reportHistory:S.reportHistory||[],
+        // Prospect backup (SQLite → cloud safety net)
+        prospectBackup,
         updated_at:new Date().toISOString()
       };
       
@@ -191,28 +269,30 @@ async function cloudSync(action='push'){
       const rows=await res.json();
       if(rows&&rows.length>0&&rows[0].data){
         const d=rows[0].data;
-        S.buys=d.buys||[];
-        S.sells=d.sells||[];
-        S.rl=(d.rl||[]).sort((a,b)=>new Date(a.date)-new Date(b.date));
-        S.customers=d.customers||[];
-        S.mills=d.mills||[];
-        S.nextId=d.nextId||1;
-        S.flatRate=d.flatRate||3.50;
+        // Merge arrays by item ID instead of full replacement
+        S.buys=_mergeById(S.buys,d.buys||[])
+        S.sells=_mergeById(S.sells,d.sells||[])
+        // RL: merge by date instead of full replacement to preserve local-only entries
+        S.rl=_mergeById(S.rl,d.rl||[],'date').sort((a,b)=>new Date(a.date)-new Date(b.date))
+        S.customers=_mergeById(S.customers,d.customers||[],'name')
+        S.mills=_mergeById(S.mills,d.mills||[],'name')
+        S.nextId=d.nextId||1
+        S.flatRate=d.flatRate||3.50
         // Shared quote engine data
-        S.lanes=d.lanes||[];
-        S.marketBlurb=d.marketBlurb||'';
-        S.freightBase=d.freightBase||450;
-        S.shortHaulFloor=d.shortHaulFloor||0;
+        S.lanes=d.lanes||[]
+        S.marketBlurb=d.marketBlurb||''
+        S.freightBase=d.freightBase||450
+        S.shortHaulFloor=d.shortHaulFloor||0
         // Trader-specific quote data
-        const traderQuotes=d.traderQuotes||{};
-        const myQuotes=traderQuotes[S.trader]||{};
-        S.quoteItems=myQuotes.quoteItems||d.quoteItems||[];
-        S.quoteProfiles=myQuotes.quoteProfiles||d.quoteProfiles||{default:{name:'Default',customers:[]}};
-        S.quoteProfile=myQuotes.quoteProfile||d.quoteProfile||'default';
-        S.stateRates=myQuotes.stateRates||d.stateRates||{AR:2.25,LA:2.25,TX:2.50,MS:2.25,AL:2.50,FL:2.75,GA:2.50,SC:2.50,NC:2.50};
+        const traderQuotes=d.traderQuotes||{}
+        const myQuotes=traderQuotes[S.trader]||{}
+        S.quoteItems=myQuotes.quoteItems||d.quoteItems||[]
+        S.quoteProfiles=myQuotes.quoteProfiles||d.quoteProfiles||{default:{name:'Default',customers:[]}}
+        S.quoteProfile=myQuotes.quoteProfile||d.quoteProfile||'default'
+        S.stateRates=myQuotes.stateRates||d.stateRates||{AR:2.25,LA:2.25,TX:2.50,MS:2.25,AL:2.50,FL:2.75,GA:2.50,SC:2.50,NC:2.50}
         // Trader passwords (sync from cloud)
         if(d.traderPasswords){
-          localStorage.setItem('traderPasswords',JSON.stringify(d.traderPasswords));
+          localStorage.setItem('traderPasswords',JSON.stringify(d.traderPasswords))
         }
         // Goals and achievements
         if(d.traderGoals){S.traderGoals=d.traderGoals;SS('traderGoals',S.traderGoals)}
@@ -222,6 +302,17 @@ async function cloudSync(action='push'){
         if(d.futuresParams){S.futuresParams=d.futuresParams;SS('futuresParams',S.futuresParams)}
         // Mill pricing
         if(d.millQuotes){S.millQuotes=d.millQuotes;normalizeMillQuotes();SS('millQuotes',S.millQuotes)}
+        // Risk management
+        if(d.riskLimits){S.riskLimits=d.riskLimits;SS('riskLimits',S.riskLimits)}
+        // Trading signals
+        if(d.signalConfig){S.signalConfig=d.signalConfig;SS('signalConfig',S.signalConfig)}
+        if(d.signalHistory){S.signalHistory=d.signalHistory;SS('signalHistory',S.signalHistory)}
+        // Alerts
+        if(d.alertConfig){S.alertConfig=d.alertConfig;SS('alertConfig',S.alertConfig)}
+        if(d.alertHistory){S.alertHistory=d.alertHistory;SS('alertHistory',S.alertHistory)}
+        // Reports
+        if(d.reportSchedules){S.reportSchedules=d.reportSchedules;SS('reportSchedules',S.reportSchedules)}
+        if(d.reportHistory){S.reportHistory=d.reportHistory;SS('reportHistory',S.reportHistory)}
         // Save to local storage too
         await saveAllLocal();
         // Sync pulled customers/mills into SQLite (so loadCRMData finds them)
@@ -247,50 +338,77 @@ let _isPushing=false;
 // Save all data locally (IndexedDB + localStorage backup)
 // ALWAYS syncs to cloud so all profiles see the same trade data
 async function saveAllLocal(){
+  // Stamp updatedAt on customer/mill objects so _mergeById conflict resolution works
+  const now=Date.now()
+  ;(S.customers||[]).forEach(c=>{if(c&&typeof c==='object')c.updatedAt=c.updatedAt||now})
+  ;(S.mills||[]).forEach(m=>{if(m&&typeof m==='object')m.updatedAt=m.updatedAt||now})
+
   // IndexedDB (primary)
-  await dbSet('buys',S.buys);
-  await dbSet('sells',S.sells);
-  await dbSet('rl',S.rl);
-  await dbSet('customers',S.customers);
-  await dbSet('mills',S.mills);
-  await dbSet('nextId',S.nextId);
-  await dbSet('flatRate',S.flatRate);
-  await dbSet('lanes',S.lanes);
+  await dbSet('buys',S.buys)
+  await dbSet('sells',S.sells)
+  await dbSet('rl',S.rl)
+  await dbSet('customers',S.customers)
+  await dbSet('mills',S.mills)
+  await dbSet('nextId',S.nextId)
+  await dbSet('flatRate',S.flatRate)
+  await dbSet('lanes',S.lanes)
   // Trader-specific quote data
-  await dbSet('quoteItems_'+S.trader,S.quoteItems);
-  await dbSet('stateRates_'+S.trader,S.stateRates);
-  await dbSet('quoteProfiles_'+S.trader,S.quoteProfiles);
-  await dbSet('quoteProfile_'+S.trader,S.quoteProfile);
-  await dbSet('marketBlurb',S.marketBlurb);
-  await dbSet('freightBase',S.freightBase);
-  await dbSet('shortHaulFloor',S.shortHaulFloor);
+  await dbSet('quoteItems_'+S.trader,S.quoteItems)
+  await dbSet('stateRates_'+S.trader,S.stateRates)
+  await dbSet('quoteProfiles_'+S.trader,S.quoteProfiles)
+  await dbSet('quoteProfile_'+S.trader,S.quoteProfile)
+  await dbSet('marketBlurb',S.marketBlurb)
+  await dbSet('freightBase',S.freightBase)
+  await dbSet('shortHaulFloor',S.shortHaulFloor)
   // Futures data
-  await dbSet('futuresContracts',S.futuresContracts);
-  await dbSet('futuresParams',S.futuresParams);
+  await dbSet('futuresContracts',S.futuresContracts)
+  await dbSet('futuresParams',S.futuresParams)
   // Mill pricing
-  await dbSet('millQuotes',S.millQuotes);
+  await dbSet('millQuotes',S.millQuotes)
+  // Risk management
+  await dbSet('riskLimits',S.riskLimits||{})
+  // Trading signals
+  await dbSet('signalConfig',S.signalConfig||null)
+  await dbSet('signalHistory',S.signalHistory||[])
+  // Alerts
+  await dbSet('alertConfig',S.alertConfig||null)
+  await dbSet('alertHistory',S.alertHistory||[])
+  // Reports
+  await dbSet('reportSchedules',S.reportSchedules||[])
+  await dbSet('reportHistory',S.reportHistory||[])
   // localStorage (backup for small data)
-  SS('buys',S.buys);
-  SS('sells',S.sells);
-  SS('rl',S.rl);
-  SS('customers',S.customers);
-  SS('mills',S.mills);
-  SS('nextId',S.nextId);
-  SS('flatRate',S.flatRate);
-  SS('lanes',S.lanes);
+  SS('buys',S.buys)
+  SS('sells',S.sells)
+  SS('rl',S.rl)
+  SS('customers',S.customers)
+  SS('mills',S.mills)
+  SS('nextId',S.nextId)
+  SS('flatRate',S.flatRate)
+  SS('lanes',S.lanes)
   // Trader-specific quote data (localStorage)
-  SS('quoteItems_'+S.trader,S.quoteItems);
-  SS('stateRates_'+S.trader,S.stateRates);
-  SS('quoteProfiles_'+S.trader,S.quoteProfiles);
-  SS('quoteProfile_'+S.trader,S.quoteProfile);
-  SS('marketBlurb',S.marketBlurb);
-  SS('freightBase',S.freightBase);
-  SS('shortHaulFloor',S.shortHaulFloor);
+  SS('quoteItems_'+S.trader,S.quoteItems)
+  SS('stateRates_'+S.trader,S.stateRates)
+  SS('quoteProfiles_'+S.trader,S.quoteProfiles)
+  SS('quoteProfile_'+S.trader,S.quoteProfile)
+  SS('marketBlurb',S.marketBlurb)
+  SS('freightBase',S.freightBase)
+  SS('shortHaulFloor',S.shortHaulFloor)
   // Futures data
-  SS('futuresContracts',S.futuresContracts);
-  SS('futuresParams',S.futuresParams);
+  SS('futuresContracts',S.futuresContracts)
+  SS('futuresParams',S.futuresParams)
   // Mill pricing
-  SS('millQuotes',S.millQuotes);
+  SS('millQuotes',S.millQuotes)
+  // Risk management
+  SS('riskLimits',S.riskLimits||{})
+  // Trading signals
+  SS('signalConfig',S.signalConfig||null)
+  SS('signalHistory',S.signalHistory||[])
+  // Alerts
+  SS('alertConfig',S.alertConfig||null)
+  SS('alertHistory',S.alertHistory||[])
+  // Reports
+  SS('reportSchedules',S.reportSchedules||[])
+  SS('reportHistory',S.reportHistory||[])
 
   // Debounced cloud push (prevents rapid-fire syncs during bulk operations)
   if(supabase){
@@ -433,6 +551,17 @@ async function loadAllLocal(){
   // Mill pricing
   S.millQuotes=await dbGet('millQuotes',LS('millQuotes',[]));
   normalizeMillQuotes();
+  // Risk management
+  S.riskLimits=await dbGet('riskLimits',LS('riskLimits',{}));
+  // Trading signals
+  S.signalConfig=await dbGet('signalConfig',LS('signalConfig',null));
+  S.signalHistory=await dbGet('signalHistory',LS('signalHistory',[]));
+  // Alerts
+  S.alertConfig=await dbGet('alertConfig',LS('alertConfig',null));
+  S.alertHistory=await dbGet('alertHistory',LS('alertHistory',[]));
+  // Reports
+  S.reportSchedules=await dbGet('reportSchedules',LS('reportSchedules',[]));
+  S.reportHistory=await dbGet('reportHistory',LS('reportHistory',[]));
 }
 
 // Sync pulled customers/mills into SQLite so loadCRMData finds them

@@ -674,8 +674,8 @@ function renderTraderComparisonChart(){
   destroyChart('trader');
 
   const perf=getTraderPerformance('30d');
-  const labels=perf.performance.map(t=>t.trader);
-  const pnl=perf.performance.map(t=>t.totalPnL);
+  const labels=perf.map(t=>t.trader);
+  const pnl=perf.map(t=>t.pnl);
   const colors=pnl.map(v=>v>=0?'rgba(0,230,118,0.7)':'rgba(255,82,82,0.7)');
 
   window._charts['trader']=new Chart(ctx,{
@@ -816,6 +816,127 @@ function renderSignalsChart(canvasId,typeCounts){
       }
     }
   });
+}
+
+// ============================================================================
+// MARGIN HEATMAP
+// ============================================================================
+
+// Render margin heatmap: products (rows) x customers (columns), avg margin per cell
+function renderMarginHeatmap(){
+  const container=document.getElementById('margin-heatmap');
+  if(!container)return;
+
+  const buyByOrder=buildBuyByOrder();
+  const cells={}; // key: product|customer -> {totalMargin, volume}
+  const products=new Set();
+  const customers=new Set();
+
+  S.sells.forEach(s=>{
+    const ord=String(s.orderNum||s.linkedPO||s.oc||'').trim();
+    const buy=ord?buyByOrder[ord]:null;
+    if(!buy)return;
+
+    const vol=s.volume||0;
+    if(vol<=0)return;
+    const freightPerMBF=vol>0?(s.freight||0)/vol:0;
+    const sellFOB=(s.price||0)-freightPerMBF;
+    const margin=(sellFOB-(buy.price||0))*vol;
+
+    const product=s.product||'Unknown';
+    const customer=s.customer||'Unknown';
+    products.add(product);
+    customers.add(customer);
+
+    const key=product+'|'+customer;
+    if(!cells[key])cells[key]={totalMargin:0,volume:0};
+    cells[key].totalMargin+=margin;
+    cells[key].volume+=vol;
+  });
+
+  const prodList=[...products].sort();
+  // Sort customers by total volume descending, take top 10
+  const custVolumes={};
+  customers.forEach(c=>{
+    custVolumes[c]=0;
+    prodList.forEach(p=>{
+      const cell=cells[p+'|'+c];
+      if(cell)custVolumes[c]+=cell.volume;
+    });
+  });
+  const custList=[...customers].sort((a,b)=>(custVolumes[b]||0)-(custVolumes[a]||0)).slice(0,10);
+
+  if(prodList.length===0||custList.length===0){
+    container.innerHTML='<div style="color:var(--muted);font-size:12px;padding:16px;text-align:center">No matched trades for margin heatmap.</div>';
+    return;
+  }
+
+  // Compute avg margin per cell and find range for color scale
+  const avgMargins={};
+  let minM=Infinity,maxM=-Infinity;
+  prodList.forEach(p=>{
+    custList.forEach(c=>{
+      const cell=cells[p+'|'+c];
+      if(cell&&cell.volume>0){
+        const avg=cell.totalMargin/cell.volume;
+        avgMargins[p+'|'+c]=avg;
+        if(avg<minM)minM=avg;
+        if(avg>maxM)maxM=avg;
+      }
+    });
+  });
+  if(!isFinite(minM))minM=0;
+  if(!isFinite(maxM))maxM=0;
+
+  // Color function: red for negative, yellow for ~0, green for positive
+  function marginColor(val){
+    if(val===undefined)return'transparent';
+    if(val>0){
+      const t=Math.min(val/(maxM||1),1);
+      const r=Math.round(255-(255-0)*t);
+      const g=Math.round(255-(255-180)*t);
+      const b=Math.round(100-(100-80)*t);
+      return'rgba('+r+','+g+','+b+',0.7)';
+    }else if(val<0){
+      const t=Math.min(Math.abs(val)/(Math.abs(minM)||1),1);
+      const r=Math.round(255);
+      const g=Math.round(255-(255-80)*t);
+      const b=Math.round(100-(100-80)*t);
+      return'rgba('+r+','+g+','+b+',0.7)';
+    }
+    return'rgba(255,255,100,0.5)';
+  }
+
+  let html='<table style="width:100%;border-collapse:collapse;font-size:10px;">';
+  html+='<tr><th style="padding:6px;color:#5a6270;text-align:left;font-size:9px;">Product \\ Customer</th>';
+  custList.forEach(c=>{
+    const short=c.length>12?c.substring(0,11)+'..':c;
+    html+='<th style="padding:6px;color:#5a6270;font-size:9px;text-align:center;max-width:80px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+c+'">'+short+'</th>';
+  });
+  html+='</tr>';
+
+  prodList.forEach(p=>{
+    html+='<tr><td style="padding:6px;color:#d0d4da;font-weight:500;white-space:nowrap;">'+p+'</td>';
+    custList.forEach(c=>{
+      const key=p+'|'+c;
+      const avg=avgMargins[key];
+      const bg=marginColor(avg);
+      const textColor=avg!==undefined?'#fff':'#3a3a4a';
+      const display=avg!==undefined?'$'+avg.toFixed(0):'';
+      html+='<td style="padding:6px;text-align:center;background:'+bg+';color:'+textColor+';font-weight:500;border:1px solid rgba(28,28,42,0.5);">'+display+'</td>';
+    });
+    html+='</tr>';
+  });
+  html+='</table>';
+
+  // Legend
+  html+='<div style="display:flex;justify-content:center;gap:16px;margin-top:8px;font-size:10px;color:#5a6270;">';
+  html+='<span style="display:flex;align-items:center;gap:4px;"><span style="display:inline-block;width:12px;height:12px;background:rgba(255,80,80,0.7);border-radius:2px;"></span> Negative</span>';
+  html+='<span style="display:flex;align-items:center;gap:4px;"><span style="display:inline-block;width:12px;height:12px;background:rgba(255,255,100,0.5);border-radius:2px;"></span> Break-even</span>';
+  html+='<span style="display:flex;align-items:center;gap:4px;"><span style="display:inline-block;width:12px;height:12px;background:rgba(0,180,80,0.7);border-radius:2px;"></span> High margin</span>';
+  html+='</div>';
+
+  container.innerHTML=html;
 }
 
 // MTM trend chart

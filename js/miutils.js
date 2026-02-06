@@ -40,35 +40,9 @@ const MI_MILL_CITIES = {
 function miNormalizeMillName(raw) {
   if (!raw) return '';
   const s = raw.trim().toLowerCase();
-  const aliases = {
-    'canfor dq': 'Canfor - DeQuincy', 'canfor dequincy': 'Canfor - DeQuincy', 'canfor - dequincy': 'Canfor - DeQuincy',
-    'canfor urbana': 'Canfor - Urbana', 'canfor - urbana': 'Canfor - Urbana',
-    'wf huttig': 'West Fraser - Huttig', 'west fraser huttig': 'West Fraser - Huttig', 'west fraser - huttig': 'West Fraser - Huttig',
-    'wf leola': 'West Fraser - Leola', 'west fraser leola': 'West Fraser - Leola', 'west fraser - leola': 'West Fraser - Leola',
-    'interfor monticello': 'Interfor - Monticello', 'interfor - monticello': 'Interfor - Monticello',
-    'interfor georgetown': 'Interfor - Georgetown', 'interfor - georgetown': 'Interfor - Georgetown',
-    'gp clarendon': 'GP - Clarendon', 'gp - clarendon': 'GP - Clarendon',
-    'gp camden': 'GP - Camden', 'gp - camden': 'GP - Camden',
-    'rex lumber bristol': 'Rex Lumber - Bristol', 'rex lumber - bristol': 'Rex Lumber - Bristol',
-    'rex lumber graceville': 'Rex Lumber - Graceville', 'rex lumber - graceville': 'Rex Lumber - Graceville',
-    'rex lumber troy': 'Rex Lumber - Troy', 'rex lumber - troy': 'Rex Lumber - Troy',
-    'rex lumber brookhaven': 'Rex Lumber - Brookhaven', 'rex lumber - brookhaven': 'Rex Lumber - Brookhaven',
-    'weyerhaeuser dierks': 'Weyerhaeuser - Dierks', 'weyerhaeuser - dierks': 'Weyerhaeuser - Dierks',
-    'tolko leland': 'Tolko - Leland', 'tolko - leland': 'Tolko - Leland',
-    'lumberton lumber': 'Idaho Forest Group - Lumberton', 'lumberton': 'Idaho Forest Group - Lumberton',
-    'idaho forest group': 'Idaho Forest Group - Lumberton', 'ifg': 'Idaho Forest Group - Lumberton',
-    'ifg lumberton': 'Idaho Forest Group - Lumberton', 'idaho forest group - lumberton': 'Idaho Forest Group - Lumberton',
-    'binderholz': 'Binderholz', 'binderholz timber': 'Binderholz',
-    'binderholz live oak': 'Binderholz - Live Oak', 'binderholz - live oak': 'Binderholz - Live Oak',
-    'binderholz enfield': 'Binderholz - Enfield', 'binderholz - enfield': 'Binderholz - Enfield',
-    'klausner': 'Binderholz', 'klausner lumber': 'Binderholz',
-    'hunt forest': 'Hunt Forest Products - Winnfield', 'hunt forest products': 'Hunt Forest Products - Winnfield',
-    'potlatchdeltic': 'PotlatchDeltic', 'potlatch': 'PotlatchDeltic',
-    'biewer newton': 'Biewer - Newton', 'biewer - newton': 'Biewer - Newton',
-    'biewer winona': 'Biewer - Winona', 'biewer - winona': 'Biewer - Winona',
-    'anthony timberlands': 'Anthony Timberlands'
-  };
-  if (aliases[s]) return aliases[s];
+  // Use canonical location aliases from state.js, then fall back to company aliases
+  if (_MILL_LOCATION_ALIASES[s]) return _MILL_LOCATION_ALIASES[s];
+  if (_MILL_COMPANY_ALIASES[s]) return _MILL_COMPANY_ALIASES[s];
   for (const mill of MILLS) {
     if (mill.toLowerCase() === s) return mill;
     if (s.includes(mill.toLowerCase().split(' - ')[1]?.toLowerCase() || '___')) return mill;
@@ -129,14 +103,13 @@ function miExtractState(location) {
   const parts = location.trim().split(',');
   if (parts.length >= 2) {
     const st = parts[parts.length - 1].trim().toUpperCase().slice(0, 2);
-    if (st.length === 2 && /^[A-Z]+$/.test(st)) return st;
+    if (st.length === 2 && US_STATES.includes(st)) return st;
   }
   return '';
 }
 
 function miGetRegionFromState(st) {
-  const map = {TX:'west',LA:'west',AR:'west',OK:'west',MS:'central',AL:'central',TN:'central',KY:'central',MO:'central',GA:'east',FL:'east',SC:'east',NC:'east',VA:'east'};
-  return map[st] || 'central';
+  return getRegionFromState(st);
 }
 
 const MI_PPU={'2x4':208,'2x6':128,'2x8':96,'2x10':80,'2x12':64,'2x3':294,'2x14':52,'1x4':416,'1x6':256,'1x8':192,'1x10':160,'1x12':128,'4x4':64,'4x6':42,'6x6':24};

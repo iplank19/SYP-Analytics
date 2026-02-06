@@ -123,7 +123,7 @@ async function showBestCosts(){
     }
 
     // 3. Calculate landed cost
-    const landed=bestMillCost&&freight?Math.round(bestMillCost+freight):null;
+    const landed=bestMillCost!=null&&freight!=null?Math.round(bestMillCost+freight):null;
 
     // 4. Update item
     item.bestMillCost=bestMillCost;
@@ -644,9 +644,9 @@ function extractState(location){
   // Try to find at end after comma
   const match=str.match(/,\s*([A-Z]{2})\s*$/);
   if(match&&states.includes(match[1]))return match[1];
-  // Try to find anywhere
+  // Try to find as whole word (avoid matching AL in DALLAS, etc.)
   for(const st of states){
-    if(str.includes(st))return st;
+    if(str.split(/[\s,]+/).includes(st))return st;
   }
   return null;
 }
@@ -697,14 +697,23 @@ function getLaneMiles(origin,dest){
     l.dest.toLowerCase().trim()===normDest
   );
   
-  // Try partial match on city names
+  // Try partial match on city names (also verify state matches if present)
   if(!lane){
     const originCity=normOrigin.split(',')[0].trim();
+    const originState=(normOrigin.split(',')[1]||'').trim();
     const destCity=normDest.split(',')[0].trim();
-    lane=S.lanes.find(l=>
-      l.origin.toLowerCase().includes(originCity)&&
-      l.dest.toLowerCase().includes(destCity)
-    );
+    const destState=(normDest.split(',')[1]||'').trim();
+    lane=S.lanes.find(l=>{
+      const lo=l.origin.toLowerCase().trim();
+      const ld=l.dest.toLowerCase().trim();
+      const loCity=lo.split(',')[0].trim();
+      const loState=(lo.split(',')[1]||'').trim();
+      const ldCity=ld.split(',')[0].trim();
+      const ldState=(ld.split(',')[1]||'').trim();
+      const originMatch=loCity.includes(originCity)&&(!originState||!loState||originState===loState);
+      const destMatch=ldCity.includes(destCity)&&(!destState||!ldState||destState===ldState);
+      return originMatch&&destMatch;
+    });
   }
   
   return lane?.miles||null;
@@ -713,7 +722,7 @@ function getLaneMiles(origin,dest){
 // Calculate freight per MBF using Base + State Rate model
 // Formula: (Base + Miles × StateRate) / MBF per TL
 function calcFreightPerMBF(miles,origin,isMSR=false){
-  if(!miles)return 0;
+  if(!miles)return null;
 
   const mbfPerTL=isMSR?20:(S.quoteMBFperTL||23);
   const originState=extractState(origin);
@@ -761,8 +770,8 @@ function generateQuotePreview(items,customer,destOverride=null){
     const isMSR=item.product?.toUpperCase().includes('MSR')||item.product?.toUpperCase().includes('2400');
     const miles=getLaneMiles(item.origin,dest);
     const frt=calcFreightPerMBF(miles,item.origin,isMSR);
-    const dlvd=(item.fob||0)+frt;
-    
+    const dlvd=frt!=null?(item.fob||0)+frt:null;
+
     return{
       product:item.product||'',
       tls:item.tls||1,
@@ -771,7 +780,7 @@ function generateQuotePreview(items,customer,destOverride=null){
       isMSR
     };
   });
-  
+
   // HTML table output
   let html=`
     <div class="quote-table-output">
@@ -787,7 +796,7 @@ function generateQuotePreview(items,customer,destOverride=null){
           ${rows.map(r=>`<tr class="${r.isMSR?'msr-row':''}">
             <td>${r.product}</td>
             <td class="qty">${r.tls} TL</td>
-            <td class="price">$${r.price}</td>
+            <td class="price">${r.price!=null?'$'+r.price:'N/A'}</td>
             <td class="ship">${r.ship}</td>
           </tr>`).join('')}
         </tbody>
@@ -811,7 +820,7 @@ function generateMultiLocationPreview(items,customer){
       const isMSR=item.product?.toUpperCase().includes('MSR')||item.product?.toUpperCase().includes('2400');
       const miles=getLaneMiles(item.origin,dest);
       const frt=calcFreightPerMBF(miles,item.origin,isMSR);
-      const dlvd=(item.fob||0)+frt;
+      const dlvd=frt!=null?(item.fob||0)+frt:null;
       return{product:item.product||'',tls:item.tls||1,price:dlvd,ship:item.shipWeek||'Prompt',isMSR};
     });
     
@@ -827,7 +836,7 @@ function generateMultiLocationPreview(items,customer){
             ${rows.map(r=>`<tr class="${r.isMSR?'msr-row':''}">
               <td>${r.product}</td>
               <td class="qty">${r.tls} TL</td>
-              <td class="price">$${r.price}</td>
+              <td class="price">${r.price!=null?'$'+r.price:'N/A'}</td>
               <td class="ship">${r.ship}</td>
             </tr>`).join('')}
           </tbody>
@@ -974,11 +983,11 @@ function generateQuoteHTML(items,dest,includeBlurb=false){
     const isMSR=item.product?.toUpperCase().includes('MSR')||item.product?.toUpperCase().includes('2400');
     const miles=getLaneMiles(item.origin,dest);
     const frt=calcFreightPerMBF(miles,item.origin,isMSR);
-    const dlvd=(item.fob||0)+frt;
-    
+    const dlvd=frt!=null?(item.fob||0)+frt:null;
+
     return{product:item.product||'',tls:item.tls||1,price:dlvd,ship:item.shipWeek||'Prompt'};
   });
-  
+
   return`<html><body style="font-family:Calibri,Arial,sans-serif;">
 ${blurb?`<p style="margin-bottom:16px;">${blurb.replace(/\n/g,'<br>')}</p>`:''}
 <table style="border-collapse:collapse;font-family:Calibri,Arial,sans-serif;font-size:11pt;">
@@ -994,7 +1003,7 @@ ${blurb?`<p style="margin-bottom:16px;">${blurb.replace(/\n/g,'<br>')}</p>`:''}
     ${rows.map((r,i)=>`<tr style="background:${i%2?'#f5f5f5':'white'};">
       <td style="padding:6px 12px;border:1px solid #ddd;">${r.product}</td>
       <td style="padding:6px 12px;text-align:center;border:1px solid #ddd;">${r.tls} TL</td>
-      <td style="padding:6px 12px;text-align:right;border:1px solid #ddd;font-weight:bold;color:#2e7d32;">$${r.price}</td>
+      <td style="padding:6px 12px;text-align:right;border:1px solid #ddd;font-weight:bold;color:#2e7d32;">${r.price!=null?'$'+r.price:'N/A'}</td>
       <td style="padding:6px 12px;text-align:right;border:1px solid #ddd;color:#666;">${r.ship}</td>
     </tr>`).join('')}
   </tbody>
@@ -1021,11 +1030,11 @@ function generateQuoteText(items,customer,destOverride=null,includeBlurb=false){
     const isMSR=item.product?.toUpperCase().includes('MSR')||item.product?.toUpperCase().includes('2400');
     const miles=getLaneMiles(item.origin,dest);
     const frt=calcFreightPerMBF(miles,item.origin,isMSR);
-    const dlvd=(item.fob||0)+frt;
-    
+    const dlvd=frt!=null?(item.fob||0)+frt:null;
+
     const prod=(item.product||'').substring(0,15).padEnd(16);
     const qty=`${item.tls||1} TL`.padStart(6);
-    const price=`$${dlvd}`.padStart(8);
+    const price=(dlvd!=null?`$${dlvd}`:'N/A').padStart(8);
     const ship=(item.shipWeek||'Prompt').padStart(8);
     
     txt+=`${prod}${qty}${price}${ship}\n`;
@@ -1742,7 +1751,7 @@ Be direct, no fluff. Use bullet points sparingly. Address Ian directly.`;
     const res=await fetch('https://api.anthropic.com/v1/messages',{
       method:'POST',
       headers:{'Content-Type':'application/json','x-api-key':S.apiKey,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
-      body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:800,messages:[{role:'user',content:prompt}]})
+      body:JSON.stringify({model:S.aiModel||'claude-sonnet-4-20250514',max_tokens:800,messages:[{role:'user',content:prompt}]})
     });
     const data=await res.json();
     const reply=data.content?.[0]?.text||'Error generating briefing';
@@ -1833,7 +1842,7 @@ Do NOT use bullet points or headers. Write in flowing paragraphs.`;
     const res=await fetch('https://api.anthropic.com/v1/messages',{
       method:'POST',
       headers:{'Content-Type':'application/json','x-api-key':S.apiKey,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
-      body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:600,messages:[{role:'user',content:prompt}]})
+      body:JSON.stringify({model:S.aiModel||'claude-sonnet-4-20250514',max_tokens:600,messages:[{role:'user',content:prompt}]})
     });
     const data=await res.json();
     const reply=data.content?.[0]?.text||'Error generating report';
@@ -1974,7 +1983,7 @@ Respond with ONLY a JSON array, no explanation:
         'anthropic-dangerous-direct-browser-access':'true'
       },
       body:JSON.stringify({
-        model:'claude-sonnet-4-20250514',
+        model:S.aiModel||'claude-sonnet-4-20250514',
         max_tokens:2000,
         messages:[{role:'user',content:prompt}]
       })
@@ -2235,7 +2244,7 @@ Respond with JSON only, no explanation:
         'anthropic-dangerous-direct-browser-access':'true'
       },
       body:JSON.stringify({
-        model:'claude-sonnet-4-20250514',
+        model:S.aiModel||'claude-sonnet-4-20250514',
         max_tokens:2000,
         messages:[{role:'user',content:prompt}]
       })

@@ -168,10 +168,14 @@ async function saveBuy(id){
     const i=S.buys.findIndex(x=>x.id===id);
     // Admin can reassign trader, otherwise preserve original trader
     const assignedTrader=S.trader==='Admin'?(document.getElementById('m-trader')?.value||existing?.trader||'Ian P'):(existing?.trader||S.trader);
+    const oldTrade=existing?{...existing}:null
     if(i>=0)S.buys[i]={...b,id,trader:assignedTrader}
+    if(typeof logTradeModified==='function'&&oldTrade)logTradeModified('buy',id,oldTrade,S.buys[i])
   }else{
     b.id=genId();
     S.buys.unshift(b)
+    if(typeof setTradeStatus==='function')setTradeStatus(b.id,'buy','draft','New buy created')
+    if(typeof logTradeCreated==='function')logTradeCreated('buy',b)
   }
 
   await saveAllLocal();closeModal();render();
@@ -331,10 +335,14 @@ async function saveSell(id){
     const i=S.sells.findIndex(x=>x.id===id);
     // Admin can reassign trader, otherwise preserve original trader
     const assignedTrader=S.trader==='Admin'?(document.getElementById('m-trader')?.value||existing?.trader||'Ian P'):(existing?.trader||S.trader);
+    const oldTrade=existing?{...existing}:null
     if(i>=0)S.sells[i]={...s,id,trader:assignedTrader}
+    if(typeof logTradeModified==='function'&&oldTrade)logTradeModified('sell',id,oldTrade,S.sells[i])
   }else{
     s.id=genId();
     S.sells.unshift(s)
+    if(typeof setTradeStatus==='function')setTradeStatus(s.id,'sell','draft','New sell created')
+    if(typeof logTradeCreated==='function')logTradeCreated('sell',s)
   }
   await saveAllLocal();closeModal();render();
 }
@@ -373,8 +381,11 @@ async function saveCust(oldName){
     const savedData=await res.json();
     if(existing){
       Object.assign(existing,c,{id:savedData.id||existing.id});
+      if(typeof logCRMAction==='function')logCRMAction('update','customer',existing)
     }else{
-      S.customers.unshift({...c,id:savedData.id});
+      const newCust={...c,id:savedData.id}
+      S.customers.unshift(newCust);
+      if(typeof logCRMAction==='function')logCRMAction('create','customer',newCust)
     }
     await saveAllLocal();
     showToast('Customer saved','positive');
@@ -393,20 +404,20 @@ function showMillModal(m=null){
         <div class="form-group" style="margin:0"><label class="form-label" style="color:#e8734a;font-weight:600">🔑 Assign to Trader</label>
         <select id="m-trader" style="width:200px">${TRADERS.map(t=>`<option value="${t}" ${(mill?.trader||'Ian P')===t?'selected':''}>${t}</option>`).join('')}</select></div>
       </div>`:''}
-      <div class="form-group"><label class="form-label">Mill Name</label><input type="text" id="m-name" value="${mill?.name||''}"></div>
+      <div class="form-group"><label class="form-label">Mill Name</label><input type="text" id="m-name" value="${escapeHtml(mill?.name||'')}"></div>
       <div class="form-group">
         <label class="form-label">Locations (City, ST)</label>
         <div id="mill-locations">
-          ${locs.length?locs.map((loc,i)=>`<div style="display:flex;gap:4px;margin-bottom:4px"><input type="text" class="mill-loc" value="${loc}" placeholder="e.g. Warren, AR" style="flex:1"><button class="btn btn-danger btn-sm" onclick="this.parentElement.remove()">×</button></div>`).join(''):'<div style="display:flex;gap:4px;margin-bottom:4px"><input type="text" class="mill-loc" placeholder="e.g. Warren, AR" style="flex:1"><button class="btn btn-danger btn-sm" onclick="this.parentElement.remove()">×</button></div>'}
+          ${locs.length?locs.map((loc,i)=>`<div style="display:flex;gap:4px;margin-bottom:4px"><input type="text" class="mill-loc" value="${escapeHtml(loc||'')}" placeholder="e.g. Warren, AR" style="flex:1"><button class="btn btn-danger btn-sm" onclick="this.parentElement.remove()">×</button></div>`).join(''):'<div style="display:flex;gap:4px;margin-bottom:4px"><input type="text" class="mill-loc" placeholder="e.g. Warren, AR" style="flex:1"><button class="btn btn-danger btn-sm" onclick="this.parentElement.remove()">×</button></div>'}
         </div>
         <button class="btn btn-default btn-sm" onclick="addMillLocation()" style="margin-top:4px">+ Add Location</button>
       </div>
       <div class="form-group"><label class="form-label">Region</label><select id="m-region"><option value="">Select...</option>${REGIONS.map(r=>`<option value="${r}" ${mill?.region===r?'selected':''}>${r.charAt(0).toUpperCase()+r.slice(1)}</option>`).join('')}</select></div>
-      <div class="form-group"><label class="form-label">Contact</label><input type="text" id="m-contact" value="${mill?.contact||''}"></div>
-      <div class="form-group"><label class="form-label">Phone</label><input type="text" id="m-phone" value="${mill?.phone||''}"></div>
-      <div class="form-group"><label class="form-label">Notes</label><textarea id="m-notes">${mill?.notes||''}</textarea></div>
+      <div class="form-group"><label class="form-label">Contact</label><input type="text" id="m-contact" value="${escapeHtml(mill?.contact||'')}"></div>
+      <div class="form-group"><label class="form-label">Phone</label><input type="text" id="m-phone" value="${escapeHtml(mill?.phone||'')}"></div>
+      <div class="form-group"><label class="form-label">Notes</label><textarea id="m-notes">${escapeHtml(mill?.notes||'')}</textarea></div>
     </div>
-    <div class="modal-footer"><button class="btn btn-default" onclick="closeModal()">Cancel</button><button class="btn btn-success" onclick="saveMill('${mill?.name||''}')">Save</button></div>
+    <div class="modal-footer"><button class="btn btn-default" onclick="closeModal()">Cancel</button><button class="btn btn-success" onclick="saveMill('${escapeHtml(mill?.name||'')}')">Save</button></div>
   </div></div>`;
 }
 
@@ -450,8 +461,11 @@ async function saveMill(oldName){
     const savedData=await res.json();
     if(existing){
       Object.assign(existing,m,{id:savedData.id||existing.id});
+      if(typeof logCRMAction==='function')logCRMAction('update','mill',existing)
     }else{
-      S.mills.unshift({...m,id:savedData.id});
+      const newMill={...m,id:savedData.id}
+      S.mills.unshift(newMill);
+      if(typeof logCRMAction==='function')logCRMAction('create','mill',newMill)
     }
     await saveAllLocal();
     showToast('Mill saved','positive');
@@ -469,6 +483,7 @@ async function deleteCust(name){
   if(!confirm(`Delete customer "${name}"? This won't delete their trades.`))return;
   try{
     const c=S.customers.find(x=>x.name===name);
+    if(c&&typeof logCRMAction==='function')logCRMAction('delete','customer',c)
     if(c?.id)await fetch('/api/crm/customers/'+c.id,{method:'DELETE'});
     S.customers=S.customers.filter(x=>x.name!==name);
     await saveAllLocal();
@@ -481,6 +496,7 @@ async function deleteMill(name){
   if(!confirm(`Delete mill "${name}"? This won't delete their trades.`))return;
   try{
     const m=S.mills.find(x=>x.name===name);
+    if(m&&typeof logCRMAction==='function')logCRMAction('delete','mill',m)
     if(m?.id)await fetch('/api/crm/mills/'+m.id,{method:'DELETE'});
     S.mills=S.mills.filter(x=>x.name!==name);
     await saveAllLocal();
@@ -493,8 +509,8 @@ function editBuy(id){showBuyModal(S.buys.find(b=>b.id===id))}
 function editSell(id){showSellModal(S.sells.find(s=>s.id===id))}
 function dupBuy(id){const b=S.buys.find(x=>x.id===id);if(b)showBuyModal({...b,id:null,date:today()})}
 function dupSell(id){const s=S.sells.find(x=>x.id===id);if(s)showSellModal({...s,id:null,date:today()})}
-async function delBuy(id){if(!confirm('Delete?'))return;S.buys=S.buys.filter(b=>b.id!==id);await saveAllLocal();render()}
-async function delSell(id){if(!confirm('Delete?'))return;S.sells=S.sells.filter(s=>s.id!==id);await saveAllLocal();render()}
+async function delBuy(id){if(!confirm('Delete?'))return;const t=S.buys.find(b=>b.id===id);if(t&&typeof logTradeDeleted==='function')logTradeDeleted('buy',t);S.buys=S.buys.filter(b=>b.id!==id);await saveAllLocal();render()}
+async function delSell(id){if(!confirm('Delete?'))return;const t=S.sells.find(s=>s.id===id);if(t&&typeof logTradeDeleted==='function')logTradeDeleted('sell',t);S.sells=S.sells.filter(s=>s.id!==id);await saveAllLocal();render()}
 async function cancelBuy(id){
   const b=S.buys.find(x=>x.id===id);
   if(!b)return;
@@ -612,9 +628,9 @@ function linkShortToPO(sellId){
       <div style="margin-bottom:16px;padding:12px;background:var(--panel-alt);border:1px solid var(--border)">
         <div style="font-weight:600;margin-bottom:8px">Short Position:</div>
         <div style="font-size:12px">
-          <div><span style="color:var(--muted)">OC:</span> ${sell.oc||'—'}</div>
-          <div><span style="color:var(--muted)">Customer:</span> ${sell.customer||'—'}</div>
-          <div><span style="color:var(--muted)">Product:</span> ${sell.product} ${sell.length||'RL'}</div>
+          <div><span style="color:var(--muted)">OC:</span> ${escapeHtml(sell.oc||'—')}</div>
+          <div><span style="color:var(--muted)">Customer:</span> ${escapeHtml(sell.customer||'—')}</div>
+          <div><span style="color:var(--muted)">Product:</span> ${escapeHtml(sell.product||'')} ${escapeHtml(sell.length||'RL')}</div>
           <div><span style="color:var(--muted)">Volume:</span> ${fmtN(sell.volume)} MBF</div>
           <div><span style="color:var(--muted)">Price:</span> ${fmt(sell.price)} DLVD</div>
         </div>
@@ -623,7 +639,7 @@ function linkShortToPO(sellId){
         <label class="form-label">Select PO to Cover</label>
         <select id="link-po" style="width:100%">
           <option value="">— Select PO —</option>
-          ${availPOs.map(b=>`<option value="${b.po}">${b.po} | ${b.product} ${b.length||'RL'} | ${b.mill} | ${fmt(b.price)} | ${fmtN(b.avail)} MBF avail</option>`).join('')}
+          ${availPOs.map(b=>`<option value="${escapeHtml(b.po||'')}">${escapeHtml(b.po||'')} | ${escapeHtml(b.product||'')} ${escapeHtml(b.length||'RL')} | ${escapeHtml(b.mill||'')} | ${fmt(b.price)} | ${fmtN(b.avail)} MBF avail</option>`).join('')}
         </select>
       </div>
       ${availPOs.length===0?'<div style="color:var(--negative);font-size:11px;margin-top:8px">No POs with available volume. Create a buy first.</div>':''}
@@ -1033,11 +1049,11 @@ function showSmartMatchModal(sellId){
       <div class="match-sell-summary" style="background:var(--panel-alt);padding:12px;margin-bottom:16px;border:1px solid var(--info)">
         <div style="font-weight:600;color:var(--info);margin-bottom:8px">SHORT POSITION</div>
         <div class="grid-3" style="font-size:11px">
-          <div><span style="color:var(--muted)">Product:</span> ${sell.product} ${sell.length||'RL'}</div>
+          <div><span style="color:var(--muted)">Product:</span> ${escapeHtml(sell.product||'')} ${escapeHtml(sell.length||'RL')}</div>
           <div><span style="color:var(--muted)">Volume:</span> ${fmtN(sell.volume)} MBF</div>
           <div><span style="color:var(--muted)">Sell Price:</span> ${fmt(sell.price)} DLVD</div>
-          <div><span style="color:var(--muted)">Customer:</span> ${sell.customer||'—'}</div>
-          <div><span style="color:var(--muted)">Destination:</span> ${sell.destination||'—'}</div>
+          <div><span style="color:var(--muted)">Customer:</span> ${escapeHtml(sell.customer||'—')}</div>
+          <div><span style="color:var(--muted)">Destination:</span> ${escapeHtml(sell.destination||'—')}</div>
           <div><span style="color:var(--muted)">Freight:</span> ${fmt(sell.freight||0)}</div>
         </div>
       </div>
@@ -1050,7 +1066,7 @@ function showSmartMatchModal(sellId){
               <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
                 <div style="display:flex;align-items:center;gap:8px">
                   <span class="match-rank" style="background:${i===0?'var(--positive)':'var(--panel-alt)'};color:${i===0?'#000':'var(--text)'};padding:2px 8px;border-radius:2px;font-weight:700;font-size:10px">#${i+1}</span>
-                  <span style="font-weight:600">${s.buy.mill||'Unknown Mill'}</span>
+                  <span style="font-weight:600">${escapeHtml(s.buy.mill||'Unknown Mill')}</span>
                   <span class="badge badge-${s.score>=80?'success':s.score>=60?'warn':'info'}">${s.score}% MATCH</span>
                 </div>
                 <button class="btn btn-${i===0?'success':'primary'} btn-sm" onclick="confirmMatch(${sellId},${s.buy.id});closeModal()">
@@ -1059,8 +1075,8 @@ function showSmartMatchModal(sellId){
               </div>
               <div class="grid-2" style="font-size:10px;gap:8px">
                 <div>
-                  <div><span style="color:var(--muted)">PO:</span> ${s.buy.orderNum||s.buy.po||'—'}</div>
-                  <div><span style="color:var(--muted)">Product:</span> ${s.buy.product} ${s.buy.length||'RL'}</div>
+                  <div><span style="color:var(--muted)">PO:</span> ${escapeHtml(s.buy.orderNum||s.buy.po||'—')}</div>
+                  <div><span style="color:var(--muted)">Product:</span> ${escapeHtml(s.buy.product||'')} ${escapeHtml(s.buy.length||'RL')}</div>
                   <div><span style="color:var(--muted)">Buy Price:</span> ${fmt(s.buy.price)} FOB</div>
                   <div><span style="color:var(--muted)">Available:</span> ${fmtN(s.availableVolume)} MBF</div>
                 </div>
@@ -1083,7 +1099,7 @@ function showSmartMatchModal(sellId){
             No POs match this product with available volume.<br>
             Consider creating a new buy order.
           </div>
-          <button class="btn btn-success" style="margin-top:16px" onclick="closeModal();showBuyModal({product:'${sell.product}',length:'${sell.length||'RL'}'})">
+          <button class="btn btn-success" style="margin-top:16px" onclick="closeModal();showBuyModal({product:'${escapeHtml(sell.product||'')}',length:'${escapeHtml(sell.length||'RL')}'})">
             + Create Buy
           </button>
         </div>

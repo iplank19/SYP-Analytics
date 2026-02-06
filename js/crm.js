@@ -90,10 +90,10 @@ function showProspectModal(p=null){
     <div class="modal-header"><span class="modal-title info">${p?'EDIT':'NEW'} PROSPECT</span><button class="modal-close" onclick="closeModal()">×</button></div>
     <div class="modal-body">
       <div class="form-grid">
-        <div class="form-group full"><label class="form-label">Company Name *</label><input type="text" id="p-company" value="${p?.company_name||''}" required></div>
-        <div class="form-group"><label class="form-label">Contact Name</label><input type="text" id="p-contact" value="${p?.contact_name||''}"></div>
-        <div class="form-group"><label class="form-label">Phone</label><input type="tel" id="p-phone" value="${p?.phone||''}"></div>
-        <div class="form-group"><label class="form-label">Email</label><input type="email" id="p-email" value="${p?.email||''}"></div>
+        <div class="form-group full"><label class="form-label">Company Name *</label><input type="text" id="p-company" value="${escapeHtml(p?.company_name||'')}" required></div>
+        <div class="form-group"><label class="form-label">Contact Name</label><input type="text" id="p-contact" value="${escapeHtml(p?.contact_name||'')}"></div>
+        <div class="form-group"><label class="form-label">Phone</label><input type="tel" id="p-phone" value="${escapeHtml(p?.phone||'')}"></div>
+        <div class="form-group"><label class="form-label">Email</label><input type="email" id="p-email" value="${escapeHtml(p?.email||'')}"></div>
         <div class="form-group"><label class="form-label">Status</label>
           <select id="p-status">
             <option value="prospect" ${(p?.status||'prospect')==='prospect'?'selected':''}>Prospect</option>
@@ -102,9 +102,9 @@ function showProspectModal(p=null){
             <option value="lost" ${p?.status==='lost'?'selected':''}>Lost</option>
           </select>
         </div>
-        <div class="form-group full"><label class="form-label">Address</label><input type="text" id="p-address" value="${p?.address||''}"></div>
-        <div class="form-group"><label class="form-label">Source</label><input type="text" id="p-source" value="${p?.source||''}" placeholder="How did you find them?"></div>
-        <div class="form-group full"><label class="form-label">Notes</label><textarea id="p-notes" rows="3">${p?.notes||''}</textarea></div>
+        <div class="form-group full"><label class="form-label">Address</label><input type="text" id="p-address" value="${escapeHtml(p?.address||'')}"></div>
+        <div class="form-group"><label class="form-label">Source</label><input type="text" id="p-source" value="${escapeHtml(p?.source||'')}" placeholder="How did you find them?"></div>
+        <div class="form-group full"><label class="form-label">Notes</label><textarea id="p-notes" rows="3">${escapeHtml(p?.notes||'')}</textarea></div>
       </div>
     </div>
     <div class="modal-footer">
@@ -131,7 +131,19 @@ async function saveProspect(id){
   if(!data.company_name){alert('Company name required');return}
   try{
     const url=id?'/api/crm/prospects/'+id:'/api/crm/prospects';
-    await fetch(url,{method:id?'PUT':'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
+    const res=await fetch(url,{method:id?'PUT':'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
+    const result=await res.json();
+    // Handle duplicate detection responses (only on create)
+    if(!id&&result.existing){
+      alert('A prospect named "'+result.company_name+'" already exists (status: '+result.status+'). Opening existing record.');
+      closeModal();loadCRMProspects();
+      return;
+    }
+    if(!id&&result.warning==='already_customer'){
+      alert(result.message+'. No prospect created.');
+      closeModal();loadCRMProspects();
+      return;
+    }
     closeModal();loadCRMProspects();
   }catch(e){alert('Error saving prospect')}
 }
@@ -150,7 +162,7 @@ async function viewProspect(id){
     const p=await res.json();
     document.getElementById('modal').innerHTML=`<div class="modal-overlay" onclick="closeModal()"><div class="modal wide" onclick="event.stopPropagation()">
       <div class="modal-header">
-        <span class="modal-title info">${p.company_name}</span>
+        <span class="modal-title info">${escapeHtml(p.company_name||'')}</span>
         <button class="modal-close" onclick="closeModal()">×</button>
       </div>
       <div class="modal-body">
@@ -158,13 +170,13 @@ async function viewProspect(id){
           <div>
             <h4 style="color:var(--accent);margin-bottom:12px">Contact Info</h4>
             <div style="font-size:12px;line-height:1.8">
-              <div><strong>Contact:</strong> ${p.contact_name||'—'}</div>
-              <div><strong>Phone:</strong> ${p.phone||'—'}</div>
-              <div><strong>Email:</strong> ${p.email||'—'}</div>
-              <div><strong>Address:</strong> ${p.address||'—'}</div>
-              <div><strong>Status:</strong> <span class="badge badge-pending">${p.status}</span></div>
-              <div><strong>Source:</strong> ${p.source||'—'}</div>
-              ${p.notes?`<div style="margin-top:8px"><strong>Notes:</strong><div style="background:var(--bg);padding:8px;margin-top:4px;border-radius:4px">${p.notes}</div></div>`:''}
+              <div><strong>Contact:</strong> ${escapeHtml(p.contact_name||'—')}</div>
+              <div><strong>Phone:</strong> ${escapeHtml(p.phone||'—')}</div>
+              <div><strong>Email:</strong> ${escapeHtml(p.email||'—')}</div>
+              <div><strong>Address:</strong> ${escapeHtml(p.address||'—')}</div>
+              <div><strong>Status:</strong> <span class="badge badge-pending">${escapeHtml(p.status||'')}</span></div>
+              <div><strong>Source:</strong> ${escapeHtml(p.source||'—')}</div>
+              ${p.notes?`<div style="margin-top:8px"><strong>Notes:</strong><div style="background:var(--bg);padding:8px;margin-top:4px;border-radius:4px">${escapeHtml(p.notes)}</div></div>`:''}
             </div>
           </div>
           <div>
@@ -180,8 +192,8 @@ async function viewProspect(id){
                       <span class="timeline-type">${t.touch_type}</span>
                       <span class="timeline-date">${new Date(t.created_at).toLocaleDateString()}</span>
                     </div>
-                    <div class="timeline-notes">${t.notes||'No notes'}</div>
-                    ${t.products_discussed?`<div class="timeline-products">Products: ${t.products_discussed}</div>`:''}
+                    <div class="timeline-notes">${escapeHtml(t.notes||'No notes')}</div>
+                    ${t.products_discussed?`<div class="timeline-products">Products: ${escapeHtml(t.products_discussed)}</div>`:''}
                     ${t.follow_up_date?`<div class="timeline-followup">Follow-up: ${t.follow_up_date}</div>`:''}
                   </div>
                 </div>`;
@@ -258,18 +270,94 @@ async function saveTouch(prospectId){
 async function convertProspect(id){
   if(!confirm('Convert this prospect to a customer? They will be marked as converted.'))return;
   try{
-    const res=await fetch('/api/crm/prospects/'+id+'/convert',{method:'POST'});
-    const p=await res.json();
-    // Optionally add to customers list
-    if(!S.customers)S.customers=[];
+    // Fetch full prospect data first
+    const prospectRes=await fetch('/api/crm/prospects/'+id);
+    const p=await prospectRes.json();
     const normName=normalizeCustomerName(p.company_name);
+
+    // Check if customer already exists in SQLite before converting
+    const checkRes=await fetch('/api/crm/customers?name='+encodeURIComponent(normName));
+    const existingCusts=await checkRes.json();
+    const alreadyExists=Array.isArray(existingCusts)&&existingCusts.find(c=>c.name===normName);
+    if(alreadyExists){
+      if(!confirm(normName+' already exists as a customer. Convert prospect anyway (will link to existing customer)?'))return;
+    }
+
+    // Mark prospect as converted on the server
+    await fetch('/api/crm/prospects/'+id+'/convert',{method:'POST'});
+
+    // Build customer with all contact data from prospect
+    const custData={
+      name:normName,
+      contact:p.contact_name||'',
+      phone:p.phone||'',
+      email:p.email||'',
+      destination:p.address||'',
+      notes:[p.notes||'',p.source?'Source: '+p.source:''].filter(Boolean).join(' | '),
+      trader:p.trader||S.trader
+    };
+
+    // Create customer in SQLite immediately (endpoint deduplicates by name)
+    const custRes=await fetch('/api/crm/customers',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(custData)});
+    const savedCust=await custRes.json();
+
+    // Update in-memory customers list
+    if(!S.customers)S.customers=[];
     if(!S.customers.find(c=>c.name===normName)){
-      S.customers.push({name:normName,destination:p.address||'',trader:S.trader});
+      S.customers.push({
+        id:savedCust.id,
+        name:normName,
+        contact:custData.contact,
+        phone:custData.phone,
+        email:custData.email,
+        destination:custData.destination,
+        notes:custData.notes,
+        trader:custData.trader,
+        convertedFromProspect:id
+      });
       await saveAllLocal();
     }
     closeModal();loadCRMProspects();
     alert('Prospect converted! They have been added to your Customers list.');
-  }catch(e){alert('Error converting prospect')}
+  }catch(e){alert('Error converting prospect: '+e.message)}
+}
+
+// Rename customer in SQLite and sweep S.sells to update matching trade records
+async function renameCustomer(custId,newName){
+  try{
+    const res=await fetch('/api/crm/customers/'+custId+'/rename',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:newName})});
+    if(!res.ok)throw new Error('Rename failed');
+    const result=await res.json();
+    const oldName=result.old_name;
+    // Update in-memory customer list
+    const cust=S.customers?.find(c=>c.name===oldName||c.id===custId);
+    if(cust)cust.name=result.name;
+    // Sweep S.sells to update trade records with old name
+    if(oldName&&oldName!==result.name&&S.sells){
+      S.sells.forEach(t=>{if(t.customer===oldName)t.customer=result.name});
+    }
+    save();render();
+    return result;
+  }catch(e){console.error('Customer rename error:',e);throw e}
+}
+
+// Rename mill in SQLite + MI and sweep S.buys to update matching trade records
+async function renameMill(millId,newName){
+  try{
+    const res=await fetch('/api/crm/mills/'+millId+'/rename',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:newName})});
+    if(!res.ok)throw new Error('Rename failed');
+    const result=await res.json();
+    const oldName=result.old_name;
+    // Update in-memory mill list
+    const mill=S.mills?.find(m=>m.name===oldName||m.id===millId);
+    if(mill)mill.name=result.name;
+    // Sweep S.buys to update trade records with old name
+    if(oldName&&oldName!==result.name&&S.buys){
+      S.buys.forEach(t=>{if(t.mill===oldName)t.mill=result.name});
+    }
+    save();render();
+    return result;
+  }catch(e){console.error('Mill rename error:',e);throw e}
 }
 
 // ==================== END CRM FUNCTIONS ====================
@@ -284,21 +372,21 @@ function showCustModal(c=null){
         <select id="m-trader" style="width:200px">${TRADERS.map(t=>`<option value="${t}" ${(c?.trader||'Ian P')===t?'selected':''}>${t}</option>`).join('')}</select></div>
       </div>`:''}
       <div class="form-grid">
-        <div class="form-group full"><label class="form-label">Company Name</label><input type="text" id="m-name" value="${c?.name||''}"></div>
-        <div class="form-group"><label class="form-label">Contact</label><input type="text" id="m-contact" value="${c?.contact||''}"></div>
-        <div class="form-group"><label class="form-label">Phone</label><input type="text" id="m-phone" value="${c?.phone||''}"></div>
-        <div class="form-group"><label class="form-label">Email</label><input type="text" id="m-email" value="${c?.email||''}"></div>
-        <div class="form-group full"><label class="form-label">Terms</label><input type="text" id="m-terms" value="${c?.terms||''}"></div>
+        <div class="form-group full"><label class="form-label">Company Name</label><input type="text" id="m-name" value="${escapeHtml(c?.name||'')}"></div>
+        <div class="form-group"><label class="form-label">Contact</label><input type="text" id="m-contact" value="${escapeHtml(c?.contact||'')}"></div>
+        <div class="form-group"><label class="form-label">Phone</label><input type="text" id="m-phone" value="${escapeHtml(c?.phone||'')}"></div>
+        <div class="form-group"><label class="form-label">Email</label><input type="text" id="m-email" value="${escapeHtml(c?.email||'')}"></div>
+        <div class="form-group full"><label class="form-label">Terms</label><input type="text" id="m-terms" value="${escapeHtml(c?.terms||'')}"></div>
         <div class="form-group full">
           <label class="form-label">Delivery Locations (City, ST)</label>
           <div id="cust-locations">
-            ${locs.length?locs.map((loc,i)=>`<div style="display:flex;gap:4px;margin-bottom:4px"><input type="text" class="cust-loc" value="${loc}" placeholder="e.g. Cincinnati, OH" style="flex:1"><button class="btn btn-danger btn-sm" onclick="this.parentElement.remove()">×</button></div>`).join(''):'<div style="display:flex;gap:4px;margin-bottom:4px"><input type="text" class="cust-loc" placeholder="e.g. Cincinnati, OH" style="flex:1"><button class="btn btn-danger btn-sm" onclick="this.parentElement.remove()">×</button></div>'}
+            ${locs.length?locs.map((loc,i)=>`<div style="display:flex;gap:4px;margin-bottom:4px"><input type="text" class="cust-loc" value="${escapeHtml(loc||'')}" placeholder="e.g. Cincinnati, OH" style="flex:1"><button class="btn btn-danger btn-sm" onclick="this.parentElement.remove()">×</button></div>`).join(''):'<div style="display:flex;gap:4px;margin-bottom:4px"><input type="text" class="cust-loc" placeholder="e.g. Cincinnati, OH" style="flex:1"><button class="btn btn-danger btn-sm" onclick="this.parentElement.remove()">×</button></div>'}
           </div>
           <button class="btn btn-default btn-sm" onclick="addCustLocation()" style="margin-top:4px">+ Add Location</button>
         </div>
       </div>
     </div>
-    <div class="modal-footer"><button class="btn btn-default" onclick="closeModal()">Cancel</button><button class="btn btn-primary" onclick="saveCust('${c?.name||''}')">Save</button></div>
+    <div class="modal-footer"><button class="btn btn-default" onclick="closeModal()">Cancel</button><button class="btn btn-primary" onclick="saveCust('${escapeHtml(c?.name||'')}')">Save</button></div>
   </div></div>`;
 }
 
@@ -330,7 +418,7 @@ function showQuickTouchModal(){
     `<div class="modal-overlay" onclick="closeModal()"><div class="modal" onclick="event.stopPropagation()">
     <div class="modal-header"><span class="modal-title">Quick Log Touch</span><button class="modal-close" onclick="closeModal()">×</button></div>
     <div class="modal-body"><div class="form-grid">
-    <div class="form-group full"><label class="form-label">Prospect</label><select id="qt-prospect"><option value="">Select...</option>${prospects.map(p=>'<option value="'+p.id+'">'+p.company_name+'</option>').join('')}</select></div>
+    <div class="form-group full"><label class="form-label">Prospect</label><select id="qt-prospect"><option value="">Select...</option>${prospects.map(p=>'<option value="'+p.id+'">'+escapeHtml(p.company_name||'')+'</option>').join('')}</select></div>
     <div class="form-group"><label class="form-label">Type</label><select id="qt-type"><option value="call">Call</option><option value="email">Email</option><option value="meeting">Meeting</option><option value="note">Note</option></select></div>
     <div class="form-group"><label class="form-label">Follow-up Date</label><input type="date" id="qt-follow"></div>
     <div class="form-group full"><label class="form-label">Notes</label><textarea id="qt-notes" rows="3" placeholder="Quick notes..."></textarea></div>

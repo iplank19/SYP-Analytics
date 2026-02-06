@@ -17,6 +17,7 @@ function initReportConfig(){
 
 // Generate daily flash report
 function generateDailyFlash(){
+  try{
   const todayStr=today();
   const a=analytics();
   const risk=getRiskDashboard();
@@ -62,6 +63,7 @@ function generateDailyFlash(){
       matchedTrades:a.matchedVol
     }
   };
+  }catch(e){console.error('generateDailyFlash error:',e);return{type:'dailyFlash',error:true,message:'Error generating daily flash: '+e.message,generatedAt:new Date().toISOString()};}
 }
 
 // ============================================================================
@@ -70,11 +72,12 @@ function generateDailyFlash(){
 
 // Generate weekly trading report
 function generateWeeklyReport(){
+  try{
   const now=new Date();
   const weekStart=new Date(now);
   weekStart.setDate(now.getDate()-7);
 
-  const pnl=getPnLBreakdown('product','7d');
+  const pnl=getPnLBreakdown({groupBy:'product',period:'7d'});
   const traderPerf=getTraderPerformance('7d');
   const customerProf=getCustomerProfitability('7d');
   const signals=S.signals?.filter(s=>s.status==='active')||[];
@@ -82,10 +85,11 @@ function generateWeeklyReport(){
   const rolling=getRollingPnL(8);
 
   // Top trades this week
-  const topTrades=getMatchedTradesWithPnL({
-    dateFrom:weekStart.toISOString().split('T')[0],
-    dateTo:today()
-  }).slice(0,10);
+  const topTrades=getMatchedTradesWithPnL('7d').slice(0,10);
+
+  // Derive avg margin and win rate from items
+  const totalMatchedVol=pnl.totals.matchedVolume||0;
+  const avgMargin=totalMatchedVol?pnl.totals.pnl/totalMatchedVol:0;
 
   return{
     type:'weeklyReport',
@@ -93,25 +97,26 @@ function generateWeeklyReport(){
     weekEnd:today(),
     generatedAt:new Date().toISOString(),
     performance:{
-      totalPnL:pnl.totals.totalPnL,
-      tradePnL:pnl.totals.tradePnL,
-      freightPnL:pnl.totals.freightPnL,
+      totalPnL:pnl.totals.pnl,
+      tradePnL:pnl.totals.pnl,
+      freightPnL:pnl.totals.freight,
       volume:pnl.totals.volume,
       trades:pnl.totals.trades,
-      avgMargin:pnl.totals.avgMargin,
-      winRate:pnl.totals.winRate
+      avgMargin,
+      winRate:0
     },
-    byProduct:pnl.breakdown.slice(0,8),
-    traderPerformance:traderPerf.performance,
-    topCustomers:customerProf.customers.slice(0,10),
+    byProduct:pnl.items.slice(0,8).map(p=>({...p,totalPnL:p.pnl,avgMargin:p.marginPerMBF,tradePnL:p.pnl,freightPnL:p.freight,winRate:0})),
+    traderPerformance:traderPerf.map(t=>({...t,totalPnL:t.pnl})),
+    topCustomers:customerProf.slice(0,10),
     topTrades,
     marketMovers,
     activeSignals:signals.length,
-    weeklyTrend:rolling.data,
+    weeklyTrend:rolling,
     comparison:{
-      vsLastWeek:rolling.data.length>=2?rolling.data[rolling.data.length-1].pnl-rolling.data[rolling.data.length-2].pnl:0
+      vsLastWeek:rolling.length>=2?rolling[rolling.length-1].pnl-rolling[rolling.length-2].pnl:0
     }
   };
+  }catch(e){console.error('generateWeeklyReport error:',e);return{type:'weeklyReport',error:true,message:'Error generating weekly report: '+e.message,generatedAt:new Date().toISOString()};}
 }
 
 // ============================================================================
@@ -120,11 +125,12 @@ function generateWeeklyReport(){
 
 // Generate monthly management report
 function generateMonthlyReport(){
+  try{
   const now=new Date();
   const monthStart=new Date(now.getFullYear(),now.getMonth(),1);
 
-  const pnl30d=getPnLBreakdown('product','30d');
-  const pnl90d=getPnLBreakdown('product','90d');
+  const pnl30d=getPnLBreakdown({groupBy:'product',period:'30d'});
+  const pnl90d=getPnLBreakdown({groupBy:'product',period:'90d'});
   const traderPerf=getTraderPerformance('30d');
   const portfolio=getPortfolioDashboard();
   const risk=getRiskDashboard();
@@ -132,13 +138,13 @@ function generateMonthlyReport(){
 
   // YTD performance
   const ytdStart=new Date(now.getFullYear(),0,1);
-  const ytdPnL=getPnLBreakdown('product','ytd');
+  const ytdPnL=getPnLBreakdown({groupBy:'product',period:'ytd'});
 
   // Calculate month-over-month trends
   const rolling=getRollingPnL(12);
   const monthlyTotals=[];
   for(let i=0;i<12;i+=4){
-    const monthData=rolling.data.slice(i,i+4);
+    const monthData=rolling.slice(i,i+4);
     if(monthData.length){
       monthlyTotals.push({
         period:`Month ${Math.floor(i/4)+1}`,
@@ -148,30 +154,36 @@ function generateMonthlyReport(){
     }
   }
 
+  // Derive avg margin from totals
+  const mtdMatchedVol=pnl30d.totals.matchedVolume||0;
+  const mtdAvgMargin=mtdMatchedVol?pnl30d.totals.pnl/mtdMatchedVol:0;
+  const ytdMatchedVol=ytdPnL.totals.matchedVolume||0;
+  const ytdAvgMargin=ytdMatchedVol?ytdPnL.totals.pnl/ytdMatchedVol:0;
+
   return{
     type:'monthlyReport',
     month:`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`,
     generatedAt:new Date().toISOString(),
     mtdPerformance:{
-      totalPnL:pnl30d.totals.totalPnL,
+      totalPnL:pnl30d.totals.pnl,
       volume:pnl30d.totals.volume,
       trades:pnl30d.totals.trades,
-      avgMargin:pnl30d.totals.avgMargin,
-      winRate:pnl30d.totals.winRate
+      avgMargin:mtdAvgMargin,
+      winRate:0
     },
     ytdPerformance:{
-      totalPnL:ytdPnL.totals.totalPnL,
+      totalPnL:ytdPnL.totals.pnl,
       volume:ytdPnL.totals.volume,
       trades:ytdPnL.totals.trades,
-      avgMargin:ytdPnL.totals.avgMargin
+      avgMargin:ytdAvgMargin
     },
-    byProduct:pnl30d.breakdown.slice(0,8),
-    byTrader:traderPerf.performance,
+    byProduct:pnl30d.items.slice(0,8).map(p=>({...p,totalPnL:p.pnl,avgMargin:p.marginPerMBF,tradePnL:p.pnl,freightPnL:p.freight,winRate:0})),
+    byTrader:traderPerf.map(t=>({...t,totalPnL:t.pnl})),
     portfolioHealth:{
-      totalValue:portfolio.mtm.current.totalValue,
-      unrealizedPnL:portfolio.mtm.current.totalMTM,
-      inventoryTurnover:portfolio.inventory.turnover.turnoverRatio,
-      deadStockCount:portfolio.inventory.deadStock.length
+      totalValue:portfolio.totalMTM,
+      unrealizedPnL:portfolio.unrealizedPnL,
+      inventoryTurnover:portfolio.turnover.turnoverRatio,
+      deadStockCount:portfolio.deadStock.length
     },
     riskMetrics:{
       score:risk.riskScore,
@@ -186,6 +198,7 @@ function generateMonthlyReport(){
     },
     trends:monthlyTotals
   };
+  }catch(e){console.error('generateMonthlyReport error:',e);return{type:'monthlyReport',error:true,message:'Error generating monthly report: '+e.message,generatedAt:new Date().toISOString()};}
 }
 
 // ============================================================================
@@ -194,6 +207,7 @@ function generateMonthlyReport(){
 
 // Generate customer activity report
 function generateCustomerReport(period='30d'){
+  try{
   const customerProf=getCustomerProfitability(period);
   const cutoff=getPeriodCutoff(period);
 
@@ -223,7 +237,7 @@ function generateCustomerReport(period='30d'){
   });
 
   Object.entries(customerData).forEach(([name,data])=>{
-    const profData=customerProf.customers.find(c=>c.customer===name);
+    const profData=customerProf.find(c=>c.customer===name);
     customerActivity.push({
       customer:name,
       orderCount:data.orders.length,
@@ -233,7 +247,7 @@ function generateCustomerReport(period='30d'){
       products:[...data.products],
       lastOrderDate:data.lastOrder,
       daysSinceOrder:data.lastOrder?Math.floor((new Date()-new Date(data.lastOrder))/(24*60*60*1000)):null,
-      profit:profData?.profit||0,
+      profit:profData?.pnl||0,
       avgMargin:profData?.avgMargin||0
     });
   });
@@ -265,6 +279,31 @@ function generateCustomerReport(period='30d'){
         (customerActivity.slice(0,10).reduce((s,c)=>s+c.volume,0)/customerActivity.reduce((s,c)=>s+c.volume,0))*100:0
     }
   };
+  }catch(e){console.error('generateCustomerReport error:',e);return{type:'customerReport',error:true,message:'Error generating customer report: '+e.message,generatedAt:new Date().toISOString()};}
+}
+
+// ============================================================================
+// MILL PROFITABILITY HELPER
+// ============================================================================
+
+// Local helper: get mill profitability via getPnLBreakdown grouped by mill
+function _getMillProfitability(period='30d'){
+  const breakdown=getPnLBreakdown({groupBy:'mill',period});
+  return breakdown.items.map(item=>({
+    mill:item.key,
+    trades:item.trades,
+    volume:item.volume,
+    revenue:item.revenue,
+    cost:item.cost,
+    pnl:item.pnl,
+    avgMargin:item.marginPerMBF,
+    marginPct:item.marginPct
+  })).filter(m=>m.mill!=='Unknown');
+}
+
+// Global function for ai.js and other callers
+function getMillProfitability(period='30d'){
+  return _getMillProfitability(period);
 }
 
 // ============================================================================
@@ -273,6 +312,7 @@ function generateCustomerReport(period='30d'){
 
 // Generate mill activity report
 function generateMillReport(period='30d'){
+  try{
   const millProf=getMillProfitability(period);
   const cutoff=getPeriodCutoff(period);
 
@@ -304,7 +344,7 @@ function generateMillReport(period='30d'){
   });
 
   Object.entries(millData).forEach(([name,data])=>{
-    const profData=millProf.mills.find(m=>m.mill===name);
+    const profData=millProf.find(m=>m.mill===name);
     millActivity.push({
       mill:name,
       orderCount:data.orders.length,
@@ -315,7 +355,7 @@ function generateMillReport(period='30d'){
       regions:[...data.regions],
       lastOrderDate:data.lastOrder,
       daysSinceOrder:data.lastOrder?Math.floor((new Date()-new Date(data.lastOrder))/(24*60*60*1000)):null,
-      profit:profData?.profit||0,
+      profit:profData?.pnl||0,
       avgMargin:profData?.avgMargin||0
     });
   });
@@ -344,6 +384,7 @@ function generateMillReport(period='30d'){
         (millActivity.slice(0,5).reduce((s,m)=>s+m.volume,0)/millActivity.reduce((s,m)=>s+m.volume,0))*100:0
     }
   };
+  }catch(e){console.error('generateMillReport error:',e);return{type:'millReport',error:true,message:'Error generating mill report: '+e.message,generatedAt:new Date().toISOString()};}
 }
 
 // ============================================================================
@@ -352,6 +393,7 @@ function generateMillReport(period='30d'){
 
 // Generate comprehensive risk report
 function generateRiskReport(){
+  try{
   const risk=getRiskDashboard();
   const volatility=getVolatilityReport(12);
   const correlations=getCorrelationMatrix(12);
@@ -402,6 +444,7 @@ function generateRiskReport(){
     breaches:risk.breaches,
     limits:S.riskLimits
   };
+  }catch(e){console.error('generateRiskReport error:',e);return{type:'riskReport',error:true,message:'Error generating risk report: '+e.message,generatedAt:new Date().toISOString()};}
 }
 
 // ============================================================================

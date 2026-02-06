@@ -78,10 +78,12 @@ async function qbCalcFreight(origin,destination,product){
   if(typeof calcFreightPerMBF==='function'){
     freight=calcFreightPerMBF(miles,origin,isMSR);
   }else{
-    // Fallback to simple calculation
+    // Fallback: flat rate per mile, divided by ~42 pieces per TL to get per-MBF
     const rate=S.flatRate||3.50;
-    freight=miles*rate/1000*42; // Approximate MBF conversion
+    freight=miles*rate/1000*42;
   }
+
+  if(freight==null)return null;
 
   return{
     miles,
@@ -185,12 +187,13 @@ async function qbGenerateQuotes(){
     const millLoc=qbGetMillLocation(best.mill);
     const freightData=await qbCalcFreight(millLoc,destination,product);
 
-    const freight=freightData?.total||0;
-    const landed=best.price+freight;
-    const price=landed+S.qb.marginTarget;
+    const freight=freightData!=null?freightData.total:null;
+    const landed=freight!=null?best.price+freight:null;
+    const price=landed!=null?landed+S.qb.marginTarget:null;
 
     // Check staleness (>7 days old)
-    const age=Date.now()-new Date(best.date).getTime();
+    let age=Date.now()-new Date(best.date).getTime();
+    if(isNaN(age)||age<0)age=0;
     const stale=age>7*24*60*60*1000;
 
     quotes.push({
@@ -229,8 +232,11 @@ async function qbGenerateQuotes(){
 function qbAdjustPrice(product,newPrice){
   const quote=S.qb.quotes.find(q=>q.product===product);
   if(quote){
-    quote.price=parseFloat(newPrice);
+    const val=parseFloat(newPrice);
+    if(isNaN(val))return;
+    quote.price=val;
     quote.margin=quote.landed?quote.price-quote.landed:S.qb.marginTarget;
+    save();
     render();
   }
 }
@@ -239,10 +245,12 @@ function qbAdjustPrice(product,newPrice){
 function qbAdjustFreight(product,newFreight){
   const quote=S.qb.quotes.find(q=>q.product===product);
   if(quote&&quote.freightData){
-    const diff=parseFloat(newFreight)-quote.freightData.base;
-    quote.freight=parseFloat(newFreight);
+    const val=parseFloat(newFreight);
+    if(isNaN(val))return;
+    const diff=val-(quote.freightData.base||0);
+    quote.freight=val;
     quote.freightData.adjustment=diff;
-    quote.freightData.total=parseFloat(newFreight);
+    quote.freightData.total=val;
     quote.landed=quote.fob+quote.freight;
     quote.price=quote.landed+quote.margin;
 
@@ -250,6 +258,7 @@ function qbAdjustFreight(product,newFreight){
     if(!S.qb.freightAdjustments)S.qb.freightAdjustments={};
     S.qb.freightAdjustments[quote.freightData.lane]=diff;
 
+    save();
     render();
   }
 }
@@ -272,10 +281,10 @@ function qbSwitchMill(product,millName){
   quote.millLoc=millLoc;
 
   qbCalcFreight(millLoc,S.qb.destination,product).then(freightData=>{
-    quote.freight=freightData?.total||0;
+    quote.freight=freightData!=null?freightData.total:null;
     quote.freightData=freightData;
-    quote.landed=quote.fob+quote.freight;
-    quote.price=quote.landed+quote.margin;
+    quote.landed=quote.freight!=null?quote.fob+quote.freight:null;
+    quote.price=quote.landed!=null?quote.landed+quote.margin:null;
     render();
   });
 }
@@ -331,7 +340,7 @@ function qbSelectCustomer(customerName){
   S.qb.customer=customerName;
   S.qb.destination=data?.destination||'';
   S.qb.marginTarget=data?.avgMargin||25;
-  S.qb.products=data?.products?.slice(0,10)||[]; // Top 10 products
+  if(!S.qb.products?.length)S.qb.products=data?.products?.slice(0,10)||[];
   S.qb.quotes=[];
   S.qb.customerData=data;
   render();
@@ -403,11 +412,11 @@ function qbCopyForExcel(){
     lines.push([
       q.product,
       q.mill||'',
-      q.fob?'$'+q.fob.toFixed(0):'',
-      q.freight?'$'+q.freight.toFixed(0):'',
-      q.landed?'$'+q.landed.toFixed(0):'',
-      q.margin?'$'+q.margin.toFixed(0):'',
-      q.price?'$'+q.price.toFixed(0):''
+      q.fob!=null?q.fob.toFixed(0):'',
+      q.freight!=null?q.freight.toFixed(0):'',
+      q.landed!=null?q.landed.toFixed(0):'',
+      q.margin!=null?q.margin.toFixed(0):'',
+      q.price!=null?q.price.toFixed(0):''
     ].join('\t'));
   });
 
@@ -447,7 +456,7 @@ function qbSaveQuote(){
   }
 
   const savedQuote={
-    id:Date.now(),
+    id:genId(),
     customer:S.qb.customer,
     destination:S.qb.destination,
     products:S.qb.quotes.map(q=>({

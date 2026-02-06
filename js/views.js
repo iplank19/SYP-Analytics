@@ -130,11 +130,11 @@ function renderPnLCalendar(){
   const maxAbs=dayProfits.length?Math.max(...dayProfits.map(Math.abs)):1;
 
   // KPI row
-  const kpis=`<div class="kpi-grid" style="margin-bottom:16px">
-    <div class="kpi"><div class="kpi-label">MONTH P&L</div><div class="kpi-value ${monthTotal>=0?'positive':'negative'}">${fmt(Math.round(monthTotal))}</div></div>
-    <div class="kpi"><div class="kpi-label">BEST DAY</div><div class="kpi-value positive">${bestDay?fmt(Math.round(bestDay.val))+' ('+bestDay.day+')':'—'}</div></div>
-    <div class="kpi"><div class="kpi-label">WORST DAY</div><div class="kpi-value negative">${worstDay?fmt(Math.round(worstDay.val))+' ('+worstDay.day+')':'—'}</div></div>
-    <div class="kpi"><div class="kpi-label">TRADING DAYS</div><div class="kpi-value">${tradingDays}</div></div>
+  const kpis=`<div class="kpi-row" style="margin-bottom:16px">
+    <div class="kpi-card"><div class="kpi-label">MONTH P&L</div><div class="kpi-value ${monthTotal>=0?'positive':'negative'}">${fmt(Math.round(monthTotal))}</div></div>
+    <div class="kpi-card"><div class="kpi-label">BEST DAY</div><div class="kpi-value positive">${bestDay?fmt(Math.round(bestDay.val))+' ('+bestDay.day+')':'--'}</div></div>
+    <div class="kpi-card"><div class="kpi-label">WORST DAY</div><div class="kpi-value negative">${worstDay?fmt(Math.round(worstDay.val))+' ('+worstDay.day+')':'--'}</div></div>
+    <div class="kpi-card"><div class="kpi-label">TRADING DAYS</div><div class="kpi-value">${tradingDays}</div></div>
   </div>`;
 
   // Month nav
@@ -174,7 +174,7 @@ function renderPnLCalendar(){
   grid+=`</div>`;
 
   // Bar chart
-  const barChart=`<div class="card" style="margin-top:16px"><div class="card-header"><span class="card-title">DAILY P&L</span></div><div class="card-body"><div style="height:200px"><canvas id="pnl-daily-bar-chart"></canvas></div></div></div>`;
+  const barChart=`<div class="panel" style="margin-top:16px"><div class="panel-header">DAILY P&L</div><div class="panel-body"><div style="height:200px"><canvas id="pnl-daily-bar-chart"></canvas></div></div></div>`;
 
   // Day detail placeholder
   const detail=`<div id="pnl-day-detail"></div>`;
@@ -204,9 +204,9 @@ function showPnLDayDetail(dateKey){
     return;
   }
   const rows=dp.trades.map(t=>`<tr>
-    <td>${t.orderNum||'—'}</td>
-    <td class="bold">${t.customer}</td>
-    <td>${t.product}</td>
+    <td>${escapeHtml(t.orderNum||'—')}</td>
+    <td class="bold">${escapeHtml(t.customer||'')}</td>
+    <td>${escapeHtml(t.product||'')}</td>
     <td class="right">${fmtN(t.volume)} MBF</td>
     <td class="right">${fmt(t.buyPrice)}</td>
     <td class="right">${fmt(t.sellPrice)}</td>
@@ -298,23 +298,17 @@ function render(){
 
   if(S.view==='dashboard'){
     if(!a.buys.length&&!a.sells.length){
-      c.innerHTML=`<div class="empty-state" style="padding:80px"><div style="font-size:48px;margin-bottom:20px">${S.trader==='Admin'?'🔑':'📊'}</div><h2 style="margin-bottom:12px;color:var(--text)">Welcome, ${S.trader}!</h2><p style="margin-bottom:24px">${S.trader==='Admin'?'No department trades yet. Traders can add trades from their accounts.':'Start by adding your trades or importing Random Lengths data.'}</p><div style="display:flex;gap:12px;justify-content:center"><button class="btn btn-success" onclick="showBuyModal()">+ Add Buy</button><button class="btn btn-primary" onclick="showSellModal()">+ Add Sell</button><button class="btn btn-warn" onclick="go('rldata')">Import RL Data</button></div></div>`;
+      c.innerHTML=`<div class="panel"><div class="panel-body" style="padding:80px;text-align:center"><h2 style="margin-bottom:12px;color:var(--text)">Welcome, ${escapeHtml(S.trader)}!</h2><p style="margin-bottom:24px">${S.trader==='Admin'?'No department trades yet. Traders can add trades from their accounts.':'Start by adding your trades or importing Random Lengths data.'}</p><div style="display:flex;gap:12px;justify-content:center"><button class="btn btn-success" onclick="showBuyModal()">+ Add Buy</button><button class="btn btn-primary" onclick="showSellModal()">+ Add Sell</button><button class="btn btn-warn" onclick="go('rldata')">Import RL Data</button></div></div></div>`;
       return;
     }
     // --- Dashboard data prep ---
     const weeklyPerf=calcWeeklyPerformance(S.buys,S.sells);
-    const wpBuyVols=weeklyPerf.map(w=>w.buyVol);
-    const wpSellVols=weeklyPerf.map(w=>w.sellVol);
-    const wpProfits=weeklyPerf.map(w=>w.profit);
-    const wpInvDeltas=weeklyPerf.map(w=>w.buyVol-w.sellVol);
     const currWk=weeklyPerf[weeklyPerf.length-1]||{buyVol:0,sellVol:0,profit:0};
     const prevWk=weeklyPerf[weeklyPerf.length-2]||{buyVol:0,sellVol:0,profit:0};
-    function wowDelta(curr,prev){
-      if(!prev||prev===0)return '';
-      const pct=((curr-prev)/Math.abs(prev)*100);
-      const cls=pct>=0?'up':'down';
-      const arrow=pct>=0?'&#9650;':'&#9660;';
-      return '<div class="kpi-delta '+cls+'">'+arrow+' '+Math.abs(pct).toFixed(1)+'%</div>';
+    const wowDelta=(curr,prev)=>{
+      if(!prev||prev===0)return ''
+      const pct=((curr-prev)/Math.abs(prev)*100)
+      return `<div class="kpi-trend ${pct>=0?'positive':'negative'}">${pct>=0?'&#9650;':'&#9660;'} ${Math.abs(pct).toFixed(1)}% vs last week</div>`
     }
     // Stale data check
     const _now=new Date();
@@ -327,100 +321,150 @@ function render(){
     const staleBadge='<span class="stale-badge"><span class="stale-dot"></span>Data may be stale</span>';
     // Market movers
     const movers=calcMarketMovers();
-    // KPI threshold border helper
-    function kpiBorder(cond){return cond?'border-left:3px solid '+cond:'';}
-    const invBorder=a.inv<-50?'var(--negative)':Math.abs(a.inv)>25?'var(--warn)':'';
-    const marginBorder=a.margin<0?'var(--negative)':a.marginPct>10?'var(--positive)':'';
-    const profitBorder=a.profit>0?'var(--positive)':a.profit<0?'var(--negative)':'';
+    // Pending approvals count (sells without linked buy = unconfirmed)
+    const pendingApprovals=S.sells.filter(s=>!s.delivered&&!s.linkedPO&&!s.orderNum).length;
+    // Inventory aging alert
+    const agingSummary=calcAgingSummary(a.buys);
+    const hasAgingAlert=agingSummary.old>0;
+    // Today's trades
+    const todayStr=new Date().toISOString().split('T')[0];
+    const todayTrades=S.buys.filter(b=>b.date===todayStr).length+S.sells.filter(s=>s.date===todayStr).length;
 
     // --- Build dashboard sections ---
     const _sections={};
 
+    // KPI Cards Row
     _sections['kpis']=`
-      <div class="kpi-grid">
-        <div class="kpi"><div class="kpi-label">BUY VOLUME</div><div class="kpi-content"><div><span class="kpi-value">${fmtN(a.bVol)} MBF</span><span class="kpi-sub">${fmt(a.bVal)}</span>${wowDelta(currWk.buyVol,prevWk.buyVol)}</div><canvas id="spark-bvol" class="kpi-spark" width="60" height="24"></canvas></div></div>
-        <div class="kpi"><div class="kpi-label">SELL VOLUME</div><div class="kpi-content"><div><span class="kpi-value">${fmtN(a.sVol)} MBF</span><span class="kpi-sub">${fmt(a.sVal)}</span>${wowDelta(currWk.sellVol,prevWk.sellVol)}</div><canvas id="spark-svol" class="kpi-spark" width="60" height="24"></canvas></div></div>
-        <div class="kpi"><div class="kpi-label">MATCHED VOL</div><div class="kpi-content"><div><span class="kpi-value">${fmtN(a.matchedVol)} MBF</span></div><canvas id="spark-mvol" class="kpi-spark" width="60" height="24"></canvas></div></div>
-        <div class="kpi" style="${kpiBorder(invBorder)}"><div class="kpi-label">OPEN POSITION</div><div class="kpi-content"><div><span class="kpi-value ${a.inv>0?'warn':a.inv<0?'negative':''}">${fmtN(a.inv)} MBF</span><span class="kpi-sub">${a.inv>0?'long':a.inv<0?'short':'flat'}</span>${wowDelta(currWk.buyVol-currWk.sellVol,prevWk.buyVol-prevWk.sellVol)}</div><canvas id="spark-inv" class="kpi-spark" width="60" height="24"></canvas></div></div>
-        <div class="kpi" style="${kpiBorder(marginBorder)}"><div class="kpi-label">MARGIN (MATCHED)</div><div class="kpi-content"><div><span class="kpi-value ${a.margin>=0?'positive':'negative'}">${fmt(Math.round(a.margin))}</span><span class="kpi-sub">${fmtPct(a.marginPct)}</span>${wowDelta(currWk.profit,prevWk.profit)}</div><canvas id="spark-margin" class="kpi-spark" width="60" height="24"></canvas></div></div>
-        <div class="kpi" style="${kpiBorder(profitBorder)}"><div class="kpi-label">REALIZED PROFIT</div><div class="kpi-content"><div><span class="kpi-value ${a.profit>=0?'positive':'negative'}">${fmt(Math.round(a.profit))}</span>${wowDelta(currWk.profit,prevWk.profit)}</div><canvas id="spark-profit" class="kpi-spark" width="60" height="24"></canvas></div></div>
+      <div class="kpi-row">
+        <div class="kpi-card">
+          <div class="kpi-label">Total P&L (MTD)</div>
+          <div class="kpi-value ${a.profit>=0?'positive':'negative'}">${fmt(Math.round(a.profit))}</div>
+          ${wowDelta(currWk.profit,prevWk.profit)}
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-label">Open Position Exposure</div>
+          <div class="kpi-value ${a.inv>0?'warn':a.inv<0?'negative':''}">${fmt(Math.round(Math.abs(a.inv)*a.avgB))}</div>
+          <div class="kpi-trend">${fmtN(a.inv)} MBF ${a.inv>0?'long':a.inv<0?'short':'flat'}</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-label">Today's Trades</div>
+          <div class="kpi-value">${todayTrades}</div>
+          <div class="kpi-trend">Buy: ${fmtN(a.bVol)} / Sell: ${fmtN(a.sVol)} MBF</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-label">Pending Approvals</div>
+          <div class="kpi-value ${pendingApprovals>0?'warn':''}">${pendingApprovals}</div>
+          ${pendingApprovals>0?'<div class="kpi-trend warn">Unmatched sells need coverage</div>':'<div class="kpi-trend positive">All matched</div>'}
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-label">Inventory Aging Alert</div>
+          <div class="kpi-value ${hasAgingAlert?'negative':'positive'}">${hasAgingAlert?fmtN(agingSummary.old)+' MBF':'Clear'}</div>
+          ${hasAgingAlert?'<div class="kpi-trend negative">'+fmtN(agingSummary.old)+' MBF over 30 days</div>':'<div class="kpi-trend positive">No stale inventory</div>'}
+        </div>
       </div>`;
 
+    // Sparkline KPIs (preserved original)
+    _sections['spark-kpis']=`
+      <div class="kpi-row" style="margin-top:4px">
+        <div class="kpi-card" style="flex:1"><div class="kpi-label">BUY VOL</div><div style="display:flex;align-items:center;gap:8px"><span class="kpi-value" style="font-size:16px">${fmtN(a.bVol)} MBF</span><canvas id="spark-bvol" class="kpi-spark" width="60" height="24"></canvas></div></div>
+        <div class="kpi-card" style="flex:1"><div class="kpi-label">SELL VOL</div><div style="display:flex;align-items:center;gap:8px"><span class="kpi-value" style="font-size:16px">${fmtN(a.sVol)} MBF</span><canvas id="spark-svol" class="kpi-spark" width="60" height="24"></canvas></div></div>
+        <div class="kpi-card" style="flex:1"><div class="kpi-label">MATCHED</div><div style="display:flex;align-items:center;gap:8px"><span class="kpi-value" style="font-size:16px">${fmtN(a.matchedVol)} MBF</span><canvas id="spark-mvol" class="kpi-spark" width="60" height="24"></canvas></div></div>
+        <div class="kpi-card" style="flex:1"><div class="kpi-label">MARGIN</div><div style="display:flex;align-items:center;gap:8px"><span class="kpi-value ${a.margin>=0?'positive':'negative'}" style="font-size:16px">${fmt(Math.round(a.margin))}</span><canvas id="spark-margin" class="kpi-spark" width="60" height="24"></canvas></div></div>
+        <div class="kpi-card" style="flex:1"><div class="kpi-label">PROFIT</div><div style="display:flex;align-items:center;gap:8px"><span class="kpi-value ${a.profit>=0?'positive':'negative'}" style="font-size:16px">${fmt(Math.round(a.profit))}</span><canvas id="spark-profit" class="kpi-spark" width="60" height="24"></canvas></div></div>
+      </div>`;
+
+    // Second row: P&L Chart + Position Summary
+    const topProducts=calcTopProducts(a.buys,a.sells);
+    _sections['charts-position']=`
+      <div class="grid-2" style="margin-top:20px">
+        <div class="panel"><div class="panel-header">PRICE TRENDS -- 2x4#2 ${rlStale?staleBadge:''}<div class="range-selector">${['1W','1M','3M','YTD'].map(r=>'<button class="range-btn '+(S.dashChartRange===r?'active':'')+'" onclick="S.dashChartRange=\''+r+'\';SS(\'dashChartRange\',\''+r+'\');renderDashboardCharts()">'+r+'</button>').join('')}</div></div><div class="panel-body">
+          ${S.rl.length?'<div style="height:160px"><canvas id="dashboard-price-chart"></canvas></div>':'<div class="empty-state">No RL data yet</div>'}
+        </div></div>
+        <div class="panel"><div class="panel-header">POSITION SUMMARY BY PRODUCT</div><div class="panel-body" style="padding:0">
+          <table class="data-table"><thead><tr><th>Product</th><th class="right">Buy Vol</th><th class="right">Sell Vol</th><th class="right">Net</th><th class="right">Margin</th></tr></thead><tbody>
+            ${topProducts.byVolume.slice(0,6).map(p=>`<tr>
+              <td class="bold">${escapeHtml(p.product||'')}</td>
+              <td class="right">${fmtN(p.buyVol||p.volume||0)} MBF</td>
+              <td class="right">${fmtN(p.sellVol||0)} MBF</td>
+              <td class="right ${(p.buyVol||p.volume||0)-(p.sellVol||0)>0?'warn':'negative'}">${fmtN((p.buyVol||p.volume||0)-(p.sellVol||0))} MBF</td>
+              <td class="right ${(p.margin||0)>=0?'positive':'negative'} bold">${p.margin!=null?fmt(Math.round(p.margin)):''}</td>
+            </tr>`).join('')||'<tr><td colspan="5" class="empty-state">No trades</td></tr>'}
+          </tbody></table>
+        </div></div>
+      </div>`;
+
+    // Third row: Activity Feed, Top Products chart, Aging Summary
+    const topCustomers=calcTopCustomers(a.sells);
+    _sections['activity-analytics']=`
+      <div class="grid-3" style="margin-top:20px">
+        <div class="panel"><div class="panel-header">RECENT ACTIVITY ${tradeStale?staleBadge:''}</div><div class="panel-body" style="padding:0;max-height:320px;overflow-y:auto">
+          ${(()=>{
+            const feed=[
+              ...a.buys.slice(0,5).map(b=>({date:b.date,type:'buy',text:escapeHtml(b.product||'')+' @ '+fmt(b.price),sub:escapeHtml(b.mill||''),vol:fmtN(b.volume)+' MBF',shipped:b.shipped})),
+              ...a.sells.slice(0,5).map(s=>({date:s.date,type:'sell',text:escapeHtml(s.product||'')+' @ '+fmt(s.price)+' DLVD',sub:escapeHtml(s.customer||''),vol:fmtN(s.volume)+' MBF',delivered:s.delivered}))
+            ].sort((x,y)=>new Date(y.date)-new Date(x.date)).slice(0,8)
+            return feed.length?feed.map(f=>`<div class="activity-item">
+              <div><div class="activity-main">${f.text}</div><div class="activity-sub">${f.sub} -- ${fmtD(f.date)}</div></div>
+              <div class="activity-right"><div class="activity-value ${f.type==='buy'?'positive':'accent'}">${f.vol}</div>
+              <span class="status-badge status-${f.type==='buy'?(f.shipped?'shipped':'pending'):(f.delivered?'delivered':'pending')}">${f.type==='buy'?(f.shipped?'Shipped':'Pending'):(f.delivered?'Delivered':'Pending')}</span></div>
+            </div>`).join(''):'<div class="empty-state">No trades yet</div>'
+          })()}
+        </div></div>
+        <div class="panel"><div class="panel-header">TOP PRODUCTS BY VOLUME</div><div class="panel-body">
+          ${topProducts.byVolume.slice(0,5).map((p,i)=>{
+            const maxVol=topProducts.byVolume[0]?.volume||1
+            const pct=Math.max(5,(p.volume/maxVol)*100)
+            return`<div style="margin-bottom:10px"><div style="display:flex;justify-content:space-between;margin-bottom:3px;font-size:11px"><span class="bold">${escapeHtml(p.product||'')}</span><span>${fmtN(p.volume)} MBF</span></div><div class="limit-bar"><div class="limit-fill" style="width:${pct}%;background:var(--accent)"></div></div></div>`
+          }).join('')||'<div class="empty-state">No data</div>'}
+        </div></div>
+        <div class="panel"><div class="panel-header">INVENTORY AGING</div><div class="panel-body">
+          <div style="margin-bottom:12px"><div style="display:flex;justify-content:space-between;margin-bottom:4px"><span class="age-fresh" style="font-size:10px">0-7 days</span><span style="font-weight:600">${fmtN(agingSummary.fresh)} MBF</span></div><div class="limit-bar"><div class="limit-fill" style="width:${agingSummary.total?agingSummary.fresh/agingSummary.total*100:0}%;background:var(--positive)"></div></div></div>
+          <div style="margin-bottom:12px"><div style="display:flex;justify-content:space-between;margin-bottom:4px"><span class="age-week" style="font-size:10px">8-14 days</span><span style="font-weight:600">${fmtN(agingSummary.week)} MBF</span></div><div class="limit-bar"><div class="limit-fill" style="width:${agingSummary.total?agingSummary.week/agingSummary.total*100:0}%;background:var(--info)"></div></div></div>
+          <div style="margin-bottom:12px"><div style="display:flex;justify-content:space-between;margin-bottom:4px"><span class="age-old" style="font-size:10px">15-30 days</span><span style="font-weight:600">${fmtN(agingSummary.twoWeek)} MBF</span></div><div class="limit-bar"><div class="limit-fill" style="width:${agingSummary.total?agingSummary.twoWeek/agingSummary.total*100:0}%;background:var(--warn)"></div></div></div>
+          <div><div style="display:flex;justify-content:space-between;margin-bottom:4px"><span class="age-stale" style="font-size:10px">30+ days</span><span style="font-weight:600;color:var(--negative)">${fmtN(agingSummary.old)} MBF</span></div><div class="limit-bar"><div class="limit-fill" style="width:${agingSummary.total?agingSummary.old/agingSummary.total*100:0}%;background:var(--negative)"></div></div></div>
+        </div></div>
+      </div>`;
+
+    // Fourth row: Market Movers + Leaderboard
+    _sections['market-movers']=`
+      <div class="grid-2" style="margin-top:20px">
+        ${movers.length?`<div class="panel"><div class="panel-header">MARKET MOVERS <span style="font-size:9px;color:var(--muted);margin-left:8px">Week-over-Week RL Changes</span></div>
+          <div class="panel-body" style="padding:0">
+            ${movers.map(m=>'<div class="mover-item"><div><span class="mover-name">'+escapeHtml(m.product)+'</span><span class="mover-region"> ('+escapeHtml(m.region)+')</span></div><div><span class="mover-change '+(m.change>0?'positive':'negative')+'">'+(m.change>0?'&#9650;':'&#9660;')+' '+fmt(Math.abs(m.change))+'</span><span class="mover-pct '+(m.change>0?'positive':'negative')+'">'+(m.pct>0?'+':'')+m.pct.toFixed(1)+'%</span></div></div>').join('')}
+          </div></div>`:`<div class="panel"><div class="panel-header">MARKET MOVERS</div><div class="panel-body"><div class="empty-state">Need 2+ weeks of RL data</div></div></div>`}
+        <div class="panel"><div class="panel-header">TOP CUSTOMERS</div><div class="panel-body" style="padding:0">
+          ${topCustomers.slice(0,5).map((cu,i)=>'<div class="activity-item" style="padding:8px 12px"><div style="display:flex;align-items:center;gap:8px"><span style="color:'+(i===0?'gold':i===1?'silver':i===2?'#cd7f32':'var(--muted)')+';font-weight:700;width:18px">'+(i+1)+'</span><div><div style="font-weight:500">'+escapeHtml(cu.customer||'')+'</div><div style="font-size:9px;color:var(--muted)">'+cu.orders+' orders</div></div></div><div style="text-align:right"><div style="font-weight:600">'+fmtN(cu.volume)+' MBF</div><div style="font-size:9px;color:var(--positive)">'+fmt(cu.profit)+'</div></div></div>').join('')||'<div class="empty-state" style="padding:20px">No sales yet</div>'}
+        </div></div>
+      </div>`;
+
+    // Region mix & info row
     _sections['info-row']=`
-      <div class="grid-2" style="margin-bottom:20px">
-        <div class="card"><div class="card-header"><span class="card-title">POSITION vs RL</span><button class="card-expand-btn" onclick="expandCard(this)" title="Expand">&#x26F6;</button></div><div class="card-body">
+      <div class="grid-2" style="margin-top:20px">
+        <div class="panel"><div class="panel-header">POSITION vs MARKET</div><div class="panel-body">
           <div style="display:flex;justify-content:space-between;margin-bottom:12px"><span style="color:var(--muted)">Avg vs Market</span><span style="font-size:18px;font-weight:700;color:${a.avgVsRL<=0?'var(--positive)':'var(--negative)'}">${a.avgVsRL<=0?'&#9660;':'&#9650;'} ${fmt(Math.abs(a.avgVsRL))}</span></div>
           <div style="display:flex;justify-content:space-between"><span style="color:var(--muted)">Total Impact</span><span style="font-weight:600;color:${a.totVsRL<=0?'var(--positive)':'var(--negative)'}">${fmt(Math.abs(Math.round(a.totVsRL)))} ${a.totVsRL<=0?'saved':'over'}</span></div>
         </div></div>
-        <div class="card"><div class="card-header"><span class="card-title">INVENTORY</span><button class="card-expand-btn" onclick="expandCard(this)" title="Expand">&#x26F6;</button></div><div class="card-body">
-          <div style="display:flex;justify-content:space-between;margin-bottom:12px"><span style="color:var(--muted)">Open Volume</span><span style="font-size:18px;font-weight:700;color:${a.inv>0?'var(--warn)':'var(--text)'}">${fmtN(a.inv)} MBF</span></div>
-          <div style="display:flex;justify-content:space-between"><span style="color:var(--muted)">Est. Value</span><span style="font-weight:600">${fmt(Math.round(a.inv*a.avgB))}</span></div>
+        <div class="panel"><div class="panel-header">REGION MIX</div><div class="panel-body">
+          ${a.bVol?REGIONS.map(r=>{const pct=a.bVol?(a.byReg[r].vol/a.bVol*100):0;return`<div style="margin-bottom:12px"><div style="display:flex;justify-content:space-between;margin-bottom:4px"><span style="text-transform:uppercase;font-size:10px">${r}</span><span style="color:var(--muted);font-size:10px">${fmtN(a.byReg[r].vol)} MBF (${pct.toFixed(0)}%)</span></div><div class="limit-bar"><div class="limit-fill" style="width:${pct}%"></div></div></div>`}).join(''):'<div class="empty-state">No buys yet</div>'}
         </div></div>
       </div>`;
 
-    _sections['market-movers']=movers.length?`
-      <div class="card" style="margin-bottom:20px"><div class="card-header"><span class="card-title">MARKET MOVERS</span><span style="font-size:9px;color:var(--muted);margin-left:8px">Week-over-Week RL Changes</span><button class="card-expand-btn" onclick="expandCard(this)" title="Expand">&#x26F6;</button></div>
-        <div class="card-body" style="padding:0">
-          ${movers.map(m=>'<div class="mover-item"><div><span class="mover-name">'+m.product+'</span><span class="mover-region"> ('+m.region+')</span></div><div><span class="mover-change '+(m.change>0?'positive':'negative')+'">'+(m.change>0?'&#9650;':'&#9660;')+' '+fmt(Math.abs(m.change))+'</span><span class="mover-pct '+(m.change>0?'positive':'negative')+'">'+(m.pct>0?'+':'')+m.pct.toFixed(1)+'%</span></div></div>').join('')}
-        </div></div>`:'';
-
-    _sections['price-region']=`
-      <div class="grid-2-1" style="margin-bottom:20px">
-        <div class="card"><div class="card-header"><span class="card-title">PRICE TRENDS — 2x4#2</span>${rlStale?staleBadge:''}<div class="range-selector">${['1W','1M','3M','YTD'].map(r=>'<button class="range-btn '+(S.dashChartRange===r?'active':'')+'" onclick="S.dashChartRange=\''+r+'\';SS(\'dashChartRange\',\''+r+'\');renderDashboardCharts()">'+r+'</button>').join('')}</div><button class="card-expand-btn" onclick="expandCard(this)" title="Expand">&#x26F6;</button></div><div class="card-body">
-          ${S.rl.length?'<div style="height:160px"><canvas id="dashboard-price-chart"></canvas></div>':'<div class="empty-state">No RL data yet</div>'}
-        </div></div>
-        <div class="card"><div class="card-header"><span class="card-title">REGION MIX</span><button class="card-expand-btn" onclick="expandCard(this)" title="Expand">&#x26F6;</button></div><div class="card-body">
-          ${a.bVol?REGIONS.map(r=>{const pct=a.bVol?(a.byReg[r].vol/a.bVol*100):0;const col={west:'accent',central:'warn',east:'info'}[r];return'<div style="margin-bottom:16px"><div style="display:flex;justify-content:space-between;margin-bottom:4px"><span style="text-transform:uppercase;font-size:10px">'+r+'</span><span style="color:var(--muted);font-size:10px">'+fmtN(a.byReg[r].vol)+' MBF ('+pct.toFixed(0)+'%)</span></div><div class="progress-bar"><div class="progress-fill '+col+'" style="width:'+pct+'%"></div></div></div>'}).join(''):'<div class="empty-state">No buys yet</div>'}
-        </div></div>
-      </div>`;
-
-    _sections['activity']=`
-      <div class="grid-2">
-        <div class="card"><div class="card-header"><span class="card-title positive">RECENT BUYS</span>${tradeStale?staleBadge:''}<button class="card-expand-btn" onclick="expandCard(this)" title="Expand">&#x26F6;</button></div>
-          ${a.buys.length?a.buys.slice(0,5).map(b=>'<div class="activity-item"><div><div class="activity-main">'+b.product+' @ '+fmt(b.price)+'</div><div class="activity-sub">'+b.mill+' &bull; '+b.date+'</div></div><div class="activity-right"><div class="activity-value positive">'+fmtN(b.volume)+' MBF</div><span class="badge '+(b.shipped?'badge-success':'badge-pending')+'">'+(b.shipped?'Shipped':'Pending')+'</span></div></div>').join(''):'<div class="empty-state">No buys yet</div>'}
-        </div>
-        <div class="card"><div class="card-header"><span class="card-title">RECENT SELLS</span>${tradeStale?staleBadge:''}<button class="card-expand-btn" onclick="expandCard(this)" title="Expand">&#x26F6;</button></div>
-          ${a.sells.length?a.sells.slice(0,5).map(x=>'<div class="activity-item"><div><div class="activity-main">'+x.product+' @ '+fmt(x.price)+' DLVD</div><div class="activity-sub">'+x.customer+' &bull; '+x.destination+'</div></div><div class="activity-right"><div class="activity-value accent">'+fmtN(x.volume)+' MBF</div><span class="badge '+(x.delivered?'badge-success':'badge-pending')+'">'+(x.delivered?'Delivered':'Pending')+'</span></div></div>').join(''):'<div class="empty-state">No sells yet</div>'}
-        </div>
-      </div>`;
-
-    // Build advanced analytics section
-    const topProducts=calcTopProducts(a.buys,a.sells);
-    const topCustomers=calcTopCustomers(a.sells);
-    const agingSummary=calcAgingSummary(a.buys);
-
+    // Weekly performance + profitability
     _sections['advanced']=`
-      <div style="margin-top:24px;padding-top:20px;border-top:2px solid var(--border)">
-        <h3 style="color:var(--accent);margin-bottom:16px;font-size:14px">Advanced Analytics</h3>
-        <div class="grid-3" style="margin-bottom:20px">
-          <div class="card"><div class="card-header"><span class="card-title">TOP PRODUCTS (Vol)</span><button class="card-expand-btn" onclick="expandCard(this)" title="Expand">&#x26F6;</button></div><div class="card-body" style="padding:0">
-            ${topProducts.byVolume.slice(0,5).map((p,i)=>'<div class="activity-item" style="padding:8px 12px"><div style="display:flex;align-items:center;gap:8px"><span style="color:'+(i===0?'gold':i===1?'silver':i===2?'#cd7f32':'var(--muted)')+';font-weight:700;width:18px">'+(i+1)+'</span><span style="font-weight:500">'+p.product+'</span></div><span style="font-weight:600">'+fmtN(p.volume)+' MBF</span></div>').join('')||'<div class="empty-state" style="padding:20px">No data</div>'}
-          </div></div>
-          <div class="card"><div class="card-header"><span class="card-title">TOP CUSTOMERS</span><button class="card-expand-btn" onclick="expandCard(this)" title="Expand">&#x26F6;</button></div><div class="card-body" style="padding:0">
-            ${topCustomers.slice(0,5).map((c,i)=>'<div class="activity-item" style="padding:8px 12px"><div style="display:flex;align-items:center;gap:8px"><span style="color:'+(i===0?'gold':i===1?'silver':i===2?'#cd7f32':'var(--muted)')+';font-weight:700;width:18px">'+(i+1)+'</span><div><div style="font-weight:500">'+c.customer+'</div><div style="font-size:9px;color:var(--muted)">'+c.orders+' orders</div></div></div><div style="text-align:right"><div style="font-weight:600">'+fmtN(c.volume)+' MBF</div><div style="font-size:9px;color:var(--positive)">'+fmt(c.profit)+'</div></div></div>').join('')||'<div class="empty-state" style="padding:20px">No sales yet</div>'}
-          </div></div>
-          <div class="card"><div class="card-header"><span class="card-title warn">INVENTORY AGING</span><button class="card-expand-btn" onclick="expandCard(this)" title="Expand">&#x26F6;</button></div><div class="card-body">
-            <div style="margin-bottom:12px"><div style="display:flex;justify-content:space-between;margin-bottom:4px"><span style="font-size:10px;color:var(--positive)">0-7 days</span><span style="font-weight:600">${fmtN(agingSummary.fresh)} MBF</span></div><div class="progress-bar"><div class="progress-fill accent" style="width:${agingSummary.total?agingSummary.fresh/agingSummary.total*100:0}%"></div></div></div>
-            <div style="margin-bottom:12px"><div style="display:flex;justify-content:space-between;margin-bottom:4px"><span style="font-size:10px;color:var(--muted)">8-14 days</span><span style="font-weight:600">${fmtN(agingSummary.week)} MBF</span></div><div class="progress-bar"><div class="progress-fill info" style="width:${agingSummary.total?agingSummary.week/agingSummary.total*100:0}%"></div></div></div>
-            <div style="margin-bottom:12px"><div style="display:flex;justify-content:space-between;margin-bottom:4px"><span style="font-size:10px;color:var(--warn)">15-30 days</span><span style="font-weight:600">${fmtN(agingSummary.twoWeek)} MBF</span></div><div class="progress-bar"><div class="progress-fill warn" style="width:${agingSummary.total?agingSummary.twoWeek/agingSummary.total*100:0}%"></div></div></div>
-            <div><div style="display:flex;justify-content:space-between;margin-bottom:4px"><span style="font-size:10px;color:var(--negative)">30+ days</span><span style="font-weight:600;color:var(--negative)">${fmtN(agingSummary.old)} MBF</span></div><div class="progress-bar"><div class="progress-fill" style="width:${agingSummary.total?agingSummary.old/agingSummary.total*100:0}%;background:var(--negative)"></div></div></div>
-          </div></div>
-        </div>
-        <div class="card"><div class="card-header"><span class="card-title">WEEKLY PERFORMANCE (Last 8 Weeks)</span><span style="font-size:9px;color:var(--muted)">Volume & Profit Trends</span><button class="card-expand-btn" onclick="expandCard(this)" title="Expand">&#x26F6;</button></div><div class="card-body">
-          ${weeklyPerf.length?'<div style="display:flex;gap:4px;align-items:flex-end;height:140px;padding:10px 0;border-bottom:1px solid var(--border)">'+weeklyPerf.map(w=>{const maxVol=Math.max(...weeklyPerf.map(x=>x.buyVol+x.sellVol))||1;const buyH=Math.max(4,(w.buyVol/maxVol)*100);const sellH=Math.max(4,(w.sellVol/maxVol)*100);return'<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:2px"><div style="display:flex;gap:2px;align-items:flex-end;height:100px"><div style="width:14px;background:var(--positive);border-radius:2px 2px 0 0;height:'+buyH+'px" title="Buy: '+fmtN(w.buyVol)+' MBF"></div><div style="width:14px;background:var(--accent);border-radius:2px 2px 0 0;height:'+sellH+'px" title="Sell: '+fmtN(w.sellVol)+' MBF"></div></div><div style="font-size:8px;color:var(--muted);text-align:center">'+w.label+'</div><div style="font-size:9px;color:'+(w.profit>=0?'var(--positive)':'var(--negative)')+'">'+(w.profit>=0?'+':'')+Math.round(w.profit/1000)+'k</div></div>'}).join('')+'</div><div class="chart-legend" style="margin-top:8px"><div class="legend-item"><div style="width:10px;height:10px;background:var(--positive)"></div><span class="legend-text">Buys</span></div><div class="legend-item"><div style="width:10px;height:10px;background:var(--accent)"></div><span class="legend-text">Sells</span></div></div>':'<div class="empty-state">Not enough data for weekly trends</div>'}
-        </div></div>
-        <div class="grid-2" style="margin-top:16px">
-          <div class="card"><div class="card-header"><span class="card-title positive">MOST PROFITABLE PRODUCTS</span><button class="card-expand-btn" onclick="expandCard(this)" title="Expand">&#x26F6;</button></div><div style="overflow-x:auto"><table style="font-size:11px"><thead><tr><th>Product</th><th class="right">Margin</th><th class="right">Volume</th><th class="right">Profit</th></tr></thead><tbody>
-            ${topProducts.byProfit.slice(0,5).map(p=>'<tr><td class="bold">'+p.product+'</td><td class="right '+(p.margin>=0?'positive':'negative')+'">'+fmt(Math.round(p.margin))+'/MBF</td><td class="right">'+fmtN(p.volume)+' MBF</td><td class="right '+(p.profit>=0?'positive':'negative')+' bold">'+fmt(Math.round(p.profit))+'</td></tr>').join('')||'<tr><td colspan="4" class="empty-state">No matched trades</td></tr>'}
-          </tbody></table></div></div>
-          <div class="card"><div class="card-header"><span class="card-title negative">LEAST PROFITABLE PRODUCTS</span><button class="card-expand-btn" onclick="expandCard(this)" title="Expand">&#x26F6;</button></div><div style="overflow-x:auto"><table style="font-size:11px"><thead><tr><th>Product</th><th class="right">Margin</th><th class="right">Volume</th><th class="right">Profit</th></tr></thead><tbody>
-            ${topProducts.byProfit.slice(-5).reverse().filter(p=>p.profit<topProducts.byProfit[0]?.profit).map(p=>'<tr><td class="bold">'+p.product+'</td><td class="right '+(p.margin>=0?'positive':'negative')+'">'+fmt(Math.round(p.margin))+'/MBF</td><td class="right">'+fmtN(p.volume)+' MBF</td><td class="right '+(p.profit>=0?'positive':'negative')+' bold">'+fmt(Math.round(p.profit))+'</td></tr>').join('')||'<tr><td colspan="4" class="empty-state">All products profitable!</td></tr>'}
-          </tbody></table></div></div>
-        </div>
+      <div class="panel" style="margin-top:20px"><div class="panel-header">WEEKLY PERFORMANCE (Last 8 Weeks)</div><div class="panel-body">
+        ${weeklyPerf.length?'<div style="display:flex;gap:4px;align-items:flex-end;height:140px;padding:10px 0;border-bottom:1px solid var(--border)">'+weeklyPerf.map(w=>{const maxVol=Math.max(...weeklyPerf.map(x=>x.buyVol+x.sellVol))||1;const buyH=Math.max(4,(w.buyVol/maxVol)*100);const sellH=Math.max(4,(w.sellVol/maxVol)*100);return'<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:2px"><div style="display:flex;gap:2px;align-items:flex-end;height:100px"><div style="width:14px;background:var(--positive);border-radius:2px 2px 0 0;height:'+buyH+'px" title="Buy: '+fmtN(w.buyVol)+' MBF"></div><div style="width:14px;background:var(--accent);border-radius:2px 2px 0 0;height:'+sellH+'px" title="Sell: '+fmtN(w.sellVol)+' MBF"></div></div><div style="font-size:8px;color:var(--muted);text-align:center">'+w.label+'</div><div style="font-size:9px;color:'+(w.profit>=0?'var(--positive)':'var(--negative)')+'">'+(w.profit>=0?'+':'')+Math.round(w.profit/1000)+'k</div></div>'}).join('')+'</div><div class="chart-legend" style="margin-top:8px"><div class="legend-item"><div style="width:10px;height:10px;background:var(--positive)"></div><span class="legend-text">Buys</span></div><div class="legend-item"><div style="width:10px;height:10px;background:var(--accent)"></div><span class="legend-text">Sells</span></div></div>':'<div class="empty-state">Not enough data for weekly trends</div>'}
+      </div></div>
+      <div class="grid-2" style="margin-top:16px">
+        <div class="panel"><div class="panel-header">MOST PROFITABLE PRODUCTS</div><div class="panel-body" style="padding:0"><table class="data-table"><thead><tr><th>Product</th><th class="right">Margin</th><th class="right">Volume</th><th class="right">Profit</th></tr></thead><tbody>
+          ${topProducts.byProfit.slice(0,5).map(p=>'<tr><td class="bold">'+escapeHtml(p.product||'')+'</td><td class="right '+(p.margin>=0?'positive':'negative')+'">'+fmt(Math.round(p.margin))+'/MBF</td><td class="right">'+fmtN(p.volume)+' MBF</td><td class="right '+(p.profit>=0?'positive':'negative')+' bold">'+fmt(Math.round(p.profit))+'</td></tr>').join('')||'<tr><td colspan="4" class="empty-state">No matched trades</td></tr>'}
+        </tbody></table></div></div>
+        <div class="panel"><div class="panel-header">LEAST PROFITABLE PRODUCTS</div><div class="panel-body" style="padding:0"><table class="data-table"><thead><tr><th>Product</th><th class="right">Margin</th><th class="right">Volume</th><th class="right">Profit</th></tr></thead><tbody>
+          ${topProducts.byProfit.slice(-5).reverse().filter(p=>p.profit<topProducts.byProfit[0]?.profit).map(p=>'<tr><td class="bold">'+escapeHtml(p.product||'')+'</td><td class="right '+(p.margin>=0?'positive':'negative')+'">'+fmt(Math.round(p.margin))+'/MBF</td><td class="right">'+fmtN(p.volume)+' MBF</td><td class="right '+(p.profit>=0?'positive':'negative')+' bold">'+fmt(Math.round(p.profit))+'</td></tr>').join('')||'<tr><td colspan="4" class="empty-state">All products profitable!</td></tr>'}
+        </tbody></table></div></div>
       </div>`;
 
     // --- Assemble dashboard in saved order with drag-to-reorder ---
-    const _defaultOrder=['kpis','info-row','market-movers','price-region','activity','advanced'];
+    const _defaultOrder=['kpis','spark-kpis','charts-position','activity-analytics','market-movers','info-row','advanced'];
     const _order=(S.dashboardOrder||_defaultOrder).filter(id=>_sections[id]!==undefined&&_sections[id]!=='');
     // Add any missing sections
     _defaultOrder.forEach(id=>{if(!_order.includes(id)&&_sections[id])_order.push(id);});
@@ -552,7 +596,7 @@ function render(){
                 <div style="display:flex;align-items:center;gap:12px">
                   <span style="font-size:16px;font-weight:700;color:${i===0?'gold':i===1?'silver':i===2?'#cd7f32':'var(--muted)'};width:24px">${i+1}</span>
                   <div>
-                    <div style="font-weight:600">${t.name}${t.name===S.trader?' ⭐':''}</div>
+                    <div style="font-weight:600">${escapeHtml(t.name)}${t.name===S.trader?' ⭐':''}</div>
                     <div style="font-size:10px;color:var(--muted)">B:${fmtN(t.buyVol)} S:${fmtN(t.sellVol)}</div>
                   </div>
                 </div>
@@ -569,7 +613,7 @@ function render(){
                 <div style="display:flex;align-items:center;gap:12px">
                   <span style="font-size:16px;font-weight:700;color:${i===0?'gold':i===1?'silver':i===2?'#cd7f32':'var(--muted)'};width:24px">${i+1}</span>
                   <div>
-                    <div style="font-weight:600">${t.name}${t.name===S.trader?' ⭐':''}</div>
+                    <div style="font-weight:600">${escapeHtml(t.name)}${t.name===S.trader?' ⭐':''}</div>
                     <div style="font-size:10px;color:var(--muted)">${fmt(t.margin)}/MBF on ${fmtN(t.matchedVol)} MBF</div>
                   </div>
                 </div>
@@ -599,7 +643,7 @@ function render(){
             <tbody>
               ${traderStats.map(t=>`
                 <tr style="border-left:3px solid ${traderColor(t.name)}${t.name===S.trader?';background:var(--panel-alt)':''}">
-                  <td class="bold">${t.name}${t.name===S.trader?' (you)':''}</td>
+                  <td class="bold">${escapeHtml(t.name)}${t.name===S.trader?' (you)':''}</td>
                   <td class="right">${fmtN(t.buyVol)} <span style="color:var(--muted);font-size:9px">MBF</span></td>
                   <td class="right">${fmtN(t.sellVol)} <span style="color:var(--muted);font-size:9px">MBF</span></td>
                   <td class="right">${t.matchedSells>0?`${t.matchedSells} <span style="color:var(--muted);font-size:9px">(${fmtN(t.matchedVol)} MBF)</span>`:'—'}</td>
@@ -678,8 +722,8 @@ function render(){
                 <div style="padding:8px 12px;background:var(--panel-alt);border:1px solid var(--border);border-radius:4px;display:flex;align-items:center;gap:8px">
                   <span style="font-size:18px">${a.icon}</span>
                   <div>
-                    <div style="font-size:11px;font-weight:600">${a.name}</div>
-                    <div style="font-size:9px;color:${traderColor(a.trader)}">${a.trader}</div>
+                    <div style="font-size:11px;font-weight:600">${escapeHtml(a.name)}</div>
+                    <div style="font-size:9px;color:${traderColor(a.trader)}">${escapeHtml(a.trader)}</div>
                   </div>
                 </div>
               `).join('')}
@@ -1014,55 +1058,76 @@ function render(){
       }
     });
     
+    // Calculate summary stats for footer
+    const buyTotalVol=filteredBuys.reduce((s,b)=>s+(b.volume||0),0)
+    const sellTotalVol=filteredSells.reduce((s,x)=>s+(x.volume||0),0)
+    const sellTotalProfit=filteredSells.reduce((s,x)=>{
+      const ord=String(x.orderNum||x.linkedPO||x.oc||'').trim()
+      const buy=ord?buyByOrder[ord]:null
+      if(!buy)return s
+      const sellFrtPerMBF=x.volume>0?(x.freight||0)/x.volume:0
+      const fob=(x.price||0)-sellFrtPerMBF
+      return s+(fob-buy.price)*(x.volume||0)
+    },0)
+    const avgMarginAll=sellTotalVol>0?sellTotalProfit/sellTotalVol:0
+    // Age class helper
+    const ageClass=d=>{if(!d)return'';const days=Math.floor((new Date()-new Date(d))/(1000*60*60*24));return days>30?'age-stale':days>14?'age-old':days>7?'age-week':'age-fresh'}
+    // Trade status helper
+    const tradeStatus=t=>{if(t.status==='cancelled')return'cancelled';if(t.delivered||t.shipped)return t.delivered?'delivered':'shipped';return t.linkedPO||t.orderNum?'approved':'pending'}
+
     c.innerHTML=`
-      <div style="margin-bottom:12px;padding:8px 12px;background:var(--panel);border-left:3px solid ${traderColor(S.trader)};font-size:12px;display:flex;justify-content:space-between;align-items:center">
-        <div><strong>${S.trader==='Admin'?'🔑 All Traders':S.trader+"'s Trade Blotter"}</strong> <span style="color:var(--muted)">— ${filteredBuys.length} buys, ${filteredSells.length} sells</span></div>
+      <div class="panel" style="margin-bottom:12px"><div class="panel-header" style="border-left:3px solid ${traderColor(S.trader)}">
+        <div><strong>${S.trader==='Admin'?'All Traders':escapeHtml(S.trader)+"'s Trade Blotter"}</strong> <span style="color:var(--muted)"> -- ${filteredBuys.length} buys, ${filteredSells.length} sells</span></div>
         <div style="display:flex;align-items:center;gap:8px">
-          ${S.trader==='Admin'?'<button class="btn btn-default btn-sm" onclick="showImportModal()">📥 Import CSV</button>':''}
+          ${S.trader==='Admin'?'<button class="btn btn-default btn-sm" onclick="showImportModal()">Import CSV</button>':''}
+          <button class="btn btn-info btn-sm" onclick="expCSV('buys')">Export CSV</button>
           <button class="btn btn-info btn-sm" onclick="exportPDF()">Export PDF</button>
-          ${S.trader!=='Admin'?`<span style="font-size:10px;color:var(--muted)">📊 See Risk & Leaderboard for dept-wide data</span>`:''}
         </div>
-      </div>
-      <div class="card" style="margin-bottom:16px;padding:12px">
+      </div></div>
+      <div class="panel" style="margin-bottom:16px"><div class="panel-body">
         <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center">
-          <div style="position:relative;flex:0 0 200px">
-            <input type="text" id="blotter-search" placeholder="Search orders, mills, customers..." value="${bf.search||''}" onkeyup="handleBlotterSearch(event)" style="width:100%;padding:6px 10px 6px 28px;font-size:11px;background:var(--bg);border:1px solid var(--border);color:var(--text)">
-            <span style="position:absolute;left:8px;top:50%;transform:translateY(-50%);color:var(--muted);font-size:12px">🔍</span>
+          <div style="position:relative;flex:0 0 220px">
+            <input type="text" id="blotter-search" placeholder="Search orders, mills, customers..." value="${escapeHtml(bf.search||'')}" onkeyup="handleBlotterSearch(event)" style="width:100%;padding:6px 10px 6px 28px;font-size:11px;background:var(--bg);border:1px solid var(--border);color:var(--text)">
+            <span style="position:absolute;left:8px;top:50%;transform:translateY(-50%);color:var(--muted);font-size:12px">&#128269;</span>
           </div>
-          <span style="color:var(--muted);font-size:11px">|</span>
           <select onchange="setBlotterFilter('mill',this.value)" style="font-size:11px;padding:4px">
-            <option value="">All Mills</option>${mills.map(m=>`<option value="${m}" ${bf.mill===m?'selected':''}>${m}</option>`).join('')}
+            <option value="">All Mills</option>${mills.map(m=>`<option value="${escapeHtml(m)}" ${bf.mill===m?'selected':''}>${escapeHtml(m)}</option>`).join('')}
           </select>
           <select onchange="setBlotterFilter('customer',this.value)" style="font-size:11px;padding:4px">
-            <option value="">All Customers</option>${customers.map(c=>`<option value="${c}" ${bf.customer===c?'selected':''}>${c}</option>`).join('')}
+            <option value="">All Customers</option>${customers.map(cu=>`<option value="${escapeHtml(cu)}" ${bf.customer===cu?'selected':''}>${escapeHtml(cu)}</option>`).join('')}
           </select>
           <select onchange="setBlotterFilter('product',this.value)" style="font-size:11px;padding:4px">
-            <option value="">All Products</option>${products.map(p=>`<option value="${p}" ${bf.product===p?'selected':''}>${p}</option>`).join('')}
+            <option value="">All Products</option>${products.map(p=>`<option value="${escapeHtml(p)}" ${bf.product===p?'selected':''}>${escapeHtml(p)}</option>`).join('')}
           </select>
           <label style="font-size:11px"><input type="checkbox" ${bf.showShorts?'checked':''} onchange="setBlotterFilter('showShorts',this.checked)"> Shorts only</label>
           <label style="font-size:11px;color:var(--warn)"><input type="checkbox" ${bf.noOrderNum?'checked':''} onchange="setBlotterFilter('noOrderNum',this.checked)"> No Order #</label>
           <button class="btn btn-default btn-sm" onclick="clearBlotterFilters()">Clear</button>
         </div>
+      </div></div>
+      <div class="panel"><div class="panel-header"><span>${S.trader==='Admin'?'ALL BUYS':'MY BUYS'}</span><span style="color:var(--muted);font-size:10px;margin-left:8px">${filteredBuys.length} trades</span></div>
+        <div class="panel-body" style="padding:0;overflow-x:auto"><table class="data-table"><thead><tr>${S.trader==='Admin'?'<th>Trader</th>':''}<th class="sortable" onclick="toggleSort('orderNum')">Order # ${sortIcon('orderNum')}</th><th class="sortable" onclick="toggleSort('date')">Date ${sortIcon('date')}</th><th>Status</th><th class="right">Age</th><th class="sortable" onclick="toggleSort('mill')">Mill ${sortIcon('mill')}</th><th>Origin</th><th>Reg</th><th class="sortable" onclick="toggleSort('product')">Product ${sortIcon('product')}</th><th>Len</th><th class="right sortable" onclick="toggleSort('price')">Price ${sortIcon('price')}</th><th class="right">Frt</th><th class="right sortable" onclick="toggleSort('volume')">Vol ${sortIcon('volume')}</th><th class="right">Sold</th><th class="right">Avail</th><th></th></tr></thead><tbody>
+          ${filteredBuys.length?filteredBuys.map(b=>{const ord=String(b.orderNum||b.po||'').trim();const sold=orderSold[ord]||0;const avail=(b.volume||0)-sold;const age=calcAge(b.date);const ageCls=ageClass(b.date);const linkedSells=ord?sellByOrder[ord]||[]:[];const coworkerSells=linkedSells.filter(s=>s.trader&&s.trader!==b.trader);const isCancelled=b.status==='cancelled';const st=tradeStatus(b);return`<tr class="${isCancelled?'cancelled-row':''}">${S.trader==='Admin'?`<td><span style="display:inline-block;width:20px;height:20px;border-radius:50%;background:${traderColor(b.trader||'Ian P')};color:var(--bg);font-size:10px;font-weight:700;text-align:center;line-height:20px" title="${escapeHtml(b.trader||'Ian P')}">${traderInitial(b.trader||'Ian P')}</span></td>`:''}<td class="bold accent">${escapeHtml(ord)||'--'}${coworkerSells.length?` <span style="font-size:9px;color:var(--info)" title="Sold by: ${escapeHtml(coworkerSells.map(s=>s.trader).join(', '))}">->${coworkerSells.map(s=>traderInitial(s.trader)).join(',')}</span>`:''}</td><td>${fmtD(b.date)}</td><td><span class="status-badge status-${st}">${st}</span></td><td class="right ${ageCls}" title="${age} days old">${age}d</td><td>${escapeHtml(b.mill)||'--'}</td><td>${escapeHtml(b.origin)||'--'}</td><td style="text-transform:capitalize">${escapeHtml(b.region)}</td><td class="bold">${escapeHtml(b.product)}${b.msrPremium?' <span style="color:var(--accent);font-size:9px">+'+b.msrPremium+'</span>':''}</td><td>${b.length||'RL'}${b.tally?' <span style="color:var(--warn);font-size:9px">T</span>':''}</td><td class="right positive editable" ondblclick="editCell(this,'price','buy-${b.id}')">${fmt(b.price)}${b.freight?' <span style="color:var(--muted);font-size:9px">FOB</span>':''}</td><td class="right ${b.freight?'warn':''}">${b.freight?fmt(b.freight):'--'}</td><td class="right editable" ondblclick="editCell(this,'volume','buy-${b.id}')">${fmtN(b.volume)}</td><td class="right ${sold>0?'warn':''}">${fmtN(sold)}</td><td class="right ${avail>0?'positive':''}">${fmtN(avail)}</td><td><div class="action-buttons"><button class="btn btn-default btn-sm" onclick="editBuy(${b.id})">Edit</button><button class="btn btn-default btn-sm" onclick="dupBuy(${b.id})">&#x29C9;</button><button class="btn btn-default btn-sm" onclick="cancelBuy(${b.id})" title="${b.status==='cancelled'?'Reactivate':'Cancel'}">${b.status==='cancelled'?'&#x21A9;':'&#x2298;'}</button><button class="btn btn-danger btn-sm" onclick="delBuy(${b.id})">x</button></div></td></tr>`}).join(''):`<tr><td colspan="${S.trader==='Admin'?16:15}" class="empty-state">No buys</td></tr>`}
+        </tbody></table></div>
+        <div class="panel-footer"><span>Total Volume: <strong>${fmtN(buyTotalVol)} MBF</strong></span><span>Avg Price: <strong>${buyTotalVol>0?fmt(Math.round(filteredBuys.reduce((s,b)=>s+(b.price||0)*(b.volume||0),0)/buyTotalVol)):'--'}</strong></span><span>${filteredBuys.length} trades</span></div>
       </div>
-      <div class="card"><div class="card-header"><span class="card-title positive">${S.trader==='Admin'?'ALL BUYS':'MY BUYS'}</span><span style="color:var(--muted);font-size:10px;margin-left:8px">${filteredBuys.length} trades</span><button class="btn btn-default btn-sm" onclick="expCSV('buys')">Export CSV</button></div>
-        <div style="overflow-x:auto"><table><thead><tr>${S.trader==='Admin'?'<th>👤</th>':''}<th ${sortClick('orderNum')}>Order # ${sortIcon('orderNum')}</th><th ${sortClick('date')}>Date ${sortIcon('date')}</th><th class="right" title="Days since purchase">Age</th><th ${sortClick('mill')}>Mill ${sortIcon('mill')}</th><th>Origin</th><th>Reg</th><th ${sortClick('product')}>Product ${sortIcon('product')}</th><th>Len</th><th class="right" ${sortClick('price')}>Price ${sortIcon('price')}</th><th class="right">Frt</th><th class="right" ${sortClick('volume')}>Vol ${sortIcon('volume')}</th><th class="right">Sold</th><th class="right">Avail</th><th></th></tr></thead><tbody>
-          ${filteredBuys.length?filteredBuys.map(b=>{const ord=String(b.orderNum||b.po||'').trim();const sold=orderSold[ord]||0;const avail=(b.volume||0)-sold;const buyFrtMBF=b.volume>0?(b.freight||0)/b.volume:0;const age=calcAge(b.date);const ageColor=age>30?'var(--negative)':age>14?'var(--warn)':'var(--muted)';const linkedSells=ord?sellByOrder[ord]||[]:[];const coworkerSells=linkedSells.filter(s=>s.trader&&s.trader!==b.trader);const isCancelled=b.status==='cancelled';return`<tr style="${isCancelled?'opacity:0.4;text-decoration:line-through':''}">${S.trader==='Admin'?`<td><span style="display:inline-block;width:20px;height:20px;border-radius:50%;background:${traderColor(b.trader||'Ian P')};color:var(--bg);font-size:10px;font-weight:700;text-align:center;line-height:20px" title="${b.trader||'Ian P'}">${traderInitial(b.trader||'Ian P')}</span></td>`:''}<td class="bold accent">${ord||'—'}${coworkerSells.length?` <span style="font-size:9px;color:var(--info)" title="Sold by: ${coworkerSells.map(s=>s.trader).join(', ')}">→${coworkerSells.map(s=>traderInitial(s.trader)).join(',')}</span>`:''}</td><td>${fmtD(b.date)}</td><td class="right" style="color:${ageColor};font-size:10px" title="${age} days old">${age}d</td><td>${b.mill||'—'}</td><td>${b.origin||'—'}</td><td style="text-transform:capitalize">${b.region}</td><td class="bold">${b.product}${b.msrPremium?' <span style="color:var(--accent);font-size:9px">+'+b.msrPremium+'</span>':''}</td><td>${b.length||'RL'}${b.tally?' <span style="color:var(--warn);font-size:9px">T</span>':''}</td><td class="right positive">${fmt(b.price)}${b.freight?' <span style="color:var(--muted);font-size:9px">FOB</span>':''}</td><td class="right ${b.freight?'warn':''}">${b.freight?fmt(b.freight):'—'}</td><td class="right">${fmtN(b.volume)}</td><td class="right ${sold>0?'warn':''}">${fmtN(sold)}</td><td class="right ${avail>0?'positive':''}">${fmtN(avail)}</td><td><div class="action-buttons"><button class="btn btn-default btn-sm" onclick="editBuy(${b.id})">Edit</button><button class="btn btn-default btn-sm" onclick="dupBuy(${b.id})">⧉</button><button class="btn btn-default btn-sm" onclick="cancelBuy(${b.id})" title="${b.status==='cancelled'?'Reactivate':'Cancel'}">${b.status==='cancelled'?'↩':'⊘'}</button><button class="btn btn-danger btn-sm" onclick="delBuy(${b.id})">×</button></div></td></tr>`}).join(''):`<tr><td colspan="${S.trader==='Admin'?15:14}" class="empty-state">No buys</td></tr>`}
-        </tbody></table></div></div>
-      <div class="card"><div class="card-header"><span class="card-title">${S.trader==='Admin'?'ALL SELLS':'MY SELLS'}</span><span style="color:var(--muted);font-size:10px;margin-left:8px">${filteredSells.length} trades</span><button class="btn btn-default btn-sm" onclick="expCSV('sells')">Export CSV</button></div>
-        <div style="overflow-x:auto"><table><thead><tr>${S.trader==='Admin'?'<th>👤</th>':''}<th ${sortClick('orderNum')}>Order # ${sortIcon('orderNum')}</th><th ${sortClick('date')}>Date ${sortIcon('date')}</th><th ${sortClick('customer')}>Customer ${sortIcon('customer')}</th><th>Dest</th><th ${sortClick('product')}>Product ${sortIcon('product')}</th><th>Len</th><th class="right" ${sortClick('price')}>DLVD ${sortIcon('price')}</th><th class="right">Frt</th><th class="right">Frt/MBF</th><th class="right">Margin</th><th class="right" ${sortClick('volume')}>Vol ${sortIcon('volume')}</th><th class="right">Profit</th><th></th></tr></thead><tbody>
+      <div class="panel" style="margin-top:16px"><div class="panel-header"><span>${S.trader==='Admin'?'ALL SELLS':'MY SELLS'}</span><span style="color:var(--muted);font-size:10px;margin-left:8px">${filteredSells.length} trades</span></div>
+        <div class="panel-body" style="padding:0;overflow-x:auto"><table class="data-table"><thead><tr>${S.trader==='Admin'?'<th>Trader</th>':''}<th class="sortable" onclick="toggleSort('orderNum')">Order # ${sortIcon('orderNum')}</th><th class="sortable" onclick="toggleSort('date')">Date ${sortIcon('date')}</th><th>Status</th><th class="sortable" onclick="toggleSort('customer')">Customer ${sortIcon('customer')}</th><th>Dest</th><th class="sortable" onclick="toggleSort('product')">Product ${sortIcon('product')}</th><th>Len</th><th class="right sortable" onclick="toggleSort('price')">DLVD ${sortIcon('price')}</th><th class="right">Frt</th><th class="right">Frt/MBF</th><th class="right">Margin</th><th class="right sortable" onclick="toggleSort('volume')">Vol ${sortIcon('volume')}</th><th class="right">Profit</th><th>Matched</th><th></th></tr></thead><tbody>
           ${filteredSells.length?filteredSells.map(x=>{
-            const ord=String(x.orderNum||x.linkedPO||x.oc||'').trim();
-            const buy=ord?buyByOrder[ord]:null;
-            const buyCost=buy?.price||0;
-            const sellFrtPerMBF=x.volume>0?(x.freight||0)/x.volume:0;
-            const fob=(x.price||0)-sellFrtPerMBF;
-            const margin=buy?fob-buyCost:null;
-            const profit=margin!==null?margin*(x.volume||0):null;
-            const isShort=!buy;
-            const crossTrader=buy&&buy.trader!==x.trader;
-            const isCancelled=x.status==='cancelled';
-            return`<tr style="${isCancelled?'opacity:0.4;text-decoration:line-through':''}">${S.trader==='Admin'?`<td><span style="display:inline-block;width:20px;height:20px;border-radius:50%;background:${traderColor(x.trader||'Ian P')};color:var(--bg);font-size:10px;font-weight:700;text-align:center;line-height:20px" title="${x.trader||'Ian P'}">${traderInitial(x.trader||'Ian P')}</span></td>`:''}<td class="bold ${isShort?'negative':'accent'}">${ord||'—'}${isShort?' <span style="font-size:9px">(SHORT)</span>':''}${crossTrader?` <span style="font-size:9px;color:${traderColor(buy.trader)}" title="Sourced from ${buy.trader}">←${traderInitial(buy.trader)}</span>`:''}</td><td>${fmtD(x.date)}</td><td>${x.customer||'—'}</td><td>${x.destination||'—'}</td><td class="bold">${x.product}${x.msrPremium?' <span style="color:var(--accent);font-size:9px">+'+x.msrPremium+'</span>':''}</td><td>${x.length||'RL'}${x.tally?' <span style="color:var(--warn);font-size:9px">T</span>':''}</td><td class="right accent">${fmt(x.price)}</td><td class="right warn">${fmt(x.freight)}</td><td class="right" style="color:var(--muted)">${fmt(Math.round(sellFrtPerMBF))}</td><td class="right ${margin===null?'':margin>=0?'positive':'negative'} bold">${margin!==null?fmt(Math.round(margin)):'—'}</td><td class="right">${fmtN(x.volume)}</td><td class="right ${profit===null?'':profit>=0?'positive':'negative'} bold">${profit!==null?fmt(Math.round(profit)):'—'}</td><td><div class="action-buttons"><button class="btn btn-default btn-sm" onclick="editSell(${x.id})">Edit</button><button class="btn btn-default btn-sm" onclick="dupSell(${x.id})">⧉</button><button class="btn btn-default btn-sm" onclick="cancelSell(${x.id})" title="${x.status==='cancelled'?'Reactivate':'Cancel'}">${x.status==='cancelled'?'↩':'⊘'}</button><button class="btn btn-danger btn-sm" onclick="delSell(${x.id})">×</button></div></td></tr>`}).join(''):`<tr><td colspan="${S.trader==='Admin'?14:13}" class="empty-state">No sells</td></tr>`}
-        </tbody></table></div></div>`;
+            const ord=String(x.orderNum||x.linkedPO||x.oc||'').trim()
+            const buy=ord?buyByOrder[ord]:null
+            const buyCost=buy?.price||0
+            const sellFrtPerMBF=x.volume>0?(x.freight||0)/x.volume:0
+            const fob=(x.price||0)-sellFrtPerMBF
+            const margin=buy?fob-buyCost:null
+            const profit=margin!==null?margin*(x.volume||0):null
+            const isShort=!buy
+            const crossTrader=buy&&buy.trader!==x.trader
+            const isCancelled=x.status==='cancelled'
+            const st=tradeStatus(x)
+            return`<tr class="${isCancelled?'cancelled-row':''}">${S.trader==='Admin'?`<td><span style="display:inline-block;width:20px;height:20px;border-radius:50%;background:${traderColor(x.trader||'Ian P')};color:var(--bg);font-size:10px;font-weight:700;text-align:center;line-height:20px" title="${escapeHtml(x.trader||'Ian P')}">${traderInitial(x.trader||'Ian P')}</span></td>`:''}<td class="bold ${isShort?'negative':'accent'}">${escapeHtml(ord)||'--'}${isShort?' <span class="status-badge status-draft">SHORT</span>':''}${crossTrader?` <span style="font-size:9px;color:${traderColor(buy.trader)}" title="Sourced from ${escapeHtml(buy.trader)}"><-${traderInitial(buy.trader)}</span>`:''}</td><td>${fmtD(x.date)}</td><td><span class="status-badge status-${st}">${st}</span></td><td>${escapeHtml(x.customer)||'--'}</td><td>${escapeHtml(x.destination)||'--'}</td><td class="bold">${escapeHtml(x.product)}${x.msrPremium?' <span style="color:var(--accent);font-size:9px">+'+x.msrPremium+'</span>':''}</td><td>${x.length||'RL'}${x.tally?' <span style="color:var(--warn);font-size:9px">T</span>':''}</td><td class="right accent editable" ondblclick="editCell(this,'price','sell-${x.id}')">${fmt(x.price)}</td><td class="right warn">${fmt(x.freight)}</td><td class="right" style="color:var(--muted)">${fmt(Math.round(sellFrtPerMBF))}</td><td class="right ${margin===null?'':margin>=0?'positive':'negative'} bold">${margin!==null?fmt(Math.round(margin)):'--'}</td><td class="right editable" ondblclick="editCell(this,'volume','sell-${x.id}')">${fmtN(x.volume)}</td><td class="right ${profit===null?'':profit>=0?'positive':'negative'} bold">${profit!==null?fmt(Math.round(profit)):'--'}</td><td style="text-align:center">${buy?'<span style="color:var(--positive)" title="Matched to '+escapeHtml(ord)+'">&#10003;</span>':'<span style="color:var(--negative)">&#10007;</span>'}</td><td><div class="action-buttons"><button class="btn btn-default btn-sm" onclick="editSell(${x.id})">Edit</button><button class="btn btn-default btn-sm" onclick="dupSell(${x.id})">&#x29C9;</button><button class="btn btn-default btn-sm" onclick="cancelSell(${x.id})" title="${x.status==='cancelled'?'Reactivate':'Cancel'}">${x.status==='cancelled'?'&#x21A9;':'&#x2298;'}</button><button class="btn btn-danger btn-sm" onclick="delSell(${x.id})">x</button></div></td></tr>`}).join(''):`<tr><td colspan="${S.trader==='Admin'?16:15}" class="empty-state">No sells</td></tr>`}
+        </tbody></table></div>
+        <div class="panel-footer"><span>Total Volume: <strong>${fmtN(sellTotalVol)} MBF</strong></span><span>Total P&L: <strong class="${sellTotalProfit>=0?'positive':'negative'}">${fmt(Math.round(sellTotalProfit))}</strong></span><span>Avg Margin: <strong class="${avgMarginAll>=0?'positive':'negative'}">${fmt(Math.round(avgMarginAll))}/MBF</strong></span><span>${filteredSells.length} trades</span></div>
+      </div>`;
   }
   else if(S.view==='benchmark'){
     // Filter out MSR/2400 from market comparison (they're premiums)
@@ -1183,8 +1248,8 @@ function render(){
             ${bestBuys.length?bestBuys.map(b=>`
               <div class="activity-item">
                 <div>
-                  <div class="activity-main">${typeof formatProductLabel==='function'?formatProductLabel(b.product,b.length):b.product+' '+(b.length||'RL')}</div>
-                  <div class="activity-sub">${b.mill||'—'} • ${fmtD(b.date)}</div>
+                  <div class="activity-main">${typeof formatProductLabel==='function'?formatProductLabel(b.product,b.length):escapeHtml(b.product)+' '+(escapeHtml(b.length)||'RL')}</div>
+                  <div class="activity-sub">${escapeHtml(b.mill)||'—'} • ${fmtD(b.date)}</div>
                 </div>
                 <div class="activity-right">
                   <div class="activity-value positive">▼ ${fmt(Math.abs(b.diff))}</div>
@@ -1200,8 +1265,8 @@ function render(){
             ${worstBuys.filter(b=>b.diff>0).length?worstBuys.filter(b=>b.diff>0).map(b=>`
               <div class="activity-item">
                 <div>
-                  <div class="activity-main">${typeof formatProductLabel==='function'?formatProductLabel(b.product,b.length):b.product+' '+(b.length||'RL')}</div>
-                  <div class="activity-sub">${b.mill||'—'} • ${fmtD(b.date)}</div>
+                  <div class="activity-main">${typeof formatProductLabel==='function'?formatProductLabel(b.product,b.length):escapeHtml(b.product)+' '+(escapeHtml(b.length)||'RL')}</div>
+                  <div class="activity-sub">${escapeHtml(b.mill)||'—'} • ${fmtD(b.date)}</div>
                 </div>
                 <div class="activity-right">
                   <div class="activity-value negative">▲ +${fmt(b.diff)}</div>
@@ -1225,7 +1290,7 @@ function render(){
           </select>
           <select onchange="setBenchFilter('product',this.value)" style="font-size:11px;padding:4px">
             <option value="">All Products</option>
-            ${benchProducts.map(p=>`<option value="${p}" ${benchFilter.product===p?'selected':''}>${p}</option>`).join('')}
+            ${benchProducts.map(p=>`<option value="${escapeHtml(p)}" ${benchFilter.product===p?'selected':''}>${escapeHtml(p)}</option>`).join('')}
           </select>
           <label style="font-size:11px;color:var(--positive)"><input type="checkbox" ${benchFilter.showBelow?'checked':''} onchange="setBenchFilter('showBelow',this.checked)"> Below market only</label>
           <label style="font-size:11px;color:var(--negative)"><input type="checkbox" ${benchFilter.showAbove?'checked':''} onchange="setBenchFilter('showAbove',this.checked)"> Above market only</label>
@@ -1235,13 +1300,13 @@ function render(){
 
       <div class="card"><div class="card-header"><span class="card-title">STANDARD GRADES vs RANDOM LENGTHS</span><span style="color:var(--muted);font-size:10px">${filteredBench.length} trades • Latest RL: ${a.latestRL?.date||'None'}</span></div>
         <div style="overflow-x:auto"><table><thead><tr><th ${benchSortClick('date')}>Date ${benchSortIcon('date')}</th><th ${benchSortClick('mill')}>Mill ${benchSortIcon('mill')}</th><th ${benchSortClick('product')}>Product ${benchSortIcon('product')}</th><th>Len</th><th ${benchSortClick('region')}>Region ${benchSortIcon('region')}</th><th class="right" ${benchSortClick('price')}>Your Price ${benchSortIcon('price')}</th><th class="right">RL #1</th><th class="right" ${benchSortClick('diff')}>Diff ${benchSortIcon('diff')}</th><th class="right" ${benchSortClick('volume')}>Volume ${benchSortIcon('volume')}</th></tr></thead><tbody>
-          ${filteredBench.length?filteredBench.map(b=>`<tr><td>${fmtD(b.date)}</td><td>${b.mill||'—'}</td><td class="bold">${b.product}</td><td>${b.length||'RL'}</td><td style="text-transform:capitalize">${b.region}</td><td class="right">${fmt(b.price)}</td><td class="right" style="color:var(--muted)">${b.rlP?fmt(b.rlP):'<span style="color:var(--negative)">No match</span>'}</td><td class="right ${b.diff==null?'':b.diff<=0?'positive':'negative'} bold">${b.diff!=null?`${b.diff<=0?'':'+'}${fmt(b.diff)}`:'—'}</td><td class="right">${fmtN(b.volume)} MBF</td></tr>`).join(''):'<tr><td colspan="9" class="empty-state">No trades match filters</td></tr>'}
+          ${filteredBench.length?filteredBench.map(b=>`<tr><td>${fmtD(b.date)}</td><td>${escapeHtml(b.mill)||'—'}</td><td class="bold">${escapeHtml(b.product)}</td><td>${escapeHtml(b.length)||'RL'}</td><td style="text-transform:capitalize">${escapeHtml(b.region)}</td><td class="right">${fmt(b.price)}</td><td class="right" style="color:var(--muted)">${b.rlP?fmt(b.rlP):'<span style="color:var(--negative)">No match</span>'}</td><td class="right ${b.diff==null?'':b.diff<=0?'positive':'negative'} bold">${b.diff!=null?`${b.diff<=0?'':'+'}${fmt(b.diff)}`:'—'}</td><td class="right">${fmtN(b.volume)} MBF</td></tr>`).join(''):'<tr><td colspan="9" class="empty-state">No trades match filters</td></tr>'}
         </tbody></table></div>
         ${standardBench.some(b=>!b.rlP)?`<div style="padding:12px;color:var(--muted);font-size:10px;border-top:1px solid var(--border)">💡 "No match" means the product/length/region combo wasn't found in RL data.</div>`:''}
       </div>
       ${msrBench.length?`<div class="card" style="margin-top:16px"><div class="card-header"><span class="card-title accent">MSR / 2400f TRADES (Premium over #1)</span></div>
         <div style="overflow-x:auto"><table><thead><tr><th>Date</th><th>Mill</th><th>Product</th><th>Len</th><th>Region</th><th class="right">Your Price</th><th class="right">Base #1</th><th class="right">Premium</th><th class="right">Volume</th></tr></thead><tbody>
-          ${msrBench.map(b=>`<tr><td>${fmtD(b.date)}</td><td>${b.mill||'—'}</td><td class="bold accent">${b.product}</td><td>${b.length||'RL'}</td><td style="text-transform:capitalize">${b.region}</td><td class="right">${fmt(b.price)}</td><td class="right" style="color:var(--muted)">${b.basePrice?fmt(b.basePrice):(b.rlP?fmt(b.rlP):'—')}</td><td class="right accent bold">${b.msrPremium?'+'+fmt(b.msrPremium):(b.rlP?'+'+fmt(b.price-b.rlP):'—')}</td><td class="right">${fmtN(b.volume)} MBF</td></tr>`).join('')}
+          ${msrBench.map(b=>`<tr><td>${fmtD(b.date)}</td><td>${escapeHtml(b.mill)||'—'}</td><td class="bold accent">${escapeHtml(b.product)}</td><td>${escapeHtml(b.length)||'RL'}</td><td style="text-transform:capitalize">${escapeHtml(b.region)}</td><td class="right">${fmt(b.price)}</td><td class="right" style="color:var(--muted)">${b.basePrice?fmt(b.basePrice):(b.rlP?fmt(b.rlP):'—')}</td><td class="right accent bold">${b.msrPremium?'+'+fmt(b.msrPremium):(b.rlP?'+'+fmt(b.price-b.rlP):'—')}</td><td class="right">${fmtN(b.volume)} MBF</td></tr>`).join('')}
         </tbody></table></div>
         <div style="padding:12px;color:var(--muted);font-size:10px;border-top:1px solid var(--border)">MSR/2400 prices shown as premium over #1 base price. These do not affect market comparison metrics.</div>
       </div>`:''}`
@@ -1294,79 +1359,90 @@ function render(){
     });
     const uncoveredVol=uncoveredSells.reduce((s,x)=>s+(x.volume||0),0);
 
+    // Position limits (configurable per product, default 500 MBF)
+    const posLimits=S.positionLimits||{}
+    const defaultLimit=500
+    const getLimit=prod=>posLimits[prod]||defaultLimit
+
     c.innerHTML=`
-      <div class="kpi-grid">
-        <div class="kpi"><div class="kpi-label">NET POSITION</div><div><span class="kpi-value ${netPosition>0?'warn':netPosition<0?'negative':''}">${netPosition>0?'+':''}${fmtN(netPosition)} MBF</span><span class="kpi-sub">${netPosition>0?'long':netPosition<0?'short':'flat'}</span></div></div>
-        <div class="kpi"><div class="kpi-label">LONG EXPOSURE</div><div><span class="kpi-value ${totalLong>0?'warn':''}">${fmtN(totalLong)} MBF</span><span class="kpi-sub">${fmt(Math.round(longExposure))}</span></div></div>
-        <div class="kpi"><div class="kpi-label">SHORT EXPOSURE</div><div><span class="kpi-value ${totalShort>0?'negative':''}">${fmtN(totalShort)} MBF</span><span class="kpi-sub">${fmt(Math.round(shortExposure))}</span></div></div>
-        <div class="kpi"><div class="kpi-label">UNCOVERED SELLS</div><div><span class="kpi-value ${uncoveredVol>0?'negative':''}">${fmtN(uncoveredVol)} MBF</span><span class="kpi-sub">${uncoveredSells.length} orders</span></div></div>
+      <div class="kpi-row">
+        <div class="kpi-card">
+          <div class="kpi-label">Net Position</div>
+          <div class="kpi-value ${netPosition>0?'warn':netPosition<0?'negative':''}">${netPosition>0?'+':''}${fmtN(netPosition)} MBF</div>
+          <div class="kpi-trend">${netPosition>0?'long':netPosition<0?'short':'flat'}</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-label">Long Exposure</div>
+          <div class="kpi-value ${totalLong>0?'warn':''}">${fmt(Math.round(longExposure))}</div>
+          <div class="kpi-trend">${fmtN(totalLong)} MBF across ${longPos.length} products</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-label">Short Exposure</div>
+          <div class="kpi-value ${totalShort>0?'negative':''}">${fmt(Math.round(shortExposure))}</div>
+          <div class="kpi-trend">${fmtN(totalShort)} MBF across ${shortPos.length} products</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-label">Uncovered Sells</div>
+          <div class="kpi-value ${uncoveredVol>0?'negative':'positive'}">${uncoveredVol>0?fmtN(uncoveredVol)+' MBF':'Clear'}</div>
+          <div class="kpi-trend ${uncoveredVol>0?'negative':'positive'}">${uncoveredSells.length} orders need coverage</div>
+        </div>
       </div>
 
-      <!-- Concentration Risk -->
-      <div class="card" style="margin-bottom:16px">
-        <div class="card-header">
-          <span class="card-title ${concentrationPct>50?'negative':concentrationPct>30?'warn':''}">CONCENTRATION RISK</span>
-          ${concentrationPct>50?'<span style="background:var(--negative);color:#fff;padding:2px 8px;border-radius:10px;font-size:9px">HIGH RISK</span>':''}
-          ${concentrationPct>30&&concentrationPct<=50?'<span style="background:var(--warn);color:var(--bg);padding:2px 8px;border-radius:10px;font-size:9px">MODERATE</span>':''}
-        </div>
-        <div class="card-body">
-          ${allPos.length?`
-          <div style="margin-bottom:12px">
-            <div style="display:flex;justify-content:space-between;margin-bottom:4px">
-              <span style="color:var(--muted);font-size:11px">Top position: <strong>${largestPos?.product||'—'} ${largestPos?.length||''}</strong></span>
-              <span style="font-size:11px;color:${concentrationPct>50?'var(--negative)':concentrationPct>30?'var(--warn)':'var(--muted)'}">${fmtN(concentrationPct)}% of exposure</span>
-            </div>
-            <div class="progress-bar" style="height:8px">
-              <div class="progress-fill" style="width:${Math.min(100,concentrationPct)}%;background:${concentrationPct>50?'var(--negative)':concentrationPct>30?'var(--warn)':'var(--accent)'}"></div>
-            </div>
-          </div>
-          <table style="font-size:11px"><thead><tr><th>Product</th><th>Length</th><th class="right">Position</th><th class="right">Exposure</th><th class="right">% of Total</th></tr></thead><tbody>
-            ${allPos.slice(0,5).map(p=>{
-              const exp=p.net*(p.avgCost||p.avgSell);
-              const pct=totalExposure>0?exp/totalExposure*100:0;
-              const isLong=p.bought>p.sold;
-              return`<tr>
-                <td class="bold">${p.product}</td>
-                <td>${p.length}</td>
-                <td class="right ${isLong?'warn':'negative'}">${isLong?'+':'-'}${fmtN(p.net)} MBF</td>
-                <td class="right">${fmt(Math.round(exp))}</td>
-                <td class="right" style="color:${pct>30?'var(--negative)':pct>20?'var(--warn)':'var(--muted)'}">${fmtN(pct)}%</td>
-              </tr>`;
-            }).join('')}
-          </tbody></table>
-          `:'<div class="empty-state">No positions</div>'}
-        </div>
-      </div>
+      <!-- Product Exposure with Limit Utilization Bars -->
+      <div class="panel" style="margin-top:20px"><div class="panel-header">POSITION EXPOSURE BY PRODUCT
+        ${concentrationPct>50?'<span class="status-badge status-cancelled">HIGH RISK</span>':''}
+        ${concentrationPct>30&&concentrationPct<=50?'<span class="status-badge status-pending">MODERATE</span>':''}
+      </div><div class="panel-body">
+        ${allPos.length?`
+        <table class="data-table"><thead><tr><th>Product</th><th>Length</th><th class="right">Position</th><th class="right">Exposure</th><th style="min-width:200px">Limit Utilization</th><th class="right">% of Total</th></tr></thead><tbody>
+          ${allPos.slice(0,10).map(p=>{
+            const exp=p.net*(p.avgCost||p.avgSell)
+            const pct=totalExposure>0?exp/totalExposure*100:0
+            const isLong=p.bought>p.sold
+            const limit=getLimit(p.product)
+            const utilPct=Math.min(100,p.net/limit*100)
+            const utilColor=utilPct>90?'var(--negative)':utilPct>70?'var(--warn)':'var(--positive)'
+            return`<tr>
+              <td class="bold">${escapeHtml(p.product)}</td>
+              <td>${escapeHtml(p.length)}</td>
+              <td class="right ${isLong?'warn':'negative'} bold">${isLong?'+':'-'}${fmtN(p.net)} MBF</td>
+              <td class="right">${fmt(Math.round(exp))}</td>
+              <td><div class="limit-bar"><div class="limit-fill" style="width:${utilPct}%;background:${utilColor}"></div></div><div style="display:flex;justify-content:space-between;font-size:9px;color:var(--muted);margin-top:2px"><span>${fmtN(p.net)} / ${limit} MBF</span><span style="color:${utilColor}">${Math.round(utilPct)}%</span></div></td>
+              <td class="right" style="color:${pct>30?'var(--negative)':pct>20?'var(--warn)':'var(--muted)'}">${fmtN(pct)}%</td>
+            </tr>`
+          }).join('')}
+        </tbody></table>
+        `:'<div class="empty-state">No positions</div>'}
+      </div></div>
 
       <!-- Long/Short Position Tables -->
-      <div class="grid-2">
-        <div class="card"><div class="card-header"><span class="card-title warn">LONG POSITIONS</span><span style="color:var(--muted);font-size:10px">${longPos.length} products</span></div>
-          <div style="overflow-x:auto;max-height:300px"><table><thead><tr><th>Product</th><th>Len</th><th class="right">Bought</th><th class="right">Sold</th><th class="right">Net</th><th class="right">Avg Cost</th><th class="right">Exposure</th><th></th></tr></thead><tbody>
-            ${longPos.length?longPos.sort((a,b)=>b.net-a.net).map(p=>{const prodEsc=(p.product||'').replace(/'/g,"\\'");const lenEsc=(p.length||'').replace(/'/g,"\\'");return`<tr><td class="bold">${p.product}</td><td>${p.length}</td><td class="right">${fmtN(p.bought)}</td><td class="right">${fmtN(p.sold)}</td><td class="right warn bold">${fmtN(p.net)}</td><td class="right">${fmt(Math.round(p.avgCost))}</td><td class="right">${fmt(Math.round(p.net*p.avgCost))}</td><td><button class="btn btn-primary btn-sm" onclick="sellPosition('${prodEsc}','${lenEsc}',${p.net})">Sell</button></td></tr>`}).join(''):'<tr><td colspan="8" class="empty-state">No long positions</td></tr>'}
+      <div class="grid-2" style="margin-top:20px">
+        <div class="panel"><div class="panel-header">LONG POSITIONS <span style="color:var(--muted);font-size:10px">${longPos.length} products</span></div>
+          <div class="panel-body" style="padding:0;overflow-x:auto;max-height:300px"><table class="data-table"><thead><tr><th>Product</th><th>Len</th><th class="right">Bought</th><th class="right">Sold</th><th class="right">Net</th><th class="right">Avg Cost</th><th class="right">Exposure</th><th></th></tr></thead><tbody>
+            ${longPos.length?longPos.sort((a,b)=>b.net-a.net).map(p=>{const prodEsc=(p.product||'').replace(/'/g,"\\'");const lenEsc=(p.length||'').replace(/'/g,"\\'");return`<tr><td class="bold">${escapeHtml(p.product)}</td><td>${escapeHtml(p.length)}</td><td class="right">${fmtN(p.bought)}</td><td class="right">${fmtN(p.sold)}</td><td class="right warn bold">${fmtN(p.net)}</td><td class="right">${fmt(Math.round(p.avgCost))}</td><td class="right">${fmt(Math.round(p.net*p.avgCost))}</td><td><button class="btn btn-primary btn-sm" onclick="sellPosition('${prodEsc}','${lenEsc}',${p.net})">Sell</button></td></tr>`}).join(''):'<tr><td colspan="8" class="empty-state">No long positions</td></tr>'}
           </tbody></table></div></div>
-        <div class="card"><div class="card-header"><span class="card-title negative">SHORT POSITIONS</span><span style="color:var(--muted);font-size:10px">${shortPos.length} products</span></div>
-          <div style="overflow-x:auto;max-height:300px"><table><thead><tr><th>Product</th><th>Len</th><th class="right">Bought</th><th class="right">Sold</th><th class="right">Net</th><th class="right">Avg Sell</th><th class="right">Exposure</th><th></th></tr></thead><tbody>
-            ${shortPos.length?shortPos.sort((a,b)=>b.net-a.net).map(p=>{const prodEsc=(p.product||'').replace(/'/g,"\\'");const lenEsc=(p.length||'').replace(/'/g,"\\'");return`<tr><td class="bold">${p.product}</td><td>${p.length}</td><td class="right">${fmtN(p.bought)}</td><td class="right">${fmtN(p.sold)}</td><td class="right negative bold">${fmtN(p.net)}</td><td class="right">${fmt(Math.round(p.avgSell))}</td><td class="right">${fmt(Math.round(p.net*p.avgSell))}</td><td><button class="btn btn-success btn-sm" onclick="coverPosition('${prodEsc}','${lenEsc}',${p.net})">Cover</button></td></tr>`}).join(''):'<tr><td colspan="8" class="empty-state">No short positions</td></tr>'}
+        <div class="panel"><div class="panel-header">SHORT POSITIONS <span style="color:var(--muted);font-size:10px">${shortPos.length} products</span></div>
+          <div class="panel-body" style="padding:0;overflow-x:auto;max-height:300px"><table class="data-table"><thead><tr><th>Product</th><th>Len</th><th class="right">Bought</th><th class="right">Sold</th><th class="right">Net</th><th class="right">Avg Sell</th><th class="right">Exposure</th><th></th></tr></thead><tbody>
+            ${shortPos.length?shortPos.sort((a,b)=>b.net-a.net).map(p=>{const prodEsc=(p.product||'').replace(/'/g,"\\'");const lenEsc=(p.length||'').replace(/'/g,"\\'");return`<tr><td class="bold">${escapeHtml(p.product)}</td><td>${escapeHtml(p.length)}</td><td class="right">${fmtN(p.bought)}</td><td class="right">${fmtN(p.sold)}</td><td class="right negative bold">${fmtN(p.net)}</td><td class="right">${fmt(Math.round(p.avgSell))}</td><td class="right">${fmt(Math.round(p.net*p.avgSell))}</td><td><button class="btn btn-success btn-sm" onclick="coverPosition('${prodEsc}','${lenEsc}',${p.net})">Cover</button></td></tr>`}).join(''):'<tr><td colspan="8" class="empty-state">No short positions</td></tr>'}
           </tbody></table></div></div>
       </div>
 
       <!-- Uncovered Sells -->
       ${uncoveredSells.length?`
-      <div class="card" style="margin-top:16px;border-color:var(--negative)">
-        <div class="card-header" style="background:rgba(224,82,82,0.1)"><span class="card-title negative">UNCOVERED SELLS (Need Coverage)</span><span style="color:var(--negative);font-size:10px">${fmtN(uncoveredVol)} MBF at risk</span></div>
-        <div style="overflow-x:auto;max-height:250px"><table><thead><tr><th>Order #</th><th>Date</th><th>Customer</th><th>Product</th><th>Len</th><th class="right">Volume</th><th class="right">Price</th><th></th></tr></thead><tbody>
+      <div class="panel" style="margin-top:20px;border-left:3px solid var(--negative)"><div class="panel-header">UNCOVERED SELLS (Need Coverage) <span class="status-badge status-cancelled">${fmtN(uncoveredVol)} MBF at risk</span></div>
+        <div class="panel-body" style="padding:0;overflow-x:auto;max-height:250px"><table class="data-table"><thead><tr><th>Order #</th><th>Date</th><th>Customer</th><th>Product</th><th>Len</th><th class="right">Volume</th><th class="right">Price</th><th></th></tr></thead><tbody>
           ${uncoveredSells.slice(0,10).map(s=>{
-            const ord=String(s.orderNum||s.linkedPO||s.oc||'').trim();
+            const ord=String(s.orderNum||s.linkedPO||s.oc||'').trim()
             return`<tr>
-              <td class="bold negative">${ord||'—'}</td>
+              <td class="bold negative">${escapeHtml(ord)||'--'}</td>
               <td>${fmtD(s.date)}</td>
-              <td>${s.customer||'—'}</td>
-              <td class="bold">${s.product}</td>
-              <td>${s.length||'RL'}</td>
+              <td>${escapeHtml(s.customer)||'--'}</td>
+              <td class="bold">${escapeHtml(s.product)}</td>
+              <td>${escapeHtml(s.length)||'RL'}</td>
               <td class="right">${fmtN(s.volume)} MBF</td>
               <td class="right">${fmt(s.price)}</td>
               <td><button class="btn btn-success btn-sm" onclick="coverSell(${s.id})">Cover</button></td>
-            </tr>`;
+            </tr>`
           }).join('')}
           ${uncoveredSells.length>10?`<tr><td colspan="8" style="text-align:center;color:var(--muted);font-size:10px">...and ${uncoveredSells.length-10} more</td></tr>`:''}
         </tbody></table></div>
@@ -1510,10 +1586,23 @@ function render(){
                 </tfoot>`:''}
               </table>
             </div>
-            ${items.some(i=>i.sellDlvd)?`<div style="padding:12px;border-top:1px solid var(--border);display:flex;gap:8px">
-              <button class="btn btn-primary" onclick="copyQuickQuote()">📋 Copy Quote</button>
-              <button class="btn btn-default" onclick="applyAllMargin()">Apply Margin to All</button>
-              <input type="number" id="qb-margin-input" placeholder="+$25" style="width:70px;padding:6px;text-align:center">
+            ${items.some(i=>i.sellDlvd)?`<div style="padding:12px;border-top:1px solid var(--border)">
+              <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
+                <span class="status-badge status-${S.quoteStatus||'draft'}">${S.quoteStatus||'draft'}</span>
+                <select onchange="S.quoteStatus=this.value;SS('quoteStatus',this.value);render()" style="font-size:10px;padding:3px">
+                  <option value="draft" ${(S.quoteStatus||'draft')==='draft'?'selected':''}>Draft</option>
+                  <option value="sent" ${S.quoteStatus==='sent'?'selected':''}>Sent</option>
+                  <option value="approved" ${S.quoteStatus==='approved'?'selected':''}>Accepted</option>
+                  <option value="cancelled" ${S.quoteStatus==='cancelled'?'selected':''}>Rejected</option>
+                  <option value="pending" ${S.quoteStatus==='pending'?'selected':''}>Expired</option>
+                </select>
+              </div>
+              <div style="display:flex;gap:8px;flex-wrap:wrap">
+                <button class="btn btn-primary" onclick="copyQuickQuote()">Copy Quote</button>
+                <button class="btn btn-default" onclick="applyAllMargin()">Apply Margin to All</button>
+                <input type="number" id="qb-margin-input" placeholder="+$25" style="width:70px;padding:6px;text-align:center">
+                ${S.quoteStatus==='approved'?'<button class="btn btn-success" onclick="convertQuoteToTrades()">Convert to Trade</button>':''}
+              </div>
             </div>`:''}
           </div>
         </div>
@@ -1674,8 +1763,8 @@ function render(){
     c.innerHTML=`
       <div class="kpi-grid">
         <div class="kpi"><div class="kpi-label">TOTAL PROFIT</div><div><span class="kpi-value ${totalProfit>=0?'positive':'negative'}">${fmt(Math.round(totalProfit))}</span></div></div>
-        <div class="kpi"><div class="kpi-label">BEST PRODUCT</div><div><span class="kpi-value positive" style="font-size:14px">${bestProduct?.product||'—'}</span><span class="kpi-sub">${bestProduct?fmt(Math.round(bestProduct.avgMargin))+'/MBF':''}</span></div></div>
-        <div class="kpi"><div class="kpi-label">WORST PRODUCT</div><div><span class="kpi-value negative" style="font-size:14px">${worstProduct?.product||'—'}</span><span class="kpi-sub">${worstProduct?fmt(Math.round(worstProduct.avgMargin))+'/MBF':''}</span></div></div>
+        <div class="kpi"><div class="kpi-label">BEST PRODUCT</div><div><span class="kpi-value positive" style="font-size:14px">${escapeHtml(bestProduct?.product)||'—'}</span><span class="kpi-sub">${bestProduct?fmt(Math.round(bestProduct.avgMargin))+'/MBF':''}</span></div></div>
+        <div class="kpi"><div class="kpi-label">WORST PRODUCT</div><div><span class="kpi-value negative" style="font-size:14px">${escapeHtml(worstProduct?.product)||'—'}</span><span class="kpi-sub">${worstProduct?fmt(Math.round(worstProduct.avgMargin))+'/MBF':''}</span></div></div>
         <div class="kpi"><div class="kpi-label">PRODUCTS TRADED</div><div><span class="kpi-value">${products.length}</span><span class="kpi-sub">${fmtN(totalVolume)} MBF</span></div></div>
       </div>
 
@@ -1690,7 +1779,7 @@ function render(){
               const w=Math.abs(p.avgMargin)/maxMargin*100;
               const isPos=p.avgMargin>=0;
               return`<div style="display:flex;align-items:center;gap:8px">
-                <div style="width:80px;font-size:11px;font-weight:500;text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${p.product}">${p.product}</div>
+                <div style="width:80px;font-size:11px;font-weight:500;text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escapeHtml(p.product)}">${escapeHtml(p.product)}</div>
                 <div style="flex:1;height:20px;background:var(--panel-alt);border-radius:2px;overflow:hidden;display:flex;align-items:center;${isPos?'':'justify-content:flex-end'}">
                   <div style="width:${w}%;height:100%;background:${isPos?'var(--positive)':'var(--negative)'};border-radius:2px"></div>
                 </div>
@@ -1729,7 +1818,7 @@ function render(){
           <th></th>
         </tr></thead><tbody>
           ${filteredProducts.length?filteredProducts.map(p=>`<tr style="${selectedProd===p.product?'background:var(--panel-alt)':''}">
-            <td class="bold">${p.product}</td>
+            <td class="bold">${escapeHtml(p.product)}</td>
             <td class="right">${fmtN(p.bVol)} MBF</td>
             <td class="right">${fmtN(p.sVol)} MBF</td>
             <td class="right ${p.position>0?'warn':p.position<0?'negative':''} bold">${p.position>0?'+':''}${fmtN(p.position)} MBF</td>
@@ -1747,7 +1836,7 @@ function render(){
       ${selectedData?`
       <div class="card" style="margin-top:16px;border-color:var(--accent)">
         <div class="card-header" style="background:var(--accent);color:var(--bg)">
-          <span style="font-weight:700">${selectedProd} — Detail View</span>
+          <span style="font-weight:700">${escapeHtml(selectedProd)} — Detail View</span>
           <button onclick="S.selectedProduct=null;render()" style="background:transparent;border:none;color:var(--bg);cursor:pointer;font-size:16px">×</button>
         </div>
         <div class="card-body">
@@ -1756,7 +1845,7 @@ function render(){
               <h4 style="color:var(--positive);margin-bottom:8px;font-size:12px">BUYS (${selectedData.buys.length})</h4>
               <div style="max-height:200px;overflow-y:auto">
                 <table style="font-size:10px"><thead><tr><th>Date</th><th>Mill</th><th class="right">Price</th><th class="right">Vol</th></tr></thead><tbody>
-                  ${selectedData.buys.length?selectedData.buys.map(b=>`<tr><td>${fmtD(b.date)}</td><td>${b.mill||'—'}</td><td class="right">${fmt(b.price)}</td><td class="right">${fmtN(b.volume)}</td></tr>`).join(''):'<tr><td colspan="4" class="empty-state">No buys</td></tr>'}
+                  ${selectedData.buys.length?selectedData.buys.map(b=>`<tr><td>${fmtD(b.date)}</td><td>${escapeHtml(b.mill)||'—'}</td><td class="right">${fmt(b.price)}</td><td class="right">${fmtN(b.volume)}</td></tr>`).join(''):'<tr><td colspan="4" class="empty-state">No buys</td></tr>'}
                 </tbody></table>
               </div>
             </div>
@@ -1764,7 +1853,7 @@ function render(){
               <h4 style="color:var(--accent);margin-bottom:8px;font-size:12px">SELLS (${selectedData.sells.length})</h4>
               <div style="max-height:200px;overflow-y:auto">
                 <table style="font-size:10px"><thead><tr><th>Date</th><th>Customer</th><th class="right">Price</th><th class="right">Vol</th></tr></thead><tbody>
-                  ${selectedData.sells.length?selectedData.sells.map(s=>`<tr><td>${fmtD(s.date)}</td><td>${s.customer||'—'}</td><td class="right">${fmt(s.price)}</td><td class="right">${fmtN(s.volume)}</td></tr>`).join(''):'<tr><td colspan="4" class="empty-state">No sells</td></tr>'}
+                  ${selectedData.sells.length?selectedData.sells.map(s=>`<tr><td>${fmtD(s.date)}</td><td>${escapeHtml(s.customer)||'—'}</td><td class="right">${fmt(s.price)}</td><td class="right">${fmtN(s.volume)}</td></tr>`).join(''):'<tr><td colspan="4" class="empty-state">No sells</td></tr>'}
                 </tbody></table>
               </div>
             </div>
@@ -1821,7 +1910,7 @@ function render(){
             return`<table style="font-size:11px"><thead><tr><th>Product</th><th>Region</th><th class="right">Volume</th></tr></thead><tbody>
               ${list.map(r=>{
                 const regColor=r.region==='west'?'accent':r.region==='central'?'warn':'info';
-                return`<tr><td class="bold">${r.product}</td><td style="color:var(--${regColor});text-transform:capitalize">${r.region}</td><td class="right">${fmtN(r.vol)} MBF</td></tr>`;
+                return`<tr><td class="bold">${escapeHtml(r.product)}</td><td style="color:var(--${regColor});text-transform:capitalize">${escapeHtml(r.region)}</td><td class="right">${fmtN(r.vol)} MBF</td></tr>`;
               }).join('')}
             </tbody></table>`;
           })()}
@@ -1904,7 +1993,7 @@ function render(){
               ${staleCritical.slice(0,3).map(p=>`
                 <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border)">
                   <div>
-                    <div style="font-weight:500;font-size:11px">${p.company_name}</div>
+                    <div style="font-weight:500;font-size:11px">${escapeHtml(p.company_name||'')}</div>
                     <div style="font-size:9px;color:var(--negative)">${p.days_since_touch} days since last touch</div>
                   </div>
                   <button class="btn btn-danger btn-sm" onclick="showTouchModal(${p.id})" style="font-size:9px;padding:4px 8px">📞 Call Now</button>
@@ -1919,7 +2008,7 @@ function render(){
               ${staleWarning.slice(0,3).map(p=>`
                 <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border)">
                   <div>
-                    <div style="font-weight:500;font-size:11px">${p.company_name}</div>
+                    <div style="font-weight:500;font-size:11px">${escapeHtml(p.company_name||'')}</div>
                     <div style="font-size:9px;color:var(--warn)">${p.days_since_touch} days since last touch</div>
                   </div>
                   <button class="btn btn-warn btn-sm" onclick="showTouchModal(${p.id})" style="font-size:9px;padding:4px 8px">📞 Follow Up</button>
@@ -1934,7 +2023,7 @@ function render(){
               ${neverContacted.slice(0,3).map(p=>`
                 <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border)">
                   <div>
-                    <div style="font-weight:500;font-size:11px">${p.company_name}</div>
+                    <div style="font-weight:500;font-size:11px">${escapeHtml(p.company_name||'')}</div>
                     <div style="font-size:9px;color:var(--info)">Added ${p.days_since_created} days ago</div>
                   </div>
                   <button class="btn btn-info btn-sm" onclick="showTouchModal(${p.id})" style="font-size:9px;padding:4px 8px">📞 First Call</button>
@@ -1949,8 +2038,8 @@ function render(){
               ${S.crmOverdue.slice(0,3).map(t=>`
                 <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border)">
                   <div>
-                    <div style="font-weight:500;font-size:11px">${t.company_name}</div>
-                    <div style="font-size:9px;color:var(--negative)">Due: ${t.follow_up_date}</div>
+                    <div style="font-weight:500;font-size:11px">${escapeHtml(t.company_name||'')}</div>
+                    <div style="font-size:9px;color:var(--negative)">Due: ${escapeHtml(t.follow_up_date||'')}</div>
                   </div>
                   <button class="btn btn-danger btn-sm" onclick="showTouchModal(${t.prospect_id})" style="font-size:9px;padding:4px 8px">📞 Call</button>
                 </div>
@@ -1991,9 +2080,9 @@ function render(){
                   <div class="kanban-header"><span>${col.label}</span><span class="kanban-count">${items.length}</span></div>
                   <div class="kanban-cards">
                     ${items.map(p=>`<div class="kanban-card" draggable="true" ondragstart="event.dataTransfer.setData('text/plain','${p.id}')" onclick="viewProspect(${p.id})">
-                      <div class="kanban-card-title">${p.company_name}</div>
-                      <div class="kanban-card-sub">${p.contact_name||'No contact'}</div>
-                      <div class="kanban-card-meta"><span>${p.phone||''}</span><span style="color:var(--muted)">${p.updated_at?new Date(p.updated_at).toLocaleDateString():''}</span></div>
+                      <div class="kanban-card-title">${escapeHtml(p.company_name||'')}</div>
+                      <div class="kanban-card-sub">${escapeHtml(p.contact_name||'No contact')}</div>
+                      <div class="kanban-card-meta"><span>${escapeHtml(p.phone||'')}</span><span style="color:var(--muted)">${p.updated_at?new Date(p.updated_at).toLocaleDateString():''}</span></div>
                     </div>`).join('')}
                     ${!items.length?'<div class="empty-state" style="padding:20px;font-size:11px">No prospects</div>':''}
                   </div>
@@ -2011,9 +2100,9 @@ function render(){
                 ${prospects.length?prospects.filter(p=>!S.crmSearch||p.company_name.toLowerCase().includes((S.crmSearch||'').toLowerCase())||((p.contact_name||'')).toLowerCase().includes((S.crmSearch||'').toLowerCase())).map(p=>{
                   const statusBadge={prospect:'badge-pending',qualified:'badge-warn',converted:'badge-success',lost:'badge-danger'}[p.status]||'badge-pending';
                   return`<tr>
-                    <td class="bold">${p.company_name}</td>
-                    <td>${p.contact_name||'—'}</td>
-                    <td>${p.phone||'—'}</td>
+                    <td class="bold">${escapeHtml(p.company_name||'')}</td>
+                    <td>${escapeHtml(p.contact_name||'—')}</td>
+                    <td>${escapeHtml(p.phone||'—')}</td>
                     <td><span class="badge ${statusBadge}">${p.status}</span></td>
                     <td style="font-size:10px">${p.updated_at?new Date(p.updated_at).toLocaleDateString():'—'}</td>
                     <td style="white-space:nowrap">
@@ -2037,8 +2126,8 @@ function render(){
             ${S.crmRecent.slice(0,5).map(t=>`
               <div class="activity-item">
                 <div>
-                  <div class="activity-main">${t.company_name}</div>
-                  <div class="activity-sub">${t.touch_type}: ${(t.notes||'').substring(0,50)}${(t.notes||'').length>50?'...':''}</div>
+                  <div class="activity-main">${escapeHtml(t.company_name||'')}</div>
+                  <div class="activity-sub">${escapeHtml(t.touch_type||'')}: ${escapeHtml((t.notes||'').substring(0,50))}${(t.notes||'').length>50?'...':''}</div>
                 </div>
                 <div class="activity-right">
                   <div style="font-size:10px;color:var(--muted)">${new Date(t.created_at).toLocaleDateString()}</div>
@@ -2049,21 +2138,93 @@ function render(){
         </div>`:''}`;
     }
     else if(crmTab==='customers'){
+      // Build enriched customer data for 360 view
+      const custData=customers.map(cu=>{
+        const locs=cu.locations||[cu.destination].filter(Boolean)
+        const trades=S.trader==='Admin'?S.sells.filter(s=>s.customer===cu.name):S.sells.filter(s=>s.customer===cu.name&&(s.trader===S.trader||!s.trader))
+        const vol=trades.reduce((s,x)=>s+(x.volume||0),0)
+        const cm=custMargins[cu.name]||{vol:0,marginVal:0,n:0}
+        const avgMargin=cm.vol>0?cm.marginVal/cm.vol:0
+        const creditLimit=cu.creditLimit||50000
+        const exposure=trades.filter(t=>!t.delivered).reduce((s,x)=>s+(x.price||0)*(x.volume||0),0)
+        const creditUtil=creditLimit>0?exposure/creditLimit*100:0
+        return{...cu,locs,trades,vol,avgMargin,creditLimit,exposure,creditUtil,tradeCount:trades.length}
+      })
+      // Selected customer for 360 detail
+      const selCust=S.selectedCustomer?custData.find(c=>c.name===S.selectedCustomer):null
+
       contentHTML=`
-        <div class="card"><div class="card-header"><span class="card-title positive">${S.trader==='Admin'?'ALL CUSTOMERS':'MY CUSTOMERS'}</span><button class="btn btn-default btn-sm" onclick="showCustModal()">+ Add</button></div>
-          <div style="overflow-x:auto"><table><thead><tr>${S.trader==='Admin'?'<th>👤</th>':''}<th>Customer</th><th>Locations</th><th>Trades</th><th>Volume</th><th></th></tr></thead><tbody>
-            ${customers.length?customers.map(c=>{
-              const locs=c.locations||[c.destination].filter(Boolean);
-              const trades=S.trader==='Admin'?S.sells.filter(s=>s.customer===c.name):S.sells.filter(s=>s.customer===c.name&&(s.trader===S.trader||!s.trader));
-              const vol=trades.reduce((s,x)=>s+(x.volume||0),0);
-              return`<tr>${S.trader==='Admin'?`<td><span style="display:inline-block;width:18px;height:18px;border-radius:50%;background:${traderColor(c.trader||'Ian P')};color:var(--bg);font-size:9px;font-weight:700;text-align:center;line-height:18px" title="${c.trader||'Ian P'}">${traderInitial(c.trader||'Ian P')}</span></td>`:''}<td class="bold">${c.name}</td><td style="font-size:10px">${locs.length?locs.join(', '):'—'}</td><td class="right">${trades.length}</td><td class="right">${fmtN(vol)} MBF</td><td style="white-space:nowrap"><button class="btn btn-default btn-sm" onclick="editCust('${c.name}')">Edit</button> <button class="btn btn-default btn-sm" onclick="deleteCust('${c.name}')" style="color:var(--negative)">×</button></td></tr>`;
-            }).join(''):`<tr><td colspan="${S.trader==='Admin'?6:5}" class="empty-state">No customers yet</td></tr>`}
+        <div class="panel"><div class="panel-header"><span>${S.trader==='Admin'?'ALL CUSTOMERS':'MY CUSTOMERS'}</span><button class="btn btn-default btn-sm" onclick="showCustModal()">+ Add</button></div>
+          <div class="panel-body" style="padding:0;overflow-x:auto"><table class="data-table"><thead><tr>${S.trader==='Admin'?'<th>Trader</th>':''}<th>Customer</th><th>Locations</th><th class="right">Trades</th><th class="right">Volume</th><th class="right">Avg Margin</th><th>Credit Status</th><th></th></tr></thead><tbody>
+            ${custData.length?custData.map(cu=>{
+              const creditColor=cu.creditUtil>90?'var(--negative)':cu.creditUtil>70?'var(--warn)':'var(--positive)'
+              return`<tr style="${S.selectedCustomer===cu.name?'background:var(--panel-alt)':''}">${S.trader==='Admin'?`<td><span style="display:inline-block;width:18px;height:18px;border-radius:50%;background:${traderColor(cu.trader||'Ian P')};color:var(--bg);font-size:9px;font-weight:700;text-align:center;line-height:18px" title="${escapeHtml(cu.trader||'Ian P')}">${traderInitial(cu.trader||'Ian P')}</span></td>`:''}<td class="bold" style="cursor:pointer" onclick="S.selectedCustomer='${escapeHtml(cu.name||'')}';render()">${escapeHtml(cu.name||'')}</td><td style="font-size:10px">${cu.locs.length?escapeHtml(cu.locs.join(', ')):'--'}</td><td class="right">${cu.tradeCount}</td><td class="right">${fmtN(cu.vol)} MBF</td><td class="right ${cu.avgMargin>=0?'positive':'negative'} bold">${cu.vol>0?fmt(Math.round(cu.avgMargin)):''}</td><td><div class="limit-bar" style="width:100px;display:inline-block;vertical-align:middle"><div class="limit-fill" style="width:${Math.min(100,cu.creditUtil)}%;background:${creditColor}"></div></div> <span style="font-size:9px;color:${creditColor}">${Math.round(cu.creditUtil)}%</span></td><td style="white-space:nowrap"><button class="btn btn-default btn-sm" onclick="S.selectedCustomer='${escapeHtml(cu.name||'')}';render()">360</button> <button class="btn btn-default btn-sm" onclick="editCust('${escapeHtml(cu.name||'')}')">Edit</button> <button class="btn btn-default btn-sm" onclick="deleteCust('${escapeHtml(cu.name||'')}')" style="color:var(--negative)">x</button></td></tr>`
+            }).join(''):`<tr><td colspan="${S.trader==='Admin'?8:7}" class="empty-state">No customers yet</td></tr>`}
           </tbody></table></div></div>
-        <div class="card" style="margin-top:16px"><div class="card-header"><span class="card-title warn">CUSTOMER PROFITABILITY</span></div>
-          <div style="overflow-x:auto"><table><thead><tr><th>Customer</th><th class="right">Trades</th><th class="right">Volume</th><th class="right">Avg Margin/MBF</th></tr></thead><tbody>
-            ${Object.keys(custMargins).length?Object.entries(custMargins).filter(([c,d])=>d.vol>0).sort((x,y)=>(y[1].marginVal/y[1].vol)-(x[1].marginVal/x[1].vol)).map(([c,d])=>{
-              const avgMargin=d.vol>0?d.marginVal/d.vol:0;
-              return`<tr><td class="bold">${c}</td><td class="right">${d.n}</td><td class="right">${fmtN(d.vol)} MBF</td><td class="right ${avgMargin>=0?'positive':'negative'} bold">${fmt(Math.round(avgMargin))}</td></tr>`;
+
+        ${selCust?`
+        <!-- 360 Customer View -->
+        <div class="panel" style="margin-top:16px;border-left:3px solid var(--accent)"><div class="panel-header">${escapeHtml(selCust.name)} -- 360 View <button onclick="S.selectedCustomer=null;render()" style="background:transparent;border:none;color:var(--text);cursor:pointer;font-size:16px">x</button></div><div class="panel-body">
+          <div class="grid-3" style="margin-bottom:16px">
+            <div class="panel"><div class="panel-header">CONTACT INFO</div><div class="panel-body">
+              <div style="font-size:11px;line-height:1.8">
+                <div><strong>${escapeHtml(selCust.name)}</strong></div>
+                <div style="color:var(--muted)">${selCust.locs.length?escapeHtml(selCust.locs.join(', ')):'No locations'}</div>
+                ${selCust.phone?`<div>${escapeHtml(selCust.phone)}</div>`:''}
+                ${selCust.email?`<div>${escapeHtml(selCust.email)}</div>`:''}
+                ${selCust.contact?`<div>Contact: ${escapeHtml(selCust.contact)}</div>`:''}
+              </div>
+            </div></div>
+            <div class="panel"><div class="panel-header">CREDIT STATUS</div><div class="panel-body">
+              <div style="margin-bottom:8px"><div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:4px"><span>Limit: ${fmt(selCust.creditLimit)}</span><span>Exposure: ${fmt(Math.round(selCust.exposure))}</span></div>
+              <div class="limit-bar"><div class="limit-fill" style="width:${Math.min(100,selCust.creditUtil)}%;background:${selCust.creditUtil>90?'var(--negative)':selCust.creditUtil>70?'var(--warn)':'var(--positive)'}"></div></div>
+              <div style="text-align:center;font-size:10px;margin-top:4px;color:${selCust.creditUtil>90?'var(--negative)':selCust.creditUtil>70?'var(--warn)':'var(--positive)'}">${Math.round(selCust.creditUtil)}% utilized</div></div>
+            </div></div>
+            <div class="panel"><div class="panel-header">TRADING SUMMARY</div><div class="panel-body">
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:11px">
+                <div>Total Trades: <strong>${selCust.tradeCount}</strong></div>
+                <div>Total Volume: <strong>${fmtN(selCust.vol)} MBF</strong></div>
+                <div>Avg Margin: <strong class="${selCust.avgMargin>=0?'positive':'negative'}">${fmt(Math.round(selCust.avgMargin))}/MBF</strong></div>
+                <div>Total Profit: <strong class="${selCust.avgMargin*selCust.vol>=0?'positive':'negative'}">${fmt(Math.round(selCust.avgMargin*selCust.vol))}</strong></div>
+              </div>
+            </div></div>
+          </div>
+          <!-- Order History -->
+          <div class="panel"><div class="panel-header">ORDER HISTORY</div><div class="panel-body" style="padding:0;overflow-x:auto;max-height:300px">
+            <table class="data-table"><thead><tr><th>Date</th><th>Order #</th><th>Product</th><th class="right">Vol</th><th class="right">Price</th><th>Status</th><th class="right">Margin</th></tr></thead><tbody>
+              ${selCust.trades.length?selCust.trades.sort((x,y)=>new Date(y.date)-new Date(x.date)).slice(0,20).map(t=>{
+                const ord=String(t.orderNum||t.linkedPO||t.oc||'').trim()
+                const buy=ord?buyByOrder[ord]:null
+                const sellFrtMBF=t.volume>0?(t.freight||0)/t.volume:0
+                const margin=buy?((t.price||0)-sellFrtMBF)-(buy.price||0):null
+                const st=t.delivered?'delivered':t.shipped?'shipped':ord?'approved':'pending'
+                return`<tr><td>${fmtD(t.date)}</td><td class="bold">${escapeHtml(ord)||'--'}</td><td>${escapeHtml(t.product)}</td><td class="right">${fmtN(t.volume)} MBF</td><td class="right">${fmt(t.price)}</td><td><span class="status-badge status-${st}">${st}</span></td><td class="right ${margin===null?'':margin>=0?'positive':'negative'} bold">${margin!==null?fmt(Math.round(margin)):''}</td></tr>`
+              }).join(''):'<tr><td colspan="7" class="empty-state">No trades</td></tr>'}
+            </tbody></table>
+          </div></div>
+          <!-- Product Mix -->
+          <div class="panel" style="margin-top:12px"><div class="panel-header">PRODUCT MIX</div><div class="panel-body">
+            ${(()=>{
+              const prodMix={}
+              selCust.trades.forEach(t=>{
+                const p=t.product||'Unknown'
+                if(!prodMix[p])prodMix[p]={product:p,vol:0,count:0}
+                prodMix[p].vol+=t.volume||0
+                prodMix[p].count++
+              })
+              const items=Object.values(prodMix).sort((a,b)=>b.vol-a.vol)
+              const maxVol=items[0]?.vol||1
+              return items.length?items.map(p=>`<div style="margin-bottom:8px"><div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:3px"><span class="bold">${escapeHtml(p.product)}</span><span>${fmtN(p.vol)} MBF (${p.count} trades)</span></div><div class="limit-bar"><div class="limit-fill" style="width:${p.vol/maxVol*100}%"></div></div></div>`).join(''):'<div class="empty-state">No data</div>'
+            })()}
+          </div></div>
+        </div></div>
+        `:''}
+
+        <div class="panel" style="margin-top:16px"><div class="panel-header">CUSTOMER PROFITABILITY</div>
+          <div class="panel-body" style="padding:0;overflow-x:auto"><table class="data-table"><thead><tr><th>Customer</th><th class="right">Trades</th><th class="right">Volume</th><th class="right">Avg Margin/MBF</th></tr></thead><tbody>
+            ${Object.keys(custMargins).length?Object.entries(custMargins).filter(([cu,d])=>d.vol>0).sort((x,y)=>(y[1].marginVal/y[1].vol)-(x[1].marginVal/x[1].vol)).map(([cu,d])=>{
+              const avgMargin=d.vol>0?d.marginVal/d.vol:0
+              return`<tr><td class="bold">${escapeHtml(cu)}</td><td class="right">${d.n}</td><td class="right">${fmtN(d.vol)} MBF</td><td class="right ${avgMargin>=0?'positive':'negative'} bold">${fmt(Math.round(avgMargin))}</td></tr>`
             }).join(''):'<tr><td colspan="4" class="empty-state">No linked sales yet</td></tr>'}
           </tbody></table></div></div>`;
     }
@@ -2082,7 +2243,7 @@ function render(){
               const lqColor=lqAge===null?'var(--muted)':lqAge<=3?'var(--positive)':lqAge<=7?'var(--warn,var(--accent))':'var(--negative)';
               const lqLabel=lq?(lqAge===0?'Today':lqAge===1?'Yesterday':lqAge+'d ago'):'Never';
               const lqTitle=lq?`${lq} (${m.quote_count||0} quotes)`:'No quotes on file';
-              return`<tr>${S.trader==='Admin'?`<td><span style="display:inline-block;width:18px;height:18px;border-radius:50%;background:${traderColor(m.trader||'Ian P')};color:var(--bg);font-size:9px;font-weight:700;text-align:center;line-height:18px" title="${m.trader||'Ian P'}">${traderInitial(m.trader||'Ian P')}</span></td>`:''}<td class="bold">${m.name}</td><td style="font-size:10px">${locs.length?locs.join(', '):'—'}</td><td style="font-size:10px;color:${lqColor}" title="${lqTitle}">${lqLabel}</td><td class="right">${trades.length}</td><td class="right">${fmtN(vol)} MBF</td><td style="white-space:nowrap"><button class="btn btn-default btn-sm" onclick="editMill('${m.name}')">Edit</button> <button class="btn btn-default btn-sm" onclick="deleteMill('${m.name}')" style="color:var(--negative)">×</button></td></tr>`;
+              return`<tr>${S.trader==='Admin'?`<td><span style="display:inline-block;width:18px;height:18px;border-radius:50%;background:${traderColor(m.trader||'Ian P')};color:var(--bg);font-size:9px;font-weight:700;text-align:center;line-height:18px" title="${escapeHtml(m.trader||'Ian P')}">${traderInitial(m.trader||'Ian P')}</span></td>`:''}<td class="bold">${escapeHtml(m.name||'')}</td><td style="font-size:10px">${locs.length?escapeHtml(locs.join(', ')):'—'}</td><td style="font-size:10px;color:${lqColor}" title="${escapeHtml(lqTitle)}">${lqLabel}</td><td class="right">${trades.length}</td><td class="right">${fmtN(vol)} MBF</td><td style="white-space:nowrap"><button class="btn btn-default btn-sm" onclick="editMill('${escapeHtml(m.name||'')}')">Edit</button> <button class="btn btn-default btn-sm" onclick="deleteMill('${escapeHtml(m.name||'')}')" style="color:var(--negative)">×</button></td></tr>`;
             }).join(''):`<tr><td colspan="${S.trader==='Admin'?7:6}" class="empty-state">No mills yet</td></tr>`}
           </tbody></table></div></div>`;
     }
@@ -2480,7 +2641,97 @@ function render(){
     renderMiSmartQuotes();
   }
   else if(S.view==='pnl-calendar'){
-    c.innerHTML=renderPnLCalendar();
+    // P&L Attribution Enhancement
+    const pnlPeriod=S.pnlPeriod||'mtd'
+    const _pnlNow=new Date()
+    const _pnlPeriodStart=(()=>{
+      const d=new Date()
+      if(pnlPeriod==='today'){d.setHours(0,0,0,0);return d}
+      if(pnlPeriod==='wtd'){d.setDate(d.getDate()-d.getDay());d.setHours(0,0,0,0);return d}
+      if(pnlPeriod==='mtd'){d.setDate(1);d.setHours(0,0,0,0);return d}
+      if(pnlPeriod==='qtd'){d.setMonth(Math.floor(d.getMonth()/3)*3,1);d.setHours(0,0,0,0);return d}
+      if(pnlPeriod==='ytd'){d.setMonth(0,1);d.setHours(0,0,0,0);return d}
+      return new Date(0)
+    })()
+    const _pnlInRange=d=>new Date(d)>=_pnlPeriodStart&&new Date(d)<=_pnlNow
+
+    // Build P&L attribution data
+    const _pnlBuyByOrder={}
+    S.buys.forEach(b=>{const ord=String(b.orderNum||b.po||'').trim();if(ord)_pnlBuyByOrder[ord]=b})
+    const _pnlTrades=S.sells.filter(s=>_pnlInRange(s.date)).map(s=>{
+      const ord=String(s.orderNum||s.linkedPO||s.oc||'').trim()
+      const buy=ord?_pnlBuyByOrder[ord]:null
+      const sellFrtMBF=s.volume>0?(s.freight||0)/s.volume:0
+      const fob=(s.price||0)-sellFrtMBF
+      const tradePnl=buy?(fob-(buy.price||0))*(s.volume||0):0
+      const freightPnl=-(s.freight||0)
+      return{...s,buy,tradePnl,freightPnl,totalPnl:tradePnl}
+    })
+    const _totalTradePnl=_pnlTrades.reduce((s,t)=>s+t.tradePnl,0)
+    const _totalFreightCost=_pnlTrades.reduce((s,t)=>s+t.freightPnl,0)
+
+    // By trader
+    const _byTrader={}
+    _pnlTrades.forEach(t=>{const tr=t.trader||'Ian P';if(!_byTrader[tr])_byTrader[tr]={trader:tr,pnl:0,vol:0,count:0};_byTrader[tr].pnl+=t.tradePnl;_byTrader[tr].vol+=t.volume||0;_byTrader[tr].count++})
+    const _traderList=Object.values(_byTrader).sort((a,b)=>b.pnl-a.pnl)
+
+    // By product
+    const _byProduct={}
+    _pnlTrades.forEach(t=>{const p=t.product||'Unknown';if(!_byProduct[p])_byProduct[p]={product:p,pnl:0,vol:0,count:0};_byProduct[p].pnl+=t.tradePnl;_byProduct[p].vol+=t.volume||0;_byProduct[p].count++})
+    const _productList=Object.values(_byProduct).sort((a,b)=>b.pnl-a.pnl)
+
+    // Top/bottom trades
+    const _sortedTrades=[..._pnlTrades].filter(t=>t.buy).sort((a,b)=>b.tradePnl-a.tradePnl)
+    const _topTrades=_sortedTrades.slice(0,5)
+    const _bottomTrades=_sortedTrades.slice(-5).reverse()
+
+    const periodLabels={today:'Today',wtd:'WTD',mtd:'MTD',qtd:'QTD',ytd:'YTD'}
+
+    const calendarHTML=renderPnLCalendar()
+    c.innerHTML=`
+      <!-- Period Selector -->
+      <div style="display:flex;gap:4px;margin-bottom:16px">
+        ${['today','wtd','mtd','qtd','ytd'].map(p=>`<button class="btn ${pnlPeriod===p?'btn-primary':'btn-default'} btn-sm" onclick="S.pnlPeriod='${p}';SS('pnlPeriod','${p}');render()">${periodLabels[p]}</button>`).join('')}
+      </div>
+
+      <!-- P&L Summary Cards -->
+      <div class="kpi-row" style="margin-bottom:20px">
+        <div class="kpi-card"><div class="kpi-label">Total P&L (${periodLabels[pnlPeriod]})</div><div class="kpi-value ${_totalTradePnl>=0?'positive':'negative'}">${fmt(Math.round(_totalTradePnl))}</div><div class="kpi-trend">${_pnlTrades.filter(t=>t.buy).length} matched trades</div></div>
+        <div class="kpi-card"><div class="kpi-label">Freight Cost</div><div class="kpi-value warn">${fmt(Math.round(Math.abs(_totalFreightCost)))}</div><div class="kpi-trend">${_pnlTrades.length} shipments</div></div>
+        <div class="kpi-card"><div class="kpi-label">Avg Margin/MBF</div><div class="kpi-value ${_totalTradePnl>=0?'positive':'negative'}">${_pnlTrades.reduce((s,t)=>s+(t.volume||0),0)>0?fmt(Math.round(_totalTradePnl/_pnlTrades.reduce((s,t)=>s+(t.volume||0),0))):'--'}</div></div>
+        <div class="kpi-card"><div class="kpi-label">Volume Traded</div><div class="kpi-value">${fmtN(_pnlTrades.reduce((s,t)=>s+(t.volume||0),0))} MBF</div></div>
+      </div>
+
+      <!-- Attribution Tables -->
+      <div class="grid-2" style="margin-bottom:20px">
+        <div class="panel"><div class="panel-header">P&L BY TRADER</div><div class="panel-body" style="padding:0">
+          <table class="data-table"><thead><tr><th>Trader</th><th class="right">Trades</th><th class="right">Volume</th><th class="right">P&L</th></tr></thead><tbody>
+            ${_traderList.length?_traderList.map(t=>`<tr style="border-left:3px solid ${traderColor(t.trader)}"><td class="bold">${escapeHtml(t.trader)}</td><td class="right">${t.count}</td><td class="right">${fmtN(t.vol)} MBF</td><td class="right ${t.pnl>=0?'positive':'negative'} bold">${fmt(Math.round(t.pnl))}</td></tr>`).join(''):'<tr><td colspan="4" class="empty-state">No data</td></tr>'}
+          </tbody></table>
+        </div></div>
+        <div class="panel"><div class="panel-header">P&L BY PRODUCT</div><div class="panel-body" style="padding:0">
+          <table class="data-table"><thead><tr><th>Product</th><th class="right">Trades</th><th class="right">Volume</th><th class="right">P&L</th></tr></thead><tbody>
+            ${_productList.length?_productList.slice(0,8).map(p=>`<tr><td class="bold">${escapeHtml(p.product)}</td><td class="right">${p.count}</td><td class="right">${fmtN(p.vol)} MBF</td><td class="right ${p.pnl>=0?'positive':'negative'} bold">${fmt(Math.round(p.pnl))}</td></tr>`).join(''):'<tr><td colspan="4" class="empty-state">No data</td></tr>'}
+          </tbody></table>
+        </div></div>
+      </div>
+
+      <!-- Top/Bottom Performers -->
+      <div class="grid-2" style="margin-bottom:20px">
+        <div class="panel"><div class="panel-header">BEST TRADES</div><div class="panel-body" style="padding:0">
+          <table class="data-table"><thead><tr><th>Date</th><th>Customer</th><th>Product</th><th class="right">P&L</th></tr></thead><tbody>
+            ${_topTrades.length?_topTrades.map(t=>`<tr><td>${fmtD(t.date)}</td><td>${escapeHtml(t.customer||'')}</td><td class="bold">${escapeHtml(t.product||'')}</td><td class="right positive bold">${fmt(Math.round(t.tradePnl))}</td></tr>`).join(''):'<tr><td colspan="4" class="empty-state">No data</td></tr>'}
+          </tbody></table>
+        </div></div>
+        <div class="panel"><div class="panel-header">WORST TRADES</div><div class="panel-body" style="padding:0">
+          <table class="data-table"><thead><tr><th>Date</th><th>Customer</th><th>Product</th><th class="right">P&L</th></tr></thead><tbody>
+            ${_bottomTrades.length?_bottomTrades.map(t=>`<tr><td>${fmtD(t.date)}</td><td>${escapeHtml(t.customer||'')}</td><td class="bold">${escapeHtml(t.product||'')}</td><td class="right negative bold">${fmt(Math.round(t.tradePnl))}</td></tr>`).join(''):'<tr><td colspan="4" class="empty-state">No data</td></tr>'}
+          </tbody></table>
+        </div></div>
+      </div>
+
+      <!-- Calendar -->
+      ${calendarHTML}`;
     setTimeout(()=>{
       const dailyPnL=calcDailyPnL();
       const month=S.calendarMonth||today().slice(0,7);
@@ -2640,4 +2891,45 @@ function render(){
 
   // Render AI side panel
   if(S.aiPanelOpen)renderAIPanel();
+}
+
+// Inline cell editing for blotter
+function editCell(td,field,ref){
+  if(td.querySelector('input'))return
+  const origText=td.textContent.trim().replace(/[,$MBF]/g,'')
+  const origVal=parseFloat(origText)||0
+  const input=document.createElement('input')
+  input.type='number'
+  input.value=origVal
+  input.style.cssText='width:70px;padding:2px 4px;font-size:11px;text-align:right;background:var(--bg);border:1px solid var(--accent);color:var(--text)'
+  input.onblur=()=>{
+    const newVal=parseFloat(input.value)||0
+    if(newVal!==origVal){
+      const [type,idStr]=ref.split('-')
+      const id=parseInt(idStr)
+      const arr=type==='buy'?S.buys:S.sells
+      const item=arr.find(x=>x.id===id)
+      if(item){
+        item[field]=newVal
+        if(typeof save==='function')save()
+        render()
+        showToast(`Updated ${field} to ${newVal}`,'info')
+      }
+    }else{
+      render()
+    }
+  }
+  input.onkeydown=e=>{
+    if(e.key==='Enter')input.blur()
+    if(e.key==='Escape'){input.value=origVal;input.blur()}
+  }
+  td.textContent=''
+  td.appendChild(input)
+  input.focus()
+  input.select()
+}
+
+// Sort blotter columns (alias for toggleSort if not defined)
+function sortBlotter(field){
+  if(typeof toggleSort==='function')toggleSort(field)
 }

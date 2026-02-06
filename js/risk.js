@@ -12,10 +12,11 @@ function getExposure(groupBy='product'){
 
   // Helper to get RL price for a product/region
   const getRLPrice=(product,region)=>{
-    if(!latestRL)return 400; // Default fallback
+    const defaultPrice=S.rl?.length>0?(S.rl[S.rl.length-1].west?.['2x4#2']||400):400;
+    if(!latestRL)return defaultPrice;
     const reg=region||'west';
     const prod=product||'2x4#2';
-    return latestRL[reg]?.[prod]||latestRL.west?.['2x4#2']||400;
+    return latestRL[reg]?.[prod]||latestRL.west?.['2x4#2']||defaultPrice;
   };
 
   // Calculate sold volume per order for net position
@@ -463,7 +464,7 @@ function getRiskDashboard(){
   riskScore+=ddRisk;
 
   // Inventory aging risk (up to 10 points)
-  const agingRisk=Math.min(10,((aging.twoWeek+aging.old)/aging.total)*20||0);
+  const agingRisk=Math.min(10,((aging.twoToFourWeek+aging.old)/aging.total)*20||0);
   riskScore+=agingRisk;
 
   // Determine risk level
@@ -556,13 +557,18 @@ function getCorrelationMatrix(weeks=12){
   const region='west';
   const matrix={};
 
-  // Get price series for each product
+  // Get return series for each product (consistent with calcHistoricalVolatility)
   const series={};
   products.forEach(prod=>{
-    series[prod]=S.rl.slice(-weeks).map(r=>r[region]?.[prod]).filter(p=>p&&p>0);
+    const prices=S.rl.slice(-weeks).map(r=>r[region]?.[prod]).filter(p=>p&&p>0);
+    const returns=[];
+    for(let i=1;i<prices.length;i++){
+      returns.push((prices[i]-prices[i-1])/prices[i-1]);
+    }
+    series[prod]=returns;
   });
 
-  // Calculate pairwise correlations
+  // Calculate pairwise correlations on returns
   products.forEach(prod1=>{
     matrix[prod1]={};
     products.forEach(prod2=>{
@@ -583,7 +589,12 @@ function getRegionalCorrelations(product='2x4#2',weeks=12){
   const series={};
 
   regions.forEach(reg=>{
-    series[reg]=S.rl.slice(-weeks).map(r=>r[reg]?.[product]).filter(p=>p&&p>0);
+    const prices=S.rl.slice(-weeks).map(r=>r[reg]?.[product]).filter(p=>p&&p>0);
+    const returns=[];
+    for(let i=1;i<prices.length;i++){
+      returns.push((prices[i]-prices[i-1])/prices[i-1]);
+    }
+    series[reg]=returns;
   });
 
   const correlations=[];

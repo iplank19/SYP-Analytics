@@ -75,6 +75,56 @@ const QUOTE_TEMPLATES={
 };
 
 const REGIONS=['west','central','east'];
+
+// Canonical region map: state code → region (single source of truth)
+const REGION_MAP={
+  TX:'west',LA:'west',AR:'west',OK:'west',
+  MS:'central',AL:'central',TN:'central',KY:'central',MO:'central',
+  GA:'east',FL:'east',SC:'east',NC:'east',VA:'east',WV:'east'
+};
+
+// Get RL region from state code. Default to 'central' for unknown.
+function getRegionFromState(stateCode){
+  if(!stateCode)return 'central';
+  return REGION_MAP[stateCode.toUpperCase()]||'central';
+}
+
+// All 50 US state codes for validation
+const US_STATES=['AL','AK','AZ','AR','CA','CO','CT','DE','FL','GA','HI','ID','IL','IN','IA','KS','KY','LA','ME','MD','MA','MI','MN','MS','MO','MT','NE','NV','NH','NJ','NM','NY','NC','ND','OH','OK','OR','PA','RI','SC','SD','TN','TX','UT','VT','VA','WA','WV','WI','WY'];
+
+// Extract state abbreviation from location string (e.g. "DeQuincy, LA" → "LA")
+function extractState(location){
+  if(!location)return null;
+  const str=location.toUpperCase();
+  // Try to find at end after comma
+  const match=str.match(/,\s*([A-Z]{2})\s*$/);
+  if(match&&US_STATES.includes(match[1]))return match[1];
+  // Try to find as whole word (avoid matching AL in DALLAS, etc.)
+  const words=str.split(/[\s,]+/);
+  for(const w of words){
+    if(w.length===2&&US_STATES.includes(w))return w;
+  }
+  return null;
+}
+
+// Normalize order number for matching buys to sells (case-insensitive trim)
+function normalizeOrderNum(s){
+  return String(s||'').trim().toUpperCase();
+}
+
+// Find a customer by name using normalizeCustomerName + exact match
+function findCustomerByName(name){
+  if(!name)return null;
+  const normalized=normalizeCustomerName(name);
+  return S.customers.find(c=>c.name&&c.name.toLowerCase()===normalized.toLowerCase())||null;
+}
+
+// Search customers by substring (fuzzy/substring search for AI and search UIs)
+function searchCustomers(query){
+  if(!query)return[];
+  const q=query.toLowerCase();
+  return S.customers.filter(c=>c.name&&c.name.toLowerCase().includes(q));
+}
 const DESTS=['Atlanta','Charlotte','Dallas','Memphis','Birmingham','Chicago','Houston','Nashville','Jacksonville','New Orleans'];
 const MILLS=[
   'Canfor - DeQuincy','Canfor - Urbana','Canfor - Fulton','Canfor - Axis','Canfor - El Dorado',
@@ -209,7 +259,21 @@ const _MILL_COMPANY_ALIASES={
   'harrigan':'Harrigan Lumber','harrigan lumber':'Harrigan Lumber','harrigan lumber co':'Harrigan Lumber',
   'lumberton':'Idaho Forest Group','lumberton lumber':'Idaho Forest Group','idaho forest group - lumberton':'Idaho Forest Group',
   'wm sheppard':'WM Sheppard Lumber','wm sheppard lumber':'WM Sheppard Lumber','wm sheppard lumber co inc':'WM Sheppard Lumber','wm shepard':'WM Sheppard Lumber','wm shepard lumber':'WM Sheppard Lumber',
-  'waldo':'PotlatchDeltic','charles ingram':'Charles Ingram Lumber','charles ingram lumber':'Charles Ingram Lumber','charles ingram lumber co':'Charles Ingram Lumber'
+  'waldo':'PotlatchDeltic','charles ingram':'Charles Ingram Lumber','charles ingram lumber':'Charles Ingram Lumber','charles ingram lumber co':'Charles Ingram Lumber',
+  // Merged from _MILL_CRM_ALIASES
+  'canfor southern pine inc':'Canfor','canfor southern':'Canfor',
+  'georgia pacific llc':'GP',
+  'interfor pacific':'Interfor','interfor pacific inc':'Interfor','interfor pacific, inc.':'Interfor',
+  'potlatch - warren':'PotlatchDeltic','potlatchdeltic waldo':'PotlatchDeltic','potlatchdeltic - waldo':'PotlatchDeltic','potlatchdeltic - warren':'PotlatchDeltic','potlatchdeltic - ola':'PotlatchDeltic',
+  'rex lumber bristol llc':'Rex Lumber','rex lumber bristol':'Rex Lumber',
+  'west fraser inc':'West Fraser','west fraser timber':'West Fraser',
+  'weyerhaeuser company':'Weyerhaeuser','weyerhaeuser nr company':'Weyerhaeuser',
+  'anthony timber':'Anthony Timberlands',
+  'ida forest':'Idaho Forest Group',
+  // Merged from app.py backend (missing from frontend)
+  'potlatchdeltic ola':'PotlatchDeltic',
+  'green bay packaging inc.':'Green Bay Packaging',
+  'resolute fp us':'Resolute FP'
 };
 
 // Derived company-level list (for datalists/dropdowns — one per company, not per location)
@@ -429,22 +493,35 @@ function normalizeMillCompany(raw){
   return extractMillCompany(trimmed)
 }
 
-// Mill aliases for CRM deduplication (lowercase → canonical)
-const _MILL_CRM_ALIASES={
-  'binderholz':'Binderholz','binderholz timber llc':'Binderholz','binderholz timber':'Binderholz',
-  'canfor':'Canfor','canfor southern pine inc':'Canfor','canfor southern pine':'Canfor','canfor southern':'Canfor',
-  'gp':'GP','georgia pacific':'GP','georgia-pacific':'GP','georgia pacific llc':'GP',
-  'interfor':'Interfor','interfor pacific':'Interfor','interfor pacific inc':'Interfor','interfor pacific, inc.':'Interfor',
-  'potlatch':'PotlatchDeltic','potlatchdeltic':'PotlatchDeltic','potlatch - warren':'PotlatchDeltic','potlatchdeltic waldo':'PotlatchDeltic','potlatchdeltic - waldo':'PotlatchDeltic','potlatchdeltic - warren':'PotlatchDeltic','potlatchdeltic - ola':'PotlatchDeltic',
-  'rex lumber':'Rex Lumber','rex lumber bristol llc':'Rex Lumber','rex lumber bristol':'Rex Lumber',
-  'west fraser':'West Fraser','west fraser inc':'West Fraser','west fraser timber':'West Fraser',
-  'weyerhaeuser':'Weyerhaeuser','weyerhaeuser company':'Weyerhaeuser','weyerhaeuser nr company':'Weyerhaeuser',
-  'hunt forest':'Hunt Forest Products','hunt forest products':'Hunt Forest Products',
-  'anthony timberlands':'Anthony Timberlands','anthony timber':'Anthony Timberlands',
-  'big river forest':'Big River Forest Products','big river forest products':'Big River Forest Products',
-  'beasley forest':'Beasley Forest Products','beasley forest products':'Beasley Forest Products',
-  'ida forest':'Idaho Forest Group','idaho forest':'Idaho Forest Group','idaho forest group':'Idaho Forest Group',
-  'vicksburg forest':'Vicksburg Forest Products','vicksburg forest products':'Vicksburg Forest Products'
+// Mill CRM aliases — now references the canonical _MILL_COMPANY_ALIASES
+// Kept as a reference for backward compatibility; all entries are in _MILL_COMPANY_ALIASES
+const _MILL_CRM_ALIASES=_MILL_COMPANY_ALIASES;
+
+// Location-specific aliases: maps "company city" shorthand → canonical "Company - City"
+// Used by miNormalizeMillName for Mill Intel intake
+const _MILL_LOCATION_ALIASES={
+  'canfor dq':'Canfor - DeQuincy','canfor dequincy':'Canfor - DeQuincy','canfor - dequincy':'Canfor - DeQuincy',
+  'canfor urbana':'Canfor - Urbana','canfor - urbana':'Canfor - Urbana',
+  'wf huttig':'West Fraser - Huttig','west fraser huttig':'West Fraser - Huttig','west fraser - huttig':'West Fraser - Huttig',
+  'wf leola':'West Fraser - Leola','west fraser leola':'West Fraser - Leola','west fraser - leola':'West Fraser - Leola',
+  'interfor monticello':'Interfor - Monticello','interfor - monticello':'Interfor - Monticello',
+  'interfor georgetown':'Interfor - Georgetown','interfor - georgetown':'Interfor - Georgetown',
+  'gp clarendon':'GP - Clarendon','gp - clarendon':'GP - Clarendon',
+  'gp camden':'GP - Camden','gp - camden':'GP - Camden',
+  'rex lumber bristol':'Rex Lumber - Bristol','rex lumber - bristol':'Rex Lumber - Bristol',
+  'rex lumber graceville':'Rex Lumber - Graceville','rex lumber - graceville':'Rex Lumber - Graceville',
+  'rex lumber troy':'Rex Lumber - Troy','rex lumber - troy':'Rex Lumber - Troy',
+  'rex lumber brookhaven':'Rex Lumber - Brookhaven','rex lumber - brookhaven':'Rex Lumber - Brookhaven',
+  'weyerhaeuser dierks':'Weyerhaeuser - Dierks','weyerhaeuser - dierks':'Weyerhaeuser - Dierks',
+  'tolko leland':'Tolko - Leland','tolko - leland':'Tolko - Leland',
+  'lumberton lumber':'Idaho Forest Group - Lumberton','lumberton':'Idaho Forest Group - Lumberton',
+  'idaho forest group - lumberton':'Idaho Forest Group - Lumberton',
+  'ifg lumberton':'Idaho Forest Group - Lumberton',
+  'binderholz live oak':'Binderholz - Live Oak','binderholz - live oak':'Binderholz - Live Oak',
+  'binderholz enfield':'Binderholz - Enfield','binderholz - enfield':'Binderholz - Enfield',
+  'hunt forest':'Hunt Forest Products - Winnfield','hunt forest products':'Hunt Forest Products - Winnfield',
+  'biewer newton':'Biewer - Newton','biewer - newton':'Biewer - Newton',
+  'biewer winona':'Biewer - Winona','biewer - winona':'Biewer - Winona'
 };
 
 // Normalize mill name for CRM - matches existing mills to prevent duplicates
@@ -630,7 +707,7 @@ const NAV_GROUPS=[
 ];
 
 const LS=(k,d)=>{try{const v=localStorage.getItem('syp_'+k);return v?JSON.parse(v):d}catch{return d}};
-const SS=(k,v)=>{try{localStorage.setItem('syp_'+k,JSON.stringify(v))}catch{}};
+const SS=(k,v)=>{try{localStorage.setItem('syp_'+k,JSON.stringify(v))}catch(e){console.warn('localStorage write failed for key "'+k+'":', e.message);S._localStorageFull=true}};
 
 // Traders in department
 const TRADERS=['Ian P','Aubrey M','Hunter S','Sawyer R','Jackson M','John W'];
@@ -846,13 +923,16 @@ migrateTraderNames();
 })();
 
 const genId=(()=>{
-  // Timestamp + counter + random suffix for collision-free batch IDs
+  // Use crypto.randomUUID if available, else timestamp + counter + random suffix
+  if(typeof crypto!=='undefined'&&typeof crypto.randomUUID==='function'){
+    return()=>crypto.randomUUID()
+  }
   let _lastTs=0,_counter=0;
   return()=>{
     const ts=Date.now();
     if(ts===_lastTs){_counter++}else{_counter=0;_lastTs=ts}
-    const rnd=Math.floor(Math.random()*1e3);
-    return (ts%1e10)*1e6+_counter*1e3+rnd;
+    const rnd=Math.floor(Math.random()*1e8);
+    return (ts%1e10)*1e9+_counter*1e8+rnd;
   };
 })();
 

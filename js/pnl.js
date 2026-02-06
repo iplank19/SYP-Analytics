@@ -270,7 +270,7 @@ function getMTMPnL(){
 // ============================================================================
 
 // Calculate daily P&L from matched trades
-function calcDailyPnL(days=30){
+function calcDetailedDailyPnL(days=30){
   const buyByOrder=buildBuyByOrderForPnL();
   const dailyPnL={};
   const now=new Date();
@@ -320,7 +320,7 @@ function calcDailyPnL(days=30){
 // Get contribution analysis showing what % each segment contributes
 function getContributionAnalysis(groupBy='product',period='30d'){
   const breakdown=getPnLBreakdown({groupBy,period});
-  const totalPnL=Math.abs(breakdown.totals.pnl)||1;
+  const totalPnL=breakdown.totals.pnl||1;
   const totalVol=breakdown.totals.volume||1;
   const totalRev=breakdown.totals.revenue||1;
 
@@ -431,7 +431,7 @@ function getProductProfitability(period='30d'){
 // Get comprehensive P&L dashboard data
 function getPnLDashboard(){
   const period=S.filters?.date||'30d';
-  const dailyPnL=calcDailyPnL(90);
+  const dailyPnL=calcDetailedDailyPnL(90);
   const mtm=getMTMPnL();
   const productBreakdown=getPnLBreakdown({groupBy:'product',period});
   const traderPerf=getTraderPerformance(period);
@@ -503,7 +503,7 @@ function getPnLDashboard(){
 
 // Get rolling P&L for charting
 function getRollingPnL(days=30){
-  const dailyPnL=calcDailyPnL(days);
+  const dailyPnL=calcDetailedDailyPnL(days);
   const now=new Date();
   const result=[];
 

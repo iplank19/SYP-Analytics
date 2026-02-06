@@ -53,14 +53,14 @@ function showBuyModal(b=null){
       </div>`:''}
       <div class="form-grid">
         <div class="form-group"><label class="form-label">Order #</label>
-          <input type="text" id="m-orderNum" value="${b?.orderNum||b?.po||''}" placeholder="e.g. 70123" list="order-list-buy" onchange="onBuyOrderChange()">
-          <datalist id="order-list-buy">${uncoveredSells.map(s=>{const ord=String(s.orderNum||s.linkedPO||s.oc||'').trim();return`<option value="${ord}">${ord} - ${s.product} ${s.length||'RL'} to ${s.customer} (SHORT)</option>`}).join('')}</datalist>
+          <input type="text" id="m-orderNum" value="${escapeHtml(b?.orderNum||b?.po||'')}" placeholder="e.g. 70123" list="order-list-buy" onchange="onBuyOrderChange()">
+          <datalist id="order-list-buy">${uncoveredSells.map(s=>{const ord=String(s.orderNum||s.linkedPO||s.oc||'').trim();return`<option value="${escapeHtml(ord)}">${escapeHtml(ord)} - ${escapeHtml(s.product||'')} ${escapeHtml(s.length||'RL')} to ${escapeHtml(s.customer||'')} (SHORT)</option>`}).join('')}</datalist>
         </div>
         <div class="form-group"><label class="form-label">Date</label><input type="date" id="m-date" value="${b?.date||today()}"></div>
-        <div class="form-group"><label class="form-label">Mill</label><input type="text" id="m-mill" value="${b?.mill||''}" list="mill-list" placeholder="Type or select..." onchange="autoFillOrigin()"><datalist id="mill-list">${millList.map(m=>`<option value="${m}">`).join('')}</datalist></div>
-        <div class="form-group"><label class="form-label">Origin (City, ST)</label><input type="text" id="m-origin" value="${b?.origin||''}" list="origin-list" placeholder="e.g. Warren, AR"><datalist id="origin-list">${origins.map(o=>`<option value="${o}">`).join('')}</datalist></div>
+        <div class="form-group"><label class="form-label">Mill</label><input type="text" id="m-mill" value="${escapeHtml(b?.mill||'')}" list="mill-list" placeholder="Type or select..." onchange="autoFillOrigin()"><datalist id="mill-list">${millList.map(m=>`<option value="${escapeHtml(m)}">`).join('')}</datalist></div>
+        <div class="form-group"><label class="form-label">Origin (City, ST)</label><input type="text" id="m-origin" value="${escapeHtml(b?.origin||'')}" list="origin-list" placeholder="e.g. Warren, AR"><datalist id="origin-list">${origins.map(o=>`<option value="${escapeHtml(o)}">`).join('')}</datalist></div>
         <div class="form-group"><label class="form-label">Region</label><select id="m-region" onchange="toggleBuyOptions()">${REGIONS.map(r=>`<option value="${r}" ${b?.region===r?'selected':''}>${r.charAt(0).toUpperCase()+r.slice(1)}</option>`).join('')}</select></div>
-        <div class="form-group"><label class="form-label">Product</label><input type="text" id="m-product" value="${b?.product||''}" list="prod-list" placeholder="e.g. 2x4#2, 2x6 MSR" onchange="toggleBuyOptions();calcBuyVolume()"><datalist id="prod-list">${prodList.map(p=>`<option value="${p}">`).join('')}</datalist></div>
+        <div class="form-group"><label class="form-label">Product</label><input type="text" id="m-product" value="${escapeHtml(b?.product||'')}" list="prod-list" placeholder="e.g. 2x4#2, 2x6 MSR" onchange="toggleBuyOptions();calcBuyVolume()"><datalist id="prod-list">${prodList.map(p=>`<option value="${escapeHtml(p)}">`).join('')}</datalist></div>
         <div class="form-group"><label class="form-label">Length</label><select id="m-length" onchange="toggleBuyOptions();calcBuyVolume()"><option value="">Select...</option><option value="8" ${b?.length==='8'?'selected':''}>8'</option><option value="10" ${b?.length==='10'?'selected':''}>10'</option><option value="12" ${b?.length==='12'?'selected':''}>12'</option><option value="14" ${b?.length==='14'?'selected':''}>14'</option><option value="16" ${b?.length==='16'?'selected':''}>16'</option><option value="18" ${b?.length==='18'?'selected':''}>18'</option><option value="20" ${b?.length==='20'?'selected':''}>20'</option><option value="RL" ${b?.length==='RL'?'selected':''}>RL (Random)</option></select></div>
         <div class="form-group"><label class="form-label">Units (Bunks)</label><input type="number" id="m-units" value="${b?.units||''}" placeholder="# of units" onchange="calcBuyVolume()" step="0.01"></div>
         <div class="form-group"><label class="form-label">Pcs/Unit (PPU)</label><input type="number" id="m-ppu" value="${b?.ppu||''}" placeholder="auto" onchange="calcBuyVolume()" step="1"><div id="ppu-display-buy" style="font-size:10px;color:var(--muted);margin-top:2px"></div></div>
@@ -164,8 +164,8 @@ function showBuyModal(b=null){
         Freight is entered on the sell (OC) side and applies to the matched trade.
       </div>
       
-      <div class="form-group" style="margin-top:12px"><label class="form-label">Ship Week</label><input type="text" id="m-shipWeek" value="${b?.shipWeek||''}" placeholder="e.g. 2/10, Prompt, ASAP"></div>
-      <div class="form-group" style="margin-top:12px"><label class="form-label">Notes</label><textarea id="m-notes">${b?.notes||''}</textarea></div>
+      <div class="form-group" style="margin-top:12px"><label class="form-label">Ship Week</label><input type="text" id="m-shipWeek" value="${escapeHtml(b?.shipWeek||'')}" placeholder="e.g. 2/10, Prompt, ASAP"></div>
+      <div class="form-group" style="margin-top:12px"><label class="form-label">Notes</label><textarea id="m-notes">${escapeHtml(b?.notes||'')}</textarea></div>
     </div>
     <div class="modal-footer"><button class="btn btn-default" onclick="closeModal()">Cancel</button><button class="btn btn-success" onclick="saveBuy(${b?.id||'null'})">Save</button></div>
   </div></div>`;
@@ -1452,14 +1452,14 @@ function showSellModal(s=null){
       </div>`:''}
       <div class="form-grid">
         <div class="form-group"><label class="form-label">Order #</label>
-          <input type="text" id="m-orderNum" value="${s?.orderNum||s?.linkedPO||s?.oc||''}" placeholder="e.g. 70123" list="order-list-sell" onchange="onSellOrderChange();updateSellCalc()">
-          <datalist id="order-list-sell">${availBuys.map(b=>`<option value="${b.ord}">${b.ord} - ${b.product} ${b.length||'RL'} from ${b.mill} | ${fmtN(b.avail)} MBF avail</option>`).join('')}</datalist>
+          <input type="text" id="m-orderNum" value="${escapeHtml(s?.orderNum||s?.linkedPO||s?.oc||'')}" placeholder="e.g. 70123" list="order-list-sell" onchange="onSellOrderChange();updateSellCalc()">
+          <datalist id="order-list-sell">${availBuys.map(b=>`<option value="${escapeHtml(b.ord||'')}">${escapeHtml(b.ord||'')} - ${escapeHtml(b.product||'')} ${escapeHtml(b.length||'RL')} from ${escapeHtml(b.mill||'')} | ${fmtN(b.avail)} MBF avail</option>`).join('')}</datalist>
         </div>
         <div class="form-group"><label class="form-label">Date</label><input type="date" id="m-date" value="${s?.date||today()}"></div>
-        <div class="form-group"><label class="form-label">Customer</label><input type="text" id="m-cust" value="${s?.customer||''}" list="cust-list" placeholder="Type or select..." onchange="autoFillDest()"><datalist id="cust-list">${custList.map(c=>`<option value="${c}">`).join('')}</datalist></div>
-        <div class="form-group"><label class="form-label">Destination (City, ST)</label><input type="text" id="m-dest" value="${s?.destination||''}" list="dest-list" placeholder="e.g. Cincinnati, OH" onchange="autoFillFreightFromLane()"><datalist id="dest-list">${dests.map(d=>`<option value="${d}">`).join('')}</datalist></div>
+        <div class="form-group"><label class="form-label">Customer</label><input type="text" id="m-cust" value="${escapeHtml(s?.customer||'')}" list="cust-list" placeholder="Type or select..." onchange="autoFillDest()"><datalist id="cust-list">${custList.map(c=>`<option value="${escapeHtml(c)}">`).join('')}</datalist></div>
+        <div class="form-group"><label class="form-label">Destination (City, ST)</label><input type="text" id="m-dest" value="${escapeHtml(s?.destination||'')}" list="dest-list" placeholder="e.g. Cincinnati, OH" onchange="autoFillFreightFromLane()"><datalist id="dest-list">${dests.map(d=>`<option value="${escapeHtml(d)}">`).join('')}</datalist></div>
         <div class="form-group"><label class="form-label">Region</label><select id="m-region" onchange="toggleSellOptions()">${REGIONS.map(r=>`<option value="${r}" ${s?.region===r?'selected':''}>${r.charAt(0).toUpperCase()+r.slice(1)}</option>`).join('')}</select></div>
-        <div class="form-group"><label class="form-label">Product</label><input type="text" id="m-product" value="${s?.product||''}" list="prod-list" placeholder="e.g. 2x4#2, 2x6 MSR" onchange="toggleSellOptions();calcSellVolume()"><datalist id="prod-list">${prodList.map(p=>`<option value="${p}">`).join('')}</datalist></div>
+        <div class="form-group"><label class="form-label">Product</label><input type="text" id="m-product" value="${escapeHtml(s?.product||'')}" list="prod-list" placeholder="e.g. 2x4#2, 2x6 MSR" onchange="toggleSellOptions();calcSellVolume()"><datalist id="prod-list">${prodList.map(p=>`<option value="${escapeHtml(p)}">`).join('')}</datalist></div>
         <div class="form-group"><label class="form-label">Length</label><select id="m-length" onchange="toggleSellOptions();calcSellVolume()"><option value="">Select...</option><option value="8" ${s?.length==='8'?'selected':''}>8'</option><option value="10" ${s?.length==='10'?'selected':''}>10'</option><option value="12" ${s?.length==='12'?'selected':''}>12'</option><option value="14" ${s?.length==='14'?'selected':''}>14'</option><option value="16" ${s?.length==='16'?'selected':''}>16'</option><option value="18" ${s?.length==='18'?'selected':''}>18'</option><option value="20" ${s?.length==='20'?'selected':''}>20'</option><option value="RL" ${s?.length==='RL'?'selected':''}>RL (Random)</option></select></div>
         <div class="form-group"><label class="form-label">Units (Bunks)</label><input type="number" id="m-units" value="${s?.units||''}" placeholder="# of units" onchange="calcSellVolume()" step="0.01"></div>
         <div class="form-group"><label class="form-label">Pcs/Unit (PPU)</label><input type="number" id="m-ppu" value="${s?.ppu||''}" placeholder="auto" onchange="calcSellVolume()" step="1"><div id="ppu-display-sell" style="font-size:10px;color:var(--muted);margin-top:2px"></div></div>
@@ -1568,8 +1568,8 @@ function showSellModal(s=null){
       </div>
       
       <div id="sell-calc" style="margin-top:16px;padding:16px;background:var(--bg);border:1px solid var(--border)"></div>
-      <div class="form-group" style="margin-top:12px"><label class="form-label">Ship Week</label><input type="text" id="m-shipWeek" value="${s?.shipWeek||''}" placeholder="e.g. 2/10, Prompt, ASAP"></div>
-      <div class="form-group" style="margin-top:12px"><label class="form-label">Notes</label><textarea id="m-notes">${s?.notes||''}</textarea></div>
+      <div class="form-group" style="margin-top:12px"><label class="form-label">Ship Week</label><input type="text" id="m-shipWeek" value="${escapeHtml(s?.shipWeek||'')}" placeholder="e.g. 2/10, Prompt, ASAP"></div>
+      <div class="form-group" style="margin-top:12px"><label class="form-label">Notes</label><textarea id="m-notes">${escapeHtml(s?.notes||'')}</textarea></div>
       <div style="margin-top:12px"><label><input type="checkbox" id="m-delivered" ${s?.delivered?'checked':''}> Delivered</label></div>
     </div>
     <div class="modal-footer"><button class="btn btn-default" onclick="closeModal()">Cancel</button><button class="btn btn-primary" onclick="saveSell(${s?.id||'null'})">Save</button></div>
@@ -2499,10 +2499,10 @@ function showImportPreview(orders){
               <td style="font-weight:600">${o.orderNum}</td>
               <td>${statusBadge(o.status)}${existsInfo?' '+existsInfo:''}</td>
               <td>${sell.trader?TRADER_MAP[sell.trader]||sell.trader:'—'}</td>
-              <td style="font-size:10px">${sell.customer||'—'}</td>
-              <td>${buy.trader?TRADER_MAP[buy.trader]||buy.trader:'—'}</td>
-              <td style="font-size:10px">${buy.mill||'—'}</td>
-              <td>${sell.product||buy.product||'—'} <span style="color:var(--muted);font-size:9px">${lenSummary}</span>${isMixed?`<div style="font-size:9px;color:var(--warn);margin-top:2px">${itemBreakdown}</div>`:''}</td>
+              <td style="font-size:10px">${escapeHtml(sell.customer||'—')}</td>
+              <td>${buy.trader?escapeHtml(TRADER_MAP[buy.trader]||buy.trader):'—'}</td>
+              <td style="font-size:10px">${escapeHtml(buy.mill||'—')}</td>
+              <td>${escapeHtml(sell.product||buy.product||'—')} <span style="color:var(--muted);font-size:9px">${escapeHtml(lenSummary)}</span>${isMixed?`<div style="font-size:9px;color:var(--warn);margin-top:2px">${escapeHtml(itemBreakdown)}</div>`:''}</td>
               <td style="text-align:right">${totalUnits}</td>
               <td style="text-align:right;font-weight:600">${totalMBF}</td>
               <td>${sellPrices||'<span style="color:var(--negative)">—</span>'}</td>
@@ -2551,11 +2551,11 @@ function editImportOrder(idx){
         </div>
         <div class="form-group">
           <label class="form-label">Customer</label>
-          <input type="text" id="edit-customer" class="form-control" value="${sell.customer||''}" placeholder="Customer name">
+          <input type="text" id="edit-customer" class="form-control" value="${escapeHtml(sell.customer||'')}" placeholder="Customer name">
         </div>
         <div class="form-group">
           <label class="form-label">Destination (City, State)</label>
-          <input type="text" id="edit-destination" class="form-control" value="${sell.destination||''}" placeholder="e.g. Dallas, TX">
+          <input type="text" id="edit-destination" class="form-control" value="${escapeHtml(sell.destination||'')}" placeholder="e.g. Dallas, TX">
         </div>
         <div class="form-group">
           <label class="form-label">Sell Price ($/MBF)</label>
@@ -2574,11 +2574,11 @@ function editImportOrder(idx){
         </div>
         <div class="form-group">
           <label class="form-label">Mill</label>
-          <input type="text" id="edit-mill" class="form-control" value="${buy.mill||''}" placeholder="Mill name">
+          <input type="text" id="edit-mill" class="form-control" value="${escapeHtml(buy.mill||'')}" placeholder="Mill name">
         </div>
         <div class="form-group">
           <label class="form-label">Origin (City, State)</label>
-          <input type="text" id="edit-origin" class="form-control" value="${buy.origin||''}" placeholder="e.g. Gurdon, AR">
+          <input type="text" id="edit-origin" class="form-control" value="${escapeHtml(buy.origin||'')}" placeholder="e.g. Gurdon, AR">
         </div>
         <div class="form-group">
           <label class="form-label">Buy Price ($/MBF)</label>
@@ -2798,10 +2798,10 @@ async function showFreightStep(){
             const items=sell.items||buy.items||[];
             const totalMBF=Math.round(items.reduce((s,it)=>s+(it.volume||0),0)*100)/100;
             return`<tr>
-              <td style="font-weight:600">${o.orderNum}</td>
-              <td style="font-size:10px">${buy.origin||'—'}</td>
-              <td style="font-size:10px">${sell.destination||'—'}</td>
-              <td>${sell.product||buy.product||'—'}</td>
+              <td style="font-weight:600">${escapeHtml(o.orderNum)}</td>
+              <td style="font-size:10px">${escapeHtml(buy.origin)||'—'}</td>
+              <td style="font-size:10px">${escapeHtml(sell.destination)||'—'}</td>
+              <td>${escapeHtml(sell.product||buy.product)||'—'}</td>
               <td style="text-align:right">${totalMBF}</td>
               <td style="text-align:right"><span id="miles-${o.orderNum}" class="miles-val" style="color:var(--muted)">...</span></td>
               <td><input type="number" id="freight-${o.orderNum}" class="freight-input" data-order="${o.orderNum}" style="width:80px;padding:4px 6px;text-align:right" placeholder="0" min="0" step="1"></td>

@@ -1,4 +1,14 @@
 // SYP Analytics - App Init & Settings
+
+// Secure password hashing using Web Crypto API (SHA-256)
+async function hashPassword(input){
+  const encoder=new TextEncoder()
+  const data=encoder.encode(input)
+  const hashBuffer=await crypto.subtle.digest('SHA-256',data)
+  const hashArray=Array.from(new Uint8Array(hashBuffer))
+  return hashArray.map(b=>b.toString(16).padStart(2,'0')).join('')
+}
+
 // SETTINGS
 function saveKey(){S.apiKey=document.getElementById('api-key').value.trim();SS('apiKey',S.apiKey);showToast('API key saved!','positive')}
 function saveFlatRate(){S.flatRate=parseFloat(document.getElementById('flat-rate').value)||3.50;SS('flatRate',S.flatRate);showToast('Flat rate saved: $'+S.flatRate+'/mile','positive')}
@@ -138,8 +148,8 @@ function showAllAchievements(){
 
 // Supabase functions
 function saveSupabaseConfig(){
-  const url=document.getElementById('sb-url')?.value.trim()||DEFAULT_SUPABASE_URL;
-  const key=document.getElementById('sb-key')?.value.trim()||DEFAULT_SUPABASE_KEY;
+  const url=document.getElementById('sb-url')?.value.trim()||SUPABASE_URL;
+  const key=document.getElementById('sb-key')?.value.trim()||SUPABASE_KEY;
   const user=document.getElementById('sb-user')?.value.trim()||'default';
   
   SS('supabaseUrl',url);
@@ -160,7 +170,7 @@ function saveUserIdOnly(){
   SS('supabaseUserId',user);
   
   // Re-init with defaults + new user ID
-  initSupabase(DEFAULT_SUPABASE_URL,DEFAULT_SUPABASE_KEY);
+  initSupabase(SUPABASE_URL,SUPABASE_KEY);
   showToast('User ID saved: '+user,'positive');
   render();
 }
@@ -289,9 +299,10 @@ async function init(){
   migrateTraderNames();
   if(!localStorage.getItem('syp_entityMigration_v1')){migrateEntityNames();localStorage.setItem('syp_entityMigration_v1','1')}
 
-  // Init Supabase (uses hardcoded defaults if not overridden)
-  const sbUrl=LS('supabaseUrl','')||DEFAULT_SUPABASE_URL;
-  const sbKey=LS('supabaseKey','')||DEFAULT_SUPABASE_KEY;
+  // Init Supabase (loads from backend config or user settings)
+  await loadSupabaseConfig()
+  const sbUrl=LS('supabaseUrl','')||SUPABASE_URL;
+  const sbKey=LS('supabaseKey','')||SUPABASE_KEY;
   if(sbUrl&&sbKey){
     initSupabase(sbUrl,sbKey);
     // Auto-pull on load with loading indicator
@@ -326,8 +337,10 @@ async function init(){
   document.querySelector('.ai-toggle').style.display='';
 
   initStatusBar();
+  if(typeof initKeyboard==='function')initKeyboard();
   render();
-  
+  updateNotificationBadge();
+
   // Show sync status
   if(sbUrl&&sbKey){
     showToast('☁️ Logged in as '+S.trader,'info');
@@ -507,10 +520,13 @@ async function doLogin(){
   errEl.textContent='Checking...';
 
   // Pull passwords from cloud first
+  await loadSupabaseConfig()
   let passwords=safeJSONParse(localStorage.getItem('traderPasswords'),{});
-  try{
-    const res=await fetch(`${DEFAULT_SUPABASE_URL}/rest/v1/syp_data?user_id=eq.default&select=data`,{
-      headers:{'apikey':DEFAULT_SUPABASE_KEY,'Authorization':`Bearer ${DEFAULT_SUPABASE_KEY}`}
+  if(!SUPABASE_URL||!SUPABASE_KEY){
+    // Skip cloud pull if not configured
+  }else try{
+    const res=await fetch(`${SUPABASE_URL}/rest/v1/syp_data?user_id=eq.default&select=data`,{
+      headers:{'apikey':SUPABASE_KEY,'Authorization':`Bearer ${SUPABASE_KEY}`}
     });
     const rows=await res.json();
     if(rows&&rows[0]?.data?.traderPasswords){
@@ -528,10 +544,33 @@ async function doLogin(){
     return;
   }
 
-  // Simple hash comparison
-  const hash=btoa(input.split('').reverse().join('')+input.length);
+  // Secure hash comparison
+  const hash=await hashPassword(input)
 
-  if(hash===stored){
+  // Also accept legacy btoa hash for migration (one-time)
+  const legacyHash=btoa(input.split('').reverse().join('')+input.length)
+  const isLegacy=hash!==stored&&legacyHash===stored
+
+  if(hash===stored||isLegacy){
+    // Migrate legacy hash to SHA-256
+    if(isLegacy){
+      passwords[trader]=hash
+      localStorage.setItem('traderPasswords',JSON.stringify(passwords))
+      try{
+        const pullRes=await fetch(`${SUPABASE_URL}/rest/v1/syp_data?user_id=eq.default&select=data`,{
+          headers:{'apikey':SUPABASE_KEY,'Authorization':`Bearer ${SUPABASE_KEY}`}
+        })
+        const pullRows=await pullRes.json()
+        if(pullRows&&pullRows[0]?.data){
+          pullRows[0].data.traderPasswords={...(pullRows[0].data.traderPasswords||{}),...passwords}
+          await fetch(`${SUPABASE_URL}/rest/v1/syp_data?user_id=eq.default`,{
+            method:'PATCH',
+            headers:{'apikey':SUPABASE_KEY,'Authorization':`Bearer ${SUPABASE_KEY}`,'Content-Type':'application/json','Prefer':'return=minimal'},
+            body:JSON.stringify({data:pullRows[0].data})
+          })
+        }
+      }catch(e){console.log('Legacy hash migration sync failed:',e)}
+    }
     S.trader=trader;
     SS('trader',trader);
     sessionStorage.setItem('syp_logged_in','true');
@@ -555,15 +594,21 @@ async function setupTraderPassword(){
   errEl.textContent='Saving...';
 
   const passwords=safeJSONParse(localStorage.getItem('traderPasswords'),{});
-  const hash=btoa(pwd.split('').reverse().join('')+pwd.length);
+  const hash=await hashPassword(pwd)
   passwords[trader]=hash;
   localStorage.setItem('traderPasswords',JSON.stringify(passwords));
 
   // Sync to cloud
+  await loadSupabaseConfig()
+  if(!SUPABASE_URL||!SUPABASE_KEY){
+    errEl.innerHTML=`<span style="color:var(--positive)">Password set locally for ${escapeHtml(trader)}. Cloud sync not configured.</span>`;
+    document.getElementById('new-password').value='';
+    return;
+  }
   try{
     // First pull existing data
-    const res=await fetch(`${DEFAULT_SUPABASE_URL}/rest/v1/syp_data?user_id=eq.default&select=data`,{
-      headers:{'apikey':DEFAULT_SUPABASE_KEY,'Authorization':`Bearer ${DEFAULT_SUPABASE_KEY}`}
+    const res=await fetch(`${SUPABASE_URL}/rest/v1/syp_data?user_id=eq.default&select=data`,{
+      headers:{'apikey':SUPABASE_KEY,'Authorization':`Bearer ${SUPABASE_KEY}`}
     });
     const rows=await res.json();
     let existingData=rows&&rows[0]?.data?rows[0].data:{};
@@ -573,31 +618,31 @@ async function setupTraderPassword(){
 
     // Push back
     const method=rows&&rows.length>0?'PATCH':'POST';
-    const url=method==='PATCH'?`${DEFAULT_SUPABASE_URL}/rest/v1/syp_data?user_id=eq.default`:`${DEFAULT_SUPABASE_URL}/rest/v1/syp_data`;
+    const url=method==='PATCH'?`${SUPABASE_URL}/rest/v1/syp_data?user_id=eq.default`:`${SUPABASE_URL}/rest/v1/syp_data`;
     const body=method==='PATCH'?{data:existingData}:{user_id:'default',data:existingData};
 
     await fetch(url,{
       method,
-      headers:{'apikey':DEFAULT_SUPABASE_KEY,'Authorization':`Bearer ${DEFAULT_SUPABASE_KEY}`,'Content-Type':'application/json','Prefer':'return=minimal'},
+      headers:{'apikey':SUPABASE_KEY,'Authorization':`Bearer ${SUPABASE_KEY}`,'Content-Type':'application/json','Prefer':'return=minimal'},
       body:JSON.stringify(body)
     });
 
-    errEl.innerHTML=`<span style="color:var(--positive)">✓ Password set for ${trader}! Now login above.</span>`;
+    errEl.innerHTML=`<span style="color:var(--positive)">Password set for ${escapeHtml(trader)}! Now login above.</span>`;
   }catch(e){
     console.log('Cloud sync failed:',e);
-    errEl.innerHTML=`<span style="color:var(--positive)">✓ Password set locally for ${trader}.</span>`;
+    errEl.innerHTML=`<span style="color:var(--positive)">Password set locally for ${escapeHtml(trader)}.</span>`;
   }
 
   document.getElementById('new-password').value='';
 }
 
-function setAppPassword(pwd){
+async function setAppPassword(pwd){
   if(!pwd||pwd.length<3){
     showToast('Password must be at least 3 characters','warn');
     return;
   }
   const passwords=safeJSONParse(localStorage.getItem('traderPasswords'),{});
-  const hash=btoa(pwd.split('').reverse().join('')+pwd.length);
+  const hash=await hashPassword(pwd)
   passwords[S.trader]=hash;
   localStorage.setItem('traderPasswords',JSON.stringify(passwords));
   showToast('Password updated for '+S.trader,'positive');
@@ -643,7 +688,7 @@ function showToast(msg,type='info'){
   const icons={positive:'✓',warn:'⚠',negative:'✗',info:'ℹ'};
   const t=document.createElement('div');
   t.className='toast toast-'+type;
-  t.innerHTML='<span class="toast-icon">'+(icons[type]||icons.info)+'</span><span class="toast-msg">'+msg+'</span><button class="toast-close" onclick="this.parentElement.remove()">×</button>';
+  t.innerHTML='<span class="toast-icon">'+(icons[type]||icons.info)+'</span><span class="toast-msg">'+escapeHtml(String(msg))+'</span><button class="toast-close" onclick="this.parentElement.remove()">×</button>';
   c.appendChild(t);
   requestAnimationFrame(()=>t.classList.add('toast-visible'));
   setTimeout(()=>{t.classList.remove('toast-visible');setTimeout(()=>t.remove(),300)},3000);
@@ -719,6 +764,89 @@ function exportPDF(){
     else html.removeAttribute('data-theme');
     showToast('PDF export failed: '+err.message,'negative');
   });
+}
+
+// ============================================================================
+// TAB SWITCHING
+// ============================================================================
+
+function switchTab(tabName){
+  // Map shortcut names to view IDs
+  const tabMap={
+    'dashboard':'dashboard',
+    'blotter':'blotter',
+    'quotes':'quotes',
+    'risk':'risk',
+    'crm':'crm',
+    'millintel':'mi-prices',
+    'analytics':'benchmark',
+    'leaderboard':'leaderboard',
+    'pnl':'pnl-calendar',
+    'settings':'settings'
+  }
+  const viewId=tabMap[tabName]||tabName
+  if(typeof go==='function')go(viewId)
+}
+
+// ============================================================================
+// GLOBAL SEARCH
+// ============================================================================
+
+function globalSearch(query){
+  if(!query||!query.trim())return{trades:[],customers:[],mills:[],quotes:[]}
+  const q=query.trim().toLowerCase()
+  const results={trades:[],customers:[],mills:[],quotes:[]}
+
+  // Search trades (buys + sells)
+  S.buys.forEach(b=>{
+    const haystack=[b.mill,b.product,b.region,b.orderNum,b.po,b.notes,b.trader].filter(Boolean).join(' ').toLowerCase()
+    if(haystack.includes(q))results.trades.push({type:'buy',...b})
+  })
+  S.sells.forEach(s=>{
+    const haystack=[s.customer,s.product,s.destination,s.orderNum,s.linkedPO,s.oc,s.notes,s.trader].filter(Boolean).join(' ').toLowerCase()
+    if(haystack.includes(q))results.trades.push({type:'sell',...s})
+  })
+
+  // Search customers
+  ;(S.customers||[]).forEach(c=>{
+    const haystack=[c.name,c.company,c.city,c.state,c.notes].filter(Boolean).join(' ').toLowerCase()
+    if(haystack.includes(q))results.customers.push(c)
+  })
+
+  // Search mills
+  ;(S.mills||[]).forEach(m=>{
+    const haystack=[m.name,m.company,m.city,m.state,m.region,m.notes].filter(Boolean).join(' ').toLowerCase()
+    if(haystack.includes(q))results.mills.push(m)
+  })
+
+  // Search quote items
+  ;(S.quoteItems||[]).forEach(qi=>{
+    const haystack=[qi.product,qi.customer,qi.notes].filter(Boolean).join(' ').toLowerCase()
+    if(haystack.includes(q))results.quotes.push(qi)
+  })
+
+  return results
+}
+
+// ============================================================================
+// NOTIFICATION BADGE
+// ============================================================================
+
+function updateNotificationBadge(){
+  // Count pending items: unread alerts + unmatched sells
+  let count=0
+  if(typeof getUnreadAlertCount==='function')count+=getUnreadAlertCount()
+
+  // Update badge in sidebar nav if element exists
+  const badge=document.getElementById('notification-badge')
+  if(badge){
+    if(count>0){
+      badge.textContent=count>99?'99+':count
+      badge.style.display='inline-block'
+    }else{
+      badge.style.display='none'
+    }
+  }
 }
 
 // Apply saved theme on load

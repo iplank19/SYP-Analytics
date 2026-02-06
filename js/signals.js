@@ -65,9 +65,10 @@ function calcMA(prices,period){
 // Calculate standard deviation
 function calcStdDev(prices,period){
   if(prices.length<period)return null;
+  if(period<=1)return 0;
   const slice=prices.slice(-period);
   const mean=slice.reduce((s,p)=>s+p.price,0)/period;
-  const variance=slice.reduce((s,p)=>s+Math.pow(p.price-mean,2),0)/period;
+  const variance=slice.reduce((s,p)=>s+Math.pow(p.price-mean,2),0)/(period-1);
   return Math.sqrt(variance);
 }
 
@@ -249,7 +250,7 @@ function generateSeasonalSignals(){
     const current=history[history.length-1]?.price;
     if(!current)return;
 
-    if(currentBias==='strong'&&month<=3){
+    if(currentBias==='strong'&&month<=5){
       signals.push({
         type:'seasonal',
         direction:'buy',
@@ -308,9 +309,16 @@ function generateSpreadSignals(){
     const westEastSpread=westPrice-eastPrice;
     const centralEastSpread=centralPrice-eastPrice;
 
-    // Historical average spreads (typical West premium over Central/East)
-    const avgWestCentral=15;
-    const avgWestEast=25;
+    // Compute historical average spreads from RL data, fallback to defaults
+    let avgWestCentral=15;
+    let avgWestEast=25;
+    if(S.rl.length>=4){
+      const recent=S.rl.slice(-12);
+      const wcSpreads=recent.map(r=>(r.west?.[normProd]||0)-(r.central?.[normProd]||0)).filter(v=>v!==0);
+      const weSpreads=recent.map(r=>(r.west?.[normProd]||0)-(r.east?.[normProd]||0)).filter(v=>v!==0);
+      if(wcSpreads.length>=3)avgWestCentral=wcSpreads.reduce((a,b)=>a+b,0)/wcSpreads.length;
+      if(weSpreads.length>=3)avgWestEast=weSpreads.reduce((a,b)=>a+b,0)/weSpreads.length;
+    }
 
     // Check for unusual spreads
     if(Math.abs(westCentralSpread-avgWestCentral)>threshold){
@@ -473,6 +481,45 @@ function generatePositionSignals(){
 }
 
 // ============================================================================
+// CONFIDENCE SCORING
+// ============================================================================
+
+function calcSignalConfidence(signal,allSignals){
+  // Base confidence from strength
+  const strengthBase={strong:70,moderate:45,weak:20}
+  let confidence=strengthBase[signal.strength]||30
+
+  // Bonus for confirming signals on the same product in the same direction
+  const confirming=allSignals.filter(s=>
+    s!==signal&&
+    s.product===signal.product&&
+    s.direction===signal.direction
+  )
+  confidence+=Math.min(30,confirming.length*10)
+
+  // Bonus for multiple regions agreeing
+  const regionConfirm=allSignals.filter(s=>
+    s!==signal&&
+    s.product===signal.product&&
+    s.direction===signal.direction&&
+    s.region!==signal.region&&
+    s.type===signal.type
+  )
+  if(regionConfirm.length>0)confidence+=5
+
+  // Penalty for conflicting signals
+  const conflicting=allSignals.filter(s=>
+    s!==signal&&
+    s.product===signal.product&&
+    s.direction!==signal.direction&&
+    s.strength==='strong'
+  )
+  confidence-=conflicting.length*10
+
+  return Math.max(0,Math.min(100,Math.round(confidence)))
+}
+
+// ============================================================================
 // MASTER SIGNAL GENERATOR
 // ============================================================================
 
@@ -497,9 +544,15 @@ function generateSignals(){
     return true;
   });
 
-  // Sort by strength (strong > moderate > weak) then by type
+  // Add confidence scores
+  unique.forEach(s=>{
+    s.confidence=calcSignalConfidence(s,unique)
+  })
+
+  // Sort by confidence (high to low), then by strength
   const strengthOrder={strong:0,moderate:1,weak:2};
   unique.sort((a,b)=>{
+    if(b.confidence!==a.confidence)return b.confidence-a.confidence
     const sa=strengthOrder[a.strength]??2;
     const sb=strengthOrder[b.strength]??2;
     return sa-sb;
@@ -638,6 +691,60 @@ function getSignalDashboard(){
     topBuySignal:buySignals.find(s=>s.strength==='strong')||buySignals[0]||null,
     topSellSignal:sellSignals.find(s=>s.strength==='strong')||sellSignals[0]||null
   };
+}
+
+// ============================================================================
+// SIGNAL SUMMARY & RENDERING
+// ============================================================================
+
+function getSignalSummary(){
+  const signals=S.signals&&S.signals.length?S.signals:generateSignals()
+  // Return top 5 highest-confidence actionable signals
+  return signals
+    .filter(s=>s.confidence>=30&&s.strength!=='weak')
+    .slice(0,5)
+    .map(s=>({
+      product:s.product,
+      direction:s.direction,
+      type:s.type,
+      confidence:s.confidence,
+      strength:s.strength,
+      price:s.price,
+      reason:s.reason,
+      region:s.region||'all'
+    }))
+}
+
+function renderSignalCards(){
+  const signals=S.signals&&S.signals.length?S.signals:generateSignals()
+  const top=signals.filter(s=>s.confidence>=20).slice(0,10)
+
+  if(!top.length){
+    return'<div style="text-align:center;color:var(--muted);font-size:11px;padding:20px 0">No active signals</div>'
+  }
+
+  return top.map(s=>{
+    const dirColor=s.direction==='buy'?'var(--positive)':'var(--negative)'
+    const dirLabel=s.direction==='buy'?'BUY':'SELL'
+    const confColor=s.confidence>=70?'var(--positive)':s.confidence>=40?'var(--warn)':'var(--muted)'
+    const typeLabel={trend:'Trend',meanReversion:'Mean Rev',seasonal:'Seasonal',spread:'Spread',momentum:'Momentum',position:'Position'}[s.type]||s.type
+
+    return`
+      <div style="padding:10px 12px;margin-bottom:6px;background:var(--panel-alt);border-radius:4px;border-left:3px solid ${dirColor}">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+          <div style="font-size:12px;font-weight:600;color:var(--fg)">${escapeHtml(s.product)} <span style="color:${dirColor};font-weight:700">${dirLabel}</span></div>
+          <div style="display:flex;align-items:center;gap:6px">
+            <span style="font-size:9px;padding:2px 6px;background:var(--border);border-radius:3px;color:var(--muted);text-transform:uppercase">${escapeHtml(typeLabel)}</span>
+            <span style="font-size:11px;font-weight:700;color:${confColor}">${s.confidence}%</span>
+          </div>
+        </div>
+        <div style="background:var(--bg);border-radius:3px;height:6px;overflow:hidden;margin-bottom:6px">
+          <div style="height:100%;width:${s.confidence}%;background:${confColor};border-radius:3px;transition:width 0.3s"></div>
+        </div>
+        <div style="font-size:10px;color:var(--muted)">${escapeHtml(s.reason)}</div>
+        ${s.price?`<div style="font-size:10px;color:var(--muted);margin-top:2px">${escapeHtml(s.region||'all')} @ $${s.price.toFixed(0)}</div>`:''}
+      </div>`
+  }).join('')
 }
 
 // Initialize on load

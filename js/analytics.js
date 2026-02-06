@@ -5,7 +5,7 @@
 function buildBuyByOrder(){
   const buyByOrder={};
   S.buys.forEach(b=>{
-    const ord=String(b.orderNum||b.po||'').trim();
+    const ord=normalizeOrderNum(b.orderNum||b.po);
     if(ord&&!buyByOrder[ord])buyByOrder[ord]=b;
   });
   return buyByOrder;
@@ -33,7 +33,7 @@ function calcTopProducts(buys,sells){
     products[p].sellFOBVal+=sellFob*vol;
 
     // Matched profit
-    const ord=String(s.orderNum||s.linkedPO||s.oc||'').trim();
+    const ord=normalizeOrderNum(s.orderNum||s.linkedPO||s.oc);
     const buy=ord?buyByOrder[ord]:null;
     if(buy&&vol>0){
       const buyCost=buy.price||0;
@@ -43,8 +43,6 @@ function calcTopProducts(buys,sells){
   });
 
   const list=Object.values(products).map(p=>{
-    // Margin: from matched volume only
-    const margin=p.matchedVol>0?(p.sellFOBVal>0&&p.buyVal>0?(p.sellFOBVal/p.sellVol)-(p.buyVal/p.buyVol):0):0;
     return{
       ...p,
       volume:p.buyVol+p.sellVol,
@@ -75,7 +73,7 @@ function calcTopCustomers(sells){
     customers[c].value+=sellFob*vol;
 
     // Matched profit
-    const ord=String(s.orderNum||s.linkedPO||s.oc||'').trim();
+    const ord=normalizeOrderNum(s.orderNum||s.linkedPO||s.oc);
     const buy=ord?buyByOrder[ord]:null;
     if(buy&&vol>0){
       customers[c].profit+=(sellFob-(buy.price||0))*vol;
@@ -88,30 +86,30 @@ function calcTopCustomers(sells){
 
 function calcAgingSummary(buys){
   const now=new Date();
-  let fresh=0,week=0,twoWeek=0,old=0;
+  let fresh=0,week=0,twoToFourWeek=0,old=0;
 
   // Calculate sold volume per order
   const orderSold={};
   S.sells.forEach(s=>{
-    const ord=String(s.orderNum||s.linkedPO||s.oc||'').trim();
+    const ord=normalizeOrderNum(s.orderNum||s.linkedPO||s.oc);
     if(ord)orderSold[ord]=(orderSold[ord]||0)+(s.volume||0);
   });
 
   buys.forEach(b=>{
     if(!b.date)return;
     const days=Math.floor((now-new Date(b.date))/(1000*60*60*24));
-    const ord=String(b.orderNum||b.po||'').trim();
+    const ord=normalizeOrderNum(b.orderNum||b.po);
     const sold=orderSold[ord]||0;
     const avail=(b.volume||0)-sold;
     if(avail<=0)return; // Skip fully sold inventory
 
     if(days<=7)fresh+=avail;
     else if(days<=14)week+=avail;
-    else if(days<=30)twoWeek+=avail;
+    else if(days<=30)twoToFourWeek+=avail;
     else old+=avail;
   });
 
-  return{fresh,week,twoWeek,old,total:fresh+week+twoWeek+old};
+  return{fresh,week,twoToFourWeek,twoWeek:twoToFourWeek,old,total:fresh+week+twoToFourWeek+old};
 }
 
 function calcWeeklyVsMarket(allBuys,rlData){
@@ -189,7 +187,7 @@ function calcWeeklyPerformance(allBuys,allSells){
     // Calculate profit — matched orders only
     let profit=0;
     weekSells.forEach(s=>{
-      const ord=String(s.orderNum||s.linkedPO||s.oc||'').trim();
+      const ord=normalizeOrderNum(s.orderNum||s.linkedPO||s.oc);
       const buy=ord?buyByOrder[ord]:null;
       if(buy){
         const vol=s.volume||0;
@@ -240,7 +238,7 @@ function calcDailyPnL(){
 
   const daily={};
   S.sells.filter(s=>isMyTrade(s.trader)&&mP(s.product)).forEach(s=>{
-    const ord=String(s.orderNum||s.linkedPO||s.oc||'').trim();
+    const ord=normalizeOrderNum(s.orderNum||s.linkedPO||s.oc);
     const buy=ord?buyByOrder[ord]:null;
     if(!buy||!s.date)return;
     const vol=s.volume||0;
@@ -288,7 +286,7 @@ function analytics(){
 
   let matchedProfit=0,matchedVol=0,matchedBuyCost=0,matchedSellFOB=0;
   sells.forEach(s=>{
-    const ord=String(s.orderNum||s.linkedPO||s.oc||'').trim();
+    const ord=normalizeOrderNum(s.orderNum||s.linkedPO||s.oc);
     const buy=ord?buyByOrder[ord]:null;
     if(buy){
       const vol=s.volume||0;
@@ -383,4 +381,244 @@ function analytics(){
   const byDest={};
   sells.forEach(x=>{if(!byDest[x.destination])byDest[x.destination]={vol:0,fr:0,n:0};byDest[x.destination].vol+=x.volume||0;byDest[x.destination].fr+=(x.freight||0);byDest[x.destination].n++});
   return{buys,sells,latestRL,bVol,bVal,avgB,sVol,sVal,avgS,avgFr,margin,marginPct,profit,inv,bench,avgVsRL,totVsRL,byReg,byProd,byCust,byDest,matchedVol};
+}
+
+// ============================================================================
+// TRADER LEADERBOARD
+// ============================================================================
+
+function calcTraderLeaderboard(period){
+  period=period||S.leaderboardPeriod||'30d'
+  const r=getLeaderboardRange(period)
+  const inR=d=>new Date(d)>=r.start&&new Date(d)<=r.end
+  const allBuys=S.buys.filter(b=>inR(b.date))
+  const allSells=S.sells.filter(s=>inR(s.date))
+
+  const buyByOrder=buildBuyByOrder()
+
+  const board=TRADERS.map(t=>{
+    const buys=allBuys.filter(b=>b.trader===t||(!b.trader&&t==='Ian P'))
+    const sells=allSells.filter(s=>s.trader===t||(!s.trader&&t==='Ian P'))
+    const buyVol=buys.reduce((s,b)=>s+(b.volume||0),0)
+    const sellVol=sells.reduce((s,x)=>s+(x.volume||0),0)
+
+    let profit=0,matchedVol=0,wins=0,matchedCount=0
+    sells.forEach(s=>{
+      const ord=normalizeOrderNum(s.orderNum||s.linkedPO||s.oc)
+      const buy=ord?buyByOrder[ord]:null
+      if(!buy)return
+      const vol=s.volume||0
+      if(vol<=0)return
+      const frPerMBF=vol>0?(s.freight||0)/vol:0
+      const sellFob=(s.price||0)-frPerMBF
+      const tradeProfit=(sellFob-(buy.price||0))*vol
+      profit+=tradeProfit
+      matchedVol+=vol
+      matchedCount++
+      if(sellFob>(buy.price||0))wins++
+    })
+
+    const margin=matchedVol>0?profit/matchedVol:0
+    const winRate=matchedCount>0?(wins/matchedCount)*100:0
+    const trades=buys.length+sells.length
+
+    return{
+      name:t,
+      profit,
+      volume:buyVol+sellVol,
+      buyVol,
+      sellVol,
+      margin,
+      winRate,
+      trades,
+      matchedCount
+    }
+  })
+
+  // Rank by profit
+  board.sort((a,b)=>b.profit-a.profit)
+  board.forEach((t,i)=>t.rank=i+1)
+
+  return board
+}
+
+// ============================================================================
+// PRODUCT HEATMAP DATA
+// ============================================================================
+
+function calcProductHeatmapData(){
+  const buyByOrder=buildBuyByOrder()
+  const matrix={}
+
+  // Build product x region margin matrix from matched sells
+  S.sells.forEach(s=>{
+    const ord=normalizeOrderNum(s.orderNum||s.linkedPO||s.oc)
+    const buy=ord?buyByOrder[ord]:null
+    if(!buy)return
+    const vol=s.volume||0
+    if(vol<=0)return
+
+    const product=s.product||'Unknown'
+    const region=buy.region||'west'
+    const frPerMBF=vol>0?(s.freight||0)/vol:0
+    const sellFob=(s.price||0)-frPerMBF
+    const marginPerMBF=sellFob-(buy.price||0)
+
+    if(!matrix[product])matrix[product]={}
+    if(!matrix[product][region])matrix[product][region]={totalMargin:0,totalVol:0,count:0}
+    matrix[product][region].totalMargin+=marginPerMBF*vol
+    matrix[product][region].totalVol+=vol
+    matrix[product][region].count++
+  })
+
+  // Convert to array format
+  const rows=[]
+  Object.entries(matrix).forEach(([product,regions])=>{
+    const row={product}
+    ;['west','central','east'].forEach(r=>{
+      const d=regions[r]
+      row[r]=d&&d.totalVol>0?{
+        margin:d.totalMargin/d.totalVol,
+        volume:d.totalVol,
+        count:d.count
+      }:null
+    })
+    rows.push(row)
+  })
+
+  rows.sort((a,b)=>(a.product||'').localeCompare(b.product||''))
+  return rows
+}
+
+// ============================================================================
+// DAILY P&L SERIES (for sparklines/charts)
+// ============================================================================
+
+function calcDailyPnLSeries(days){
+  days=days||30
+  const buyByOrder=buildBuyByOrder()
+  const isAdmin=S.trader==='Admin'
+  const isMyTrade=t=>isAdmin||t===S.trader||!t
+
+  const cutoff=new Date()
+  cutoff.setDate(cutoff.getDate()-days)
+  cutoff.setHours(0,0,0,0)
+
+  // Build daily totals
+  const dailyMap={}
+  S.sells.filter(s=>isMyTrade(s.trader)&&new Date(s.date)>=cutoff).forEach(s=>{
+    const ord=normalizeOrderNum(s.orderNum||s.linkedPO||s.oc)
+    const buy=ord?buyByOrder[ord]:null
+    if(!buy||!s.date)return
+    const vol=s.volume||0
+    if(vol<=0)return
+    const frPerMBF=vol>0?(s.freight||0)/vol:0
+    const sellFob=(s.price||0)-frPerMBF
+    const profit=(sellFob-(buy.price||0))*vol
+    const day=s.date
+    dailyMap[day]=(dailyMap[day]||0)+profit
+  })
+
+  // Fill in all days in range
+  const series=[]
+  let cumulative=0
+  const d=new Date(cutoff)
+  const now=new Date()
+  while(d<=now){
+    const dateStr=d.toISOString().split('T')[0]
+    const pnl=dailyMap[dateStr]||0
+    cumulative+=pnl
+    series.push({date:dateStr,pnl,cumulative})
+    d.setDate(d.getDate()+1)
+  }
+
+  return series
+}
+
+// ============================================================================
+// QUICK STATS (Dashboard KPIs)
+// ============================================================================
+
+function getQuickStats(){
+  const buyByOrder=buildBuyByOrder()
+  const isAdmin=S.trader==='Admin'
+  const isMyTrade=t=>isAdmin||t===S.trader||!t
+  const now=new Date()
+
+  // Date ranges
+  const todayStr=now.toISOString().split('T')[0]
+  const weekAgo=new Date(now-7*86400000)
+  const monthAgo=new Date(now-30*86400000)
+  const ytdStart=new Date(now.getFullYear(),0,1)
+
+  // Compute P&L for a date range
+  const pnlFor=(startDate)=>{
+    let profit=0,count=0
+    S.sells.filter(s=>isMyTrade(s.trader)&&new Date(s.date)>=startDate).forEach(s=>{
+      const ord=normalizeOrderNum(s.orderNum||s.linkedPO||s.oc)
+      const buy=ord?buyByOrder[ord]:null
+      if(!buy)return
+      const vol=s.volume||0
+      if(vol<=0)return
+      const frPerMBF=vol>0?(s.freight||0)/vol:0
+      const sellFob=(s.price||0)-frPerMBF
+      profit+=(sellFob-(buy.price||0))*vol
+      count++
+    })
+    return{profit,count}
+  }
+
+  const dayPnL=pnlFor(new Date(todayStr))
+  const weekPnL=pnlFor(weekAgo)
+  const monthPnL=pnlFor(monthAgo)
+  const ytdPnL=pnlFor(ytdStart)
+
+  // Open positions
+  const positions={}
+  S.buys.filter(b=>isMyTrade(b.trader)).forEach(b=>{
+    const key=b.product||'Unknown'
+    if(!positions[key])positions[key]={bought:0,sold:0}
+    positions[key].bought+=b.volume||0
+  })
+  S.sells.filter(s=>isMyTrade(s.trader)).forEach(s=>{
+    const key=s.product||'Unknown'
+    if(!positions[key])positions[key]={bought:0,sold:0}
+    positions[key].sold+=s.volume||0
+  })
+  const openPositions=Object.values(positions).filter(p=>Math.abs(p.bought-p.sold)>0).length
+  const netPosition=Object.values(positions).reduce((s,p)=>s+(p.bought-p.sold),0)
+
+  // Average margin (matched trades, last 30d)
+  let totalMargin=0,marginCount=0
+  S.sells.filter(s=>isMyTrade(s.trader)&&new Date(s.date)>=monthAgo).forEach(s=>{
+    const ord=normalizeOrderNum(s.orderNum||s.linkedPO||s.oc)
+    const buy=ord?buyByOrder[ord]:null
+    if(!buy)return
+    const vol=s.volume||0
+    if(vol<=0)return
+    const frPerMBF=vol>0?(s.freight||0)/vol:0
+    const sellFob=(s.price||0)-frPerMBF
+    totalMargin+=sellFob-(buy.price||0)
+    marginCount++
+  })
+  const avgMargin=marginCount>0?totalMargin/marginCount:0
+
+  // Trade count (last 30d)
+  const buyCount=S.buys.filter(b=>isMyTrade(b.trader)&&new Date(b.date)>=monthAgo).length
+  const sellCount=S.sells.filter(s=>isMyTrade(s.trader)&&new Date(s.date)>=monthAgo).length
+
+  return{
+    pnl:{
+      day:dayPnL.profit,
+      week:weekPnL.profit,
+      month:monthPnL.profit,
+      ytd:ytdPnL.profit
+    },
+    openPositions,
+    netPosition,
+    avgMargin,
+    tradeCount:buyCount+sellCount,
+    buyCount,
+    sellCount
+  }
 }

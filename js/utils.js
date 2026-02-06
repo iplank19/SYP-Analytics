@@ -31,6 +31,7 @@ function safeJSONParse(str, fallback = null) {
 // ============================================================
 
 // Normalize price to 2 decimal places, ensure number type
+// Returns 0 for null/undefined/empty — intentional for arithmetic safety
 function normalizePrice(val) {
   if (val === null || val === undefined || val === '') return 0;
   const num = typeof val === 'string' ? parseFloat(val.replace(/[$,]/g, '')) : parseFloat(val);

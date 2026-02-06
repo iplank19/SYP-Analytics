@@ -164,7 +164,8 @@ function executeAITool(name,params){
         return{success:true,message:'Cleared all quote items'};
       }
       case 'generate_quote':{
-        const cust=S.customers.find(c=>c.name.toLowerCase().includes((params.customerName||'').toLowerCase()));
+        let cust=findCustomerByName(params.customerName);
+        if(!cust)cust=searchCustomers(params.customerName)[0]||null;
         if(!cust)return{success:false,message:`Customer "${params.customerName}" not found`};
         const items=S.quoteItems.filter(i=>i.selected!==false);
         if(!items.length)return{success:false,message:'No items in quote engine'};
@@ -444,11 +445,11 @@ function executeAITool(name,params){
         const buyByOrder=buildBuyByOrder();
         let matches=[];
         S.sells.forEach(s=>{
-          const ord=String(s.orderNum||s.linkedPO||s.oc||'').trim();
+          const ord=normalizeOrderNum(s.orderNum||s.linkedPO||s.oc);
           const buy=ord?buyByOrder[ord]:null;
           if(!buy)return;
           if(params.product&&!s.product?.toLowerCase().includes(params.product.toLowerCase()))return;
-          if(params.customer&&!s.customer?.toLowerCase().includes(params.customer.toLowerCase()))return;
+          if(params.customer){const cn=normalizeCustomerName(params.customer);if(s.customer&&s.customer.toLowerCase()!==cn.toLowerCase())return;}
           const vol=s.volume||0;const frtMBF=vol>0?(s.freight||0)/vol:0;
           const sellFob=(s.price||0)-frtMBF;const margin=sellFob-(buy.price||0);
           matches.push({orderNum:ord,product:s.product,customer:s.customer,mill:buy.mill,buyPrice:buy.price,sellDlvd:s.price,freight:s.freight,sellFob:Math.round(sellFob),volume:vol,margin:Math.round(margin),profit:Math.round(margin*vol),date:s.date});
@@ -486,10 +487,11 @@ function executeAITool(name,params){
         return{success:true,data:{product:prod,region,history}};
       }
       case 'get_customer_summary':{
-        const name=(params.customer||'').toLowerCase();
-        const cust=S.customers.find(c=>c.name?.toLowerCase().includes(name));
-        if(!cust)return{success:false,message:'Customer not found'};
-        const sells=S.sells.filter(s=>s.customer?.toLowerCase().includes(name));
+        const custMatch=findCustomerByName(params.customer)||searchCustomers(params.customer)[0]||null;
+        if(!custMatch)return{success:false,message:'Customer not found'};
+        const custName=custMatch.name;
+        const cust=custMatch;
+        const sells=S.sells.filter(s=>s.customer&&s.customer.toLowerCase()===custName.toLowerCase());
         const totalVol=sells.reduce((s,x)=>s+(x.volume||0),0);
         const totalRev=sells.reduce((s,x)=>s+(x.price||0)*(x.volume||0),0);
         const recent=sells.slice(0,10).map(s=>({date:s.date,product:s.product,price:s.price,volume:s.volume}));
@@ -497,8 +499,9 @@ function executeAITool(name,params){
         return{success:true,data:{name:cust.name,destination:cust.destination,locations:cust.locations,email:cust.email,totalVolume:totalVol,totalRevenue:Math.round(totalRev),avgPrice:totalVol>0?Math.round(totalRev/totalVol):0,orderCount:sells.length,productMix:products,recentOrders:recent}};
       }
       case 'get_mill_summary':{
-        const name=(params.mill||'').toLowerCase();
-        const buys=S.buys.filter(b=>b.mill?.toLowerCase().includes(name));
+        const millNorm=normalizeMillCompany(params.mill||'');
+        const name=(millNorm||params.mill||'').toLowerCase();
+        const buys=S.buys.filter(b=>b.mill&&b.mill.toLowerCase()===name);
         const totalVol=buys.reduce((s,b)=>s+(b.volume||0),0);
         const totalCost=buys.reduce((s,b)=>s+(b.price||0)*(b.volume||0),0);
         const products={};buys.forEach(b=>{products[b.product]=(products[b.product]||0)+(b.volume||0)});
