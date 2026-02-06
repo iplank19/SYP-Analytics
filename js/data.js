@@ -69,10 +69,14 @@ async function loadSupabaseConfig(){
     const res=await fetch('/api/config')
     if(res.ok){
       const cfg=await res.json()
-      if(cfg.supabaseUrl)SUPABASE_URL=cfg.supabaseUrl
-      if(cfg.supabaseKey)SUPABASE_KEY=cfg.supabaseKey
-      _supabaseConfigLoaded=true
-      return
+      if(cfg.supabaseUrl&&cfg.supabaseKey){
+        SUPABASE_URL=cfg.supabaseUrl
+        SUPABASE_KEY=cfg.supabaseKey
+        SS('supabaseUrl',SUPABASE_URL)
+        SS('supabaseKey',SUPABASE_KEY)
+        _supabaseConfigLoaded=true
+        return
+      }
     }
   }catch(e){console.debug('Backend config not available:',e.message)}
   // Fall back to user-configured values from localStorage
