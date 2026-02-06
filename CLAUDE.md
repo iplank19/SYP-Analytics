@@ -6,10 +6,11 @@ Lumber trading analytics platform for Buckeye Pacific. Full-stack app with Flask
 
 ## Tech Stack
 
-- **Backend**: Python 3 / Flask 3.0.0, SQLite (`crm.db`), gunicorn
-- **Frontend**: Vanilla JavaScript (ES6 modules), Chart.js 4.4.7
-- **Storage**: Supabase (cloud - single source of truth), SQLite (CRM cache)
-- **Hosting**: Heroku (via `Procfile`)
+- **Backend**: Python 3 / Flask 3.0.0, SQLite (`crm.db` + `mill-intel/mill_intel.db`), gunicorn
+- **Frontend**: Vanilla JavaScript (26 modules, ~24k lines), Chart.js 4.4.7
+- **Storage**: Supabase (cloud SOT), SQLite (CRM/MI cache), IndexedDB (primary local), localStorage (backup)
+- **Hosting**: Railway (via `Procfile`)
+- **AI**: Claude API (Sonnet) for mill price list parsing (text + vision)
 
 ## Running the App
 
@@ -18,45 +19,74 @@ pip install -r requirements.txt
 python app.py              # Dev server on http://localhost:5001
 ```
 
-Production: `gunicorn app:app` (Heroku Procfile)
+Production: `gunicorn app:app --workers 2 --threads 4 --timeout 120` (Railway Procfile)
 
 No test suite exists.
+
+## Environment Variables
+
+Required for full functionality (set in Railway dashboard for production):
+
+| Variable | Purpose | Default |
+|---|---|---|
+| `JWT_SECRET` | JWT auth signing key | (required) |
+| `TRADER_CREDENTIALS` | JSON map of trader:password | (required) |
+| `ADMIN_USERS` | Comma-separated admin usernames | (none) |
+| `ALLOWED_ORIGINS` | CORS origins | `*` |
+| `PRICING_PASSWORD` | Matrix login PIN | `2026` |
+| `SUPABASE_URL` | Supabase REST API URL | (required for cloud sync) |
+| `SUPABASE_ANON_KEY` | Supabase anon key | (required for cloud sync) |
+
+## Cloning onto a New Machine
+
+```bash
+git clone https://github.com/iplank19/SYP-Analytics.git
+cd SYP-Analytics
+pip install -r requirements.txt
+python app.py
+```
+
+- All data syncs from Supabase on first login — no local data files needed
+- `crm.db` and `mill-intel/mill_intel.db` are auto-created on first run
+- On Railway deploys, `seed_mi_from_supabase()` auto-populates SQLite from cloud
+- Set your Claude API key in Settings for AI parsing features
+- Browser IndexedDB stores local state; cloud pull overwrites it
 
 ## Project Structure
 
 ```
-├── app.py                 # Flask backend (~1,156 lines)
+├── app.py                 # Flask backend (~4,300 lines)
 ├── index.html             # SPA entry point
 ├── styles.css             # Themed stylesheet (dark/light)
-├── pricing.html           # Standalone pricing page
-├── crm.db                 # SQLite database (CRM cache)
+├── pricing.html           # Standalone pricing portal (PIN-protected)
+├── crm.db                 # SQLite database (CRM cache, auto-created)
 ├── requirements.txt       # Python deps
-├── Procfile               # Heroku config
+├── Procfile               # Railway config (gunicorn w/ 2 workers)
 ├── CLAUDE.md              # This file
 │
 ├── js/
-│   ├── app.js             # Settings, initialization, theme toggle
-│   ├── state.js           # Global state object (S), constants, localStorage
-│   ├── data.js            # Supabase sync, deduplication, cloud-first storage
+│   ├── app.js             # Login, initialization, Supabase config
+│   ├── state.js           # Global state (S), MI_PRODUCTS, QUOTE_LENGTHS, QUOTE_TEMPLATES
+│   ├── data.js            # Cloud sync, IndexedDB, parallel IDB reads/writes
 │   ├── utils.js           # Math/utility helpers, freight calculations
 │   │
-│   ├── views.js           # Main view rendering (dashboard, blotter, etc.)
+│   ├── views.js           # Main view rendering (~2,940 lines)
 │   ├── modals.js          # Modal dialogs & forms (buy/sell)
 │   ├── charts.js          # Chart.js visualizations
 │   │
-│   ├── quotes.js          # Quote Engine with market intelligence
+│   ├── quotes.js          # Quote Engine (~2,510 lines) — BUILD tab matrix + pricing
 │   ├── quotebuilder.js    # Bulk quote building utilities
 │   ├── quoteintel.js      # Quote intelligence helpers
 │   │
-│   ├── millpricing.js     # Mill pricing intake (Excel/PDF parsing)
-│   ├── miutils.js         # Mill Intel utilities
-│   ├── midata.js          # Mill Intel data layer
-│   ├── miintake.js        # Mill Intel intake processing
-│   ├── miaggregated.js    # Mill Intel aggregated views
+│   ├── millpricing.js     # Mill pricing intake (CSV/AI parsing, trends, matrix view)
+│   ├── miutils.js         # Mill Intel utilities (formatProductLabel, normalizeMillName)
+│   ├── midata.js          # Mill Intel REST API layer (/api/mi/*)
+│   ├── miintake.js        # Mill Intel intake processing (drag-drop, file upload)
+│   ├── miaggregated.js    # Mill Intel aggregated views (granular matrix, wipe)
 │   ├── miintelligence.js  # Mill Intel market intelligence
-│   ├── miquotes.js        # Mill Intel smart quote builder (product x length matrix)
+│   ├── miquotes.js        # Mill Intel SOURCE tab (product x length matrix)
 │   │
-│   ├── crm.js             # CRM prospect/customer management
+│   ├── crm.js             # CRM prospect/customer management (SQLite-backed)
 │   ├── trades.js          # Trade blotter, customer/mill CRUD
 │   │
 │   ├── analytics.js       # Trading analytics, moving averages, trends
@@ -69,7 +99,7 @@ No test suite exists.
 │   │
 │   └── ai.js              # Claude AI assistant (60+ tools)
 │
-└── mill-intel/            # Standalone Mill Intel app (legacy)
+└── mill-intel/            # Standalone Mill Intel app (legacy, integrated into main)
     ├── app.py
     ├── index.html
     └── styles.css
@@ -78,43 +108,66 @@ No test suite exists.
 ## Architecture
 
 - **SPA with functional rendering**: Central state object `S` → `save()` + `render()` on every change
-- **Cloud-first data**: Supabase is the single source of truth; SQLite is cache only
-- **No framework/bundler**: Vanilla JS modules loaded via `<script>` tags
+- **Cloud-first data**: Supabase is single source of truth; SQLite is cache only
+- **No framework/bundler**: Vanilla JS modules loaded via `<script>` tags, global namespace
 - **Event handling**: Inline `onclick` handlers dispatching state changes
-- **Backend API**: Flask REST routes for CRM, mileage/geocoding, futures data, and file parsing
+- **Backend API**: Flask REST routes for CRM, mileage/geocoding, futures, file parsing, Mill Intel
 
-## Data Flow
+## Data Flow & Sync Architecture
 
-1. **Supabase** = Single source of truth (customers, mills, trades, mill quotes)
-2. **SQLite** = Local cache for CRM display (prospects, touches)
-3. **localStorage** = App state (S object), settings, preferences
-4. **Sync**: Cloud-first with debounced sync (1.5s delay), deduplication on load
+### Three Storage Layers
+1. **Supabase** (cloud) — Single source of truth. Stores full state as JSON blob per user_id
+2. **SQLite** (`crm.db` + `mill_intel.db`) — Server-side cache for CRM prospects/touches and Mill Intel queries. Ephemeral on Railway (wiped each deploy)
+3. **IndexedDB + localStorage** (browser) — Primary local storage with localStorage backup
+
+### Sync Flow (login / page load)
+```
+loadAllLocal() (parallel IDB reads)
+  → loadSupabaseConfig()
+  → cloudSync('pull')  — Supabase → S.* (cloud wins, direct replacement)
+    → saveAllLocal()   — S.* → IDB + LS (parallel writes)
+    → syncCustomersToServer()  — S.customers → SQLite (fire-and-forget)
+    → syncMillsToServer()      — S.mills → SQLite (fire-and-forget)
+    → syncMillQuotesToMillIntel() — S.millQuotes → mill_intel.db (fire-and-forget)
+  → render()
+```
+
+### Key Sync Rules
+- **Cloud wins on pull**: Direct replacement, no merge (prevents revert bugs)
+- **No push-after-pull**: Push timer cancelled after pull to prevent overwriting cloud
+- **Memory wins over SQLite**: `loadCRMData()` uses S.customers as authority, only adds SQLite-only entries
+- **Mill quote sync only on pull**: Not on every save (prevents server overload)
+- **Server-side seeding**: `seed_mi_from_supabase()` populates SQLite on fresh Railway deploys
 
 ## Key Modules
 
 ### Quote Engine (`quotes.js`, `views.js`)
-- BUILD tab: Create quotes with market intelligence columns
-- SOURCE tab: Smart sourcing from Mill Intel
-- Columns: Cost, FOB Sell, Landed, **Landed Cost** (best mill + freight), RL Mkt, Margin
-- Freight calculation using flat rate per mile
+- **BUILD tab**: Product x Length checkbox matrix (MI_PRODUCTS × QUOTE_LENGTHS) + pricing panel
+  - Left: Matrix with grade group toggles, customer/destination select, templates
+  - Right: Cost (best mill), Freight, Landed, Sell, Margin, TLs, Ship Week columns
+  - One-click Reflow pricing button
+- **SOURCE tab**: Smart sourcing from Mill Intel matrix
+- `showBestCosts()`: Fetches best mill cost via `miLoadLatestQuotes()` → falls back to `getBestPrice()`
+- `parseProductString()`: Parses "2x4 RL #2" → `{base: "2x4#2", length: "RL"}`
 
 ### Mill Intelligence (`mi*.js`)
-- Product x Length matrix for bulk quoting
+- Product x Length matrix for bulk quoting (SOURCE tab)
+- AI-powered price list parsing (text + scanned PDF vision)
+- Aggregated matrix view with "Wipe" cutoff feature
 - Best-source selection across all mills
-- Templates for common quote scenarios
-- "Send to Quote Engine" transfers products/origin without pre-filling sell prices
+- Templates for common quote scenarios (state.js: `QUOTE_TEMPLATES`)
+- Matrix wipe cutoff (`_miMatrixCutoff`) only applies to aggregated views, NOT quote engine
 
-### Risk Management (`risk.js`)
-- Position limits per product/trader
-- VaR calculations (historical, parametric)
-- Exposure monitoring
-- Drawdown tracking
+### CRM (`crm.js`, `trades.js`)
+- Prospects pipeline (SQLite-only, backed up to cloud)
+- Customer/Mill CRUD with cloud sync
+- Prospect → Customer conversion with data carry-over
+- Mill rename cascades across SQLite + state
 
-### Analytics (`analytics.js`)
-- Moving averages, trend detection
-- Seasonal patterns
-- Volatility metrics
-- Correlation analysis
+### Risk, Analytics, Reports (`risk.js`, `analytics.js`, `reports.js`, etc.)
+- Position limits, VaR, exposure monitoring
+- Moving averages, trend detection, seasonal patterns
+- Report generation and alert system
 
 ## Code Conventions
 
@@ -124,25 +177,29 @@ No test suite exists.
 - No semicolons in most files
 - Direct DOM manipulation via `innerHTML` (no templating engine)
 - Always call `save()` then `render()` after state mutations
-- Toast notifications for user feedback
+- Toast notifications for user feedback (`showToast()`)
+- Quote engine BUILD tab functions prefixed `qe` (e.g., `qeBuildFromMatrix`)
+- Mill Intel matrix functions prefixed `mi` (e.g., `miLoadLatestQuotes`)
 
 ### Python
 - snake_case naming
-- Raw `sqlite3` queries (no ORM)
+- Raw `sqlite3` queries (no ORM), `row_factory = sqlite3.Row`
 - `jsonify` for API responses
 - try/except with HTTP status codes
+- JWT auth on protected endpoints
 
 ### CSS
 - CSS custom properties for theming (`--accent`, `--bg`, `--panel`, etc.)
 - Dark theme default, light via `data-theme="light"`
-- BEM-like class naming
+- Catppuccin Mocha inspired color scheme
 
 ## Domain Constants (defined in `js/state.js`)
 
 - **Traders**: Ian P, Aubrey M, Hunter S, Sawyer R, Jackson M, John W
-- **Products**: 2x4#2, 2x6#2, 2x8#2, 2x10#2, 2x12#2, 2x4#3, 2x6#3, 2x8#3, MSR, Wides, Studs
-- **Regions**: west, central, east
-- **Lengths**: 8', 10', 12', 14', 16', 20', RL
+- **MI_PRODUCTS** (25): 2x4-2x12 in grades #1, #2, #3, #4, MSR
+- **QUOTE_LENGTHS** (8): 8, 10, 12, 14, 16, 18, 20, RL
+- **PRODUCT_GROUPS**: All, #1, #2, #3, #4, MSR, Studs, Wides
+- **Regions**: west, central, east (canonical `REGION_MAP` in state.js)
 - **Storage prefix**: `syp_`
 
 ## Key Endpoints
@@ -150,13 +207,28 @@ No test suite exists.
 | Route | Purpose |
 |---|---|
 | `/health` | Health check |
+| `/api/auth/login` | JWT login |
+| `/api/pricing/login` | Matrix PIN login |
 | `/api/crm/prospects` | Prospect CRUD |
 | `/api/crm/customers` | Customer mgmt |
 | `/api/crm/mills` | Mill mgmt |
-| `/api/mileage/calculate` | Distance calc |
-| `/api/futures/*` | Futures market data |
-| `/api/parse-excel`, `/api/parse-pdf` | Mill pricing file parsing |
-| `/api/mi/*` | Mill Intel data endpoints |
+| `/api/mileage/calculate` | Distance calc (Nominatim geocoding) |
+| `/api/futures/*` | Futures market data (Yahoo Finance) |
+| `/api/parse-excel`, `/api/parse-pdf` | File parsing for mill pricing |
+| `/api/mi/quotes` | Mill Intel quote CRUD (GET/POST) |
+| `/api/mi/quotes/latest` | Latest quote per mill+product |
+| `/api/mi/quotes/matrix` | Full matrix view (with cache) |
+| `/api/mi/mills` | Mill Intel mill directory |
+| `/api/supabase/config` | Client Supabase credentials |
+| `/api/pricing/cutoff` | Matrix wipe date sync |
+
+## Known Architectural Notes
+
+- Railway filesystem is ephemeral — SQLite wiped on each deploy, reseeded from Supabase
+- `seed_mi_from_supabase()` runs on server startup if `mill_quotes` table is empty
+- Geocoding uses Nominatim (rate-limited, ~0.5s/call) — server pre-caches known mills to skip
+- Single Supabase JSON blob per user_id stores entire app state (can get large)
+- Gunicorn runs 2 workers + 4 threads to prevent single-request blocking
 
 ## Cache Busting
 
