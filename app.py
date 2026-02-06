@@ -2448,8 +2448,8 @@ def auth_verify():
 def get_config():
     """Return Supabase credentials (behind auth so frontend doesn't hardcode them)."""
     return jsonify({
-        'supabase_url': os.environ.get('SUPABASE_URL', ''),
-        'supabase_anon_key': os.environ.get('SUPABASE_ANON_KEY', ''),
+        'supabaseUrl': os.environ.get('SUPABASE_URL', ''),
+        'supabaseKey': os.environ.get('SUPABASE_ANON_KEY', ''),
     })
 
 # ==========================================

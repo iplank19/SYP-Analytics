@@ -3,3 +3,5 @@ mill-intel/mill_intel.db
 __pycache__/
 *.pyc
 .env
+node_modules/
+.pytest_cache/

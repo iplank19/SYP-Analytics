@@ -1,0 +1,13 @@
+{
+  "name": "syp-analytics",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "test": "jest --verbose",
+    "test:py": "python3 -m pytest tests/ -v",
+    "test:all": "npm test && npm run test:py"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0"
+  }
+}
