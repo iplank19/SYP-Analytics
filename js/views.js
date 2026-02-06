@@ -1478,138 +1478,74 @@ function render(){
     const selectedCustomer=S.qbCustomer?customers.find(c=>c.name===S.qbCustomer):null;
     const customerDest=selectedCustomer?.locations?.[0]||selectedCustomer?.destination||'';
 
+    // Template buttons for BUILD matrix
+    const builtInNames=Object.keys(QUOTE_TEMPLATES);
+    const customNames=(S.quoteTemplates||[]).map(t=>t.name);
+    const _activeT=S.qeBuildTemplate||'';
+    const templateBtns=[
+      ...builtInNames.map(name=>`<button class="btn ${name===_activeT?'btn-primary':'btn-default'}" style="padding:2px 8px;font-size:10px;min-width:0" onclick="qeApplyTemplate('${name}')">${name}</button>`),
+      ...customNames.map(name=>`<button class="btn ${name===_activeT?'btn-primary':'btn-default'}" style="padding:2px 8px;font-size:10px;min-width:0" onclick="qeApplyTemplate('${name}')">${name}</button>`),
+    ].join('');
+
     c.innerHTML=`
       <div style="display:flex;gap:0;margin-bottom:16px">
         <button class="btn ${_qeTab==='source'?'btn-primary':'btn-default'}" style="border-radius:var(--radius) 0 0 var(--radius)" onclick="S.quoteTab='source';render()">💡 SOURCE</button>
         <button class="btn ${_qeTab==='build'?'btn-primary':'btn-default'}" style="border-radius:0 var(--radius) var(--radius) 0" onclick="S.quoteTab='build';render()">📋 BUILD${items.length?' <span style=\"background:var(--accent);color:var(--bg);border-radius:8px;padding:1px 6px;font-size:9px;margin-left:4px\">'+items.length+'</span>':''}</button>
       </div>
-      ${S.trader==='Admin'?`<div style="margin-bottom:12px;padding:8px 12px;background:rgba(232,115,74,0.1);border:1px solid #e8734a;border-radius:4px;font-size:11px;color:#e8734a">🔑 <strong>Admin View</strong> — This is the Admin quote engine. Each trader has their own separate quote items and profiles.</div>`:''}
+      ${S.trader==='Admin'?`<div style="margin-bottom:12px;padding:8px 12px;background:rgba(232,115,74,0.1);border:1px solid #e8734a;border-radius:4px;font-size:11px;color:#e8734a">🔑 <strong>Admin View</strong> — Each trader has separate quote items and profiles.</div>`:''}
 
-      <div class="quote-grid">
-        <!-- LEFT COLUMN: Products + Results -->
+      <div class="grid-2" style="gap:16px;align-items:start">
+        <!-- LEFT: Product Matrix -->
         <div>
-          <!-- Step 1: Enter Products -->
           <div class="card" style="margin-bottom:12px">
             <div class="card-header">
-              <span class="card-title">1️⃣ Enter Products</span>
-              <div style="display:flex;gap:6px">
+              <span class="card-title">SELECT PRODUCTS</span>
+              <span id="qe-mx-count" style="font-size:10px;color:var(--muted)"></span>
+            </div>
+            <div class="card-body">
+              <!-- Customer / Destination -->
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px">
+                <div>
+                  <label style="font-size:9px;color:var(--muted);display:block;margin-bottom:2px">Customer</label>
+                  <select id="qb-customer-select" onchange="S.qbCustomer=this.value;save('qbCustomer',S.qbCustomer);render()" style="width:100%;padding:6px 8px;font-size:11px">
+                    <option value="">Select customer...</option>
+                    ${customers.map(c=>{
+                      const dest=c.locations?.[0]||c.destination||'';
+                      return`<option value="${escapeHtml(c.name)}" ${S.qbCustomer===c.name?'selected':''}>${escapeHtml(c.name)}${dest?' — '+escapeHtml(dest):''}</option>`;
+                    }).join('')}
+                  </select>
+                </div>
+                <div>
+                  <label style="font-size:9px;color:var(--muted);display:block;margin-bottom:2px">Destination</label>
+                  <input type="text" id="qb-custom-dest" placeholder="City, ST" style="width:100%;padding:6px 8px;font-size:11px" value="${escapeHtml(S.qbCustomDest||customerDest||'')}" onchange="S.qbCustomDest=this.value;save('qbCustomDest',S.qbCustomDest)">
+                </div>
+              </div>
+
+              <!-- Templates -->
+              <div style="display:flex;gap:3px;flex-wrap:wrap;margin-bottom:8px">${templateBtns}</div>
+
+              <!-- Matrix -->
+              ${qeRenderMatrixHTML()}
+
+              <!-- Actions -->
+              <div style="margin-top:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+                <button class="btn btn-primary" onclick="qeBuildFromMatrix()">Add to Quote</button>
+                <button class="btn btn-default btn-sm" onclick="clearQuoteItems()">Clear All</button>
                 <button class="btn btn-default btn-sm" onclick="loadFromMillQuotes()" title="Load from Mill Intel">🏭 Load Mill Quotes</button>
-                <button class="btn btn-default btn-sm" onclick="clearQuoteItems()">Clear</button>
               </div>
-            </div>
-            <div style="padding:12px">
-              <textarea id="qb-products-input" placeholder="Enter products (one per line):&#10;2x4#2 16'&#10;2x6#2 RL&#10;2x8#1 20'" style="width:100%;height:100px;padding:10px;font-size:12px;font-family:var(--mono);border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);resize:vertical">${items.map(i=>i.product).join('\n')}</textarea>
-              <div style="margin-top:8px;display:flex;gap:8px;align-items:center">
-                <button class="btn btn-primary" onclick="parseQuoteProducts()">Parse Products</button>
-                <span style="font-size:10px;color:var(--muted)">${items.length} products loaded</span>
-              </div>
+
+              <!-- Text fallback -->
+              <details style="margin-top:10px">
+                <summary style="font-size:10px;color:var(--muted);cursor:pointer">Manual text entry</summary>
+                <div style="margin-top:6px">
+                  <textarea id="qb-products-input" placeholder="Enter products (one per line):&#10;2x4#2 16'&#10;2x6#2 RL" style="width:100%;height:60px;padding:8px;font-size:11px;font-family:var(--mono);border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);resize:vertical">${items.map(i=>i.product).join('\n')}</textarea>
+                  <button class="btn btn-default btn-sm" style="margin-top:4px" onclick="parseQuoteProducts()">Parse</button>
+                </div>
+              </details>
             </div>
           </div>
 
-          <!-- Step 2: Select Customer -->
-          <div class="card" style="margin-bottom:12px">
-            <div class="card-header">
-              <span class="card-title">2️⃣ Select Customer</span>
-              ${customerDest?`<span style="font-size:10px;color:var(--muted)">📍 ${customerDest}</span>`:''}
-            </div>
-            <div style="padding:12px">
-              <select id="qb-customer-select" onchange="S.qbCustomer=this.value;save('qbCustomer',S.qbCustomer);render()" style="width:100%;padding:10px;font-size:13px">
-                <option value="">Select customer...</option>
-                ${customers.map(c=>{
-                  const dest=c.locations?.[0]||c.destination||'';
-                  return`<option value="${c.name}" ${S.qbCustomer===c.name?'selected':''}>${c.name}${dest?' — '+dest:''}</option>`;
-                }).join('')}
-              </select>
-              <div style="margin-top:8px">
-                <input type="text" id="qb-custom-dest" placeholder="Or enter city: Dallas, TX" style="width:100%;padding:8px;font-size:12px" value="${S.qbCustomDest||''}" onchange="S.qbCustomDest=this.value;save('qbCustomDest',S.qbCustomDest)">
-              </div>
-            </div>
-          </div>
-
-          <!-- Step 3: Show Best Costs -->
-          <div class="card" style="margin-bottom:12px">
-            <div class="card-header">
-              <span class="card-title">3️⃣ Get Pricing</span>
-              <button class="btn btn-success" onclick="showBestCosts()">💰 Show Best Costs</button>
-            </div>
-          </div>
-
-          <!-- Results Table -->
-          <div class="card">
-            <div class="card-header">
-              <span class="card-title">📊 Quote Builder</span>
-              <span style="font-size:10px;color:var(--muted)">${items.filter(i=>i.sellDlvd).length} priced</span>
-            </div>
-            <div style="overflow-x:auto">
-              <table class="quote-table" style="font-size:11px">
-                <thead><tr>
-                  <th style="min-width:100px">Product</th>
-                  <th style="width:70px;text-align:right" title="Random Lengths Print">RL Print</th>
-                  <th style="width:80px;text-align:right" title="Best mill FOB cost">Mill Cost</th>
-                  <th style="width:70px;text-align:right" title="Freight to customer">Freight</th>
-                  <th style="width:80px;text-align:right" title="Mill Cost + Freight">Landed</th>
-                  <th style="width:90px;text-align:center" title="Your delivered sell price">Sell Dlvd</th>
-                  <th style="width:70px;text-align:right" title="Sell - Landed">Margin</th>
-                  <th style="width:30px"></th>
-                </tr></thead>
-                <tbody>
-                  ${items.length?items.map((item,idx)=>{
-                    const parsed=typeof parseProductString==='function'?parseProductString(item.product):{base:item.product,length:null};
-                    const region=item.bestMillRegion||'central';
-                    const rlPrice=latestRL?getRLPrice(latestRL,parsed.base,parsed.length,region):null;
-                    const landed=item.landed||null;
-                    const margin=item.sellDlvd&&landed?(item.sellDlvd-landed):null;
-                    const marginColor=margin===null?'var(--muted)':margin>=25?'var(--positive)':margin>=0?'var(--warn)':'var(--negative)';
-                    return`<tr>
-                      <td style="font-weight:500">${item.product||'—'}</td>
-                      <td style="text-align:right;color:var(--muted)">${rlPrice?'$'+rlPrice:'—'}</td>
-                      <td style="text-align:right">${item.bestMillCost?`<span style="color:var(--positive)">$${item.bestMillCost}</span><div style="font-size:9px;color:var(--muted)">${item.bestMill||''}</div>`:'<span style="color:var(--muted)">—</span>'}</td>
-                      <td style="text-align:right;color:var(--muted)">${item.freight?'$'+item.freight:'—'}</td>
-                      <td style="text-align:right;font-weight:600">${landed?'$'+landed:'<span style="color:var(--muted)">—</span>'}</td>
-                      <td style="text-align:center"><input type="number" value="${item.sellDlvd||''}" placeholder="$" style="width:70px;padding:4px;text-align:center;font-weight:600" onchange="updateQuoteSellDlvd(${idx},+this.value)"></td>
-                      <td style="text-align:right;font-weight:600;color:${marginColor}">${margin!==null?'$'+margin:'—'}</td>
-                      <td><button class="quote-del-btn" onclick="removeQuoteItem(${idx})">×</button></td>
-                    </tr>`;
-                  }).join(''):`<tr><td colspan="8" class="empty-state">Enter products above and click "Show Best Costs"</td></tr>`}
-                </tbody>
-                ${items.length&&items.some(i=>i.sellDlvd)?`<tfoot style="border-top:2px solid var(--border)">
-                  <tr style="font-weight:600">
-                    <td>TOTALS</td>
-                    <td></td>
-                    <td></td>
-                    <td></td>
-                    <td></td>
-                    <td></td>
-                    <td style="text-align:right;color:${items.reduce((s,i)=>(i.sellDlvd&&i.landed)?s+(i.sellDlvd-i.landed):s,0)>=0?'var(--positive)':'var(--negative)'}">$${items.reduce((s,i)=>(i.sellDlvd&&i.landed)?s+(i.sellDlvd-i.landed):s,0)}/MBF avg</td>
-                    <td></td>
-                  </tr>
-                </tfoot>`:''}
-              </table>
-            </div>
-            ${items.some(i=>i.sellDlvd)?`<div style="padding:12px;border-top:1px solid var(--border)">
-              <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
-                <span class="status-badge status-${S.quoteStatus||'draft'}">${S.quoteStatus||'draft'}</span>
-                <select onchange="S.quoteStatus=this.value;SS('quoteStatus',this.value);render()" style="font-size:10px;padding:3px">
-                  <option value="draft" ${(S.quoteStatus||'draft')==='draft'?'selected':''}>Draft</option>
-                  <option value="sent" ${S.quoteStatus==='sent'?'selected':''}>Sent</option>
-                  <option value="approved" ${S.quoteStatus==='approved'?'selected':''}>Accepted</option>
-                  <option value="cancelled" ${S.quoteStatus==='cancelled'?'selected':''}>Rejected</option>
-                  <option value="pending" ${S.quoteStatus==='pending'?'selected':''}>Expired</option>
-                </select>
-              </div>
-              <div style="display:flex;gap:8px;flex-wrap:wrap">
-                <button class="btn btn-primary" onclick="copyQuickQuote()">Copy Quote</button>
-                <button class="btn btn-default" onclick="applyAllMargin()">Apply Margin to All</button>
-                <input type="number" id="qb-margin-input" placeholder="+$25" style="width:70px;padding:6px;text-align:center">
-                ${S.quoteStatus==='approved'?'<button class="btn btn-success" onclick="convertQuoteToTrades()">Convert to Trade</button>':''}
-              </div>
-            </div>`:''}
-          </div>
-        </div>
-
-        <!-- RIGHT COLUMN: Freight + Reference -->
-        <div>
-          <!-- Freight Settings (collapsed by default) -->
+          <!-- Freight Settings -->
           <details class="card" style="margin-bottom:12px" ${S.qbShowFreight?'open':''}>
             <summary class="card-header" style="cursor:pointer" onclick="S.qbShowFreight=!S.qbShowFreight;save('qbShowFreight',S.qbShowFreight)">
               <span class="card-title">🚚 Freight Settings</span>
@@ -1639,7 +1575,7 @@ function render(){
 
           <!-- RL Reference -->
           ${latestRL?`<div class="card" style="margin-bottom:12px">
-            <div class="card-header"><span class="card-title">📰 RL Print ${latestRL.date}</span></div>
+            <div class="card-header"><span class="card-title">📰 RL Print ${escapeHtml(latestRL.date||'')}</span></div>
             <div style="padding:12px">
               <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;font-size:11px">
                 <div style="text-align:center;padding:8px;background:var(--bg);border-radius:4px">
@@ -1656,23 +1592,96 @@ function render(){
                 </div>
               </div>
             </div>
-          </div>`:'<div class="card" style="margin-bottom:12px;padding:12px;text-align:center;color:var(--muted);font-size:11px">No RL data loaded. Import from RL Data page.</div>'}
+          </div>`:''}
+        </div>
+
+        <!-- RIGHT: Pricing Panel -->
+        <div>
+          <div class="card">
+            <div class="card-header">
+              <span class="card-title">PRICING ${items.length?'('+items.length+')':''}</span>
+              <div style="display:flex;gap:6px">
+                <button class="btn btn-success btn-sm" onclick="qeReflowPricing()" title="Re-fetch pricing for all items">🔄 Reflow</button>
+                <button class="btn btn-default btn-sm" onclick="applyAllMargin()">+Margin</button>
+                <input type="number" id="qb-margin-input" placeholder="+$25" style="width:55px;padding:4px;text-align:center;font-size:11px">
+              </div>
+            </div>
+            <div style="overflow-x:auto">
+              <table style="font-size:11px;width:100%;border-collapse:collapse">
+                <thead><tr style="border-bottom:2px solid var(--border)">
+                  <th style="text-align:left;padding:4px 6px">Product</th>
+                  <th style="text-align:right;padding:4px 6px" title="Best mill FOB cost">Cost</th>
+                  <th style="text-align:right;padding:4px 6px" title="Freight $/MBF">Frt</th>
+                  <th style="text-align:right;padding:4px 6px" title="Mill Cost + Freight">Landed</th>
+                  <th style="text-align:center;padding:4px 6px" title="Your sell price delivered">Sell</th>
+                  <th style="text-align:right;padding:4px 6px">Margin</th>
+                  <th style="text-align:center;padding:4px 6px" title="Truckloads">TLs</th>
+                  <th style="text-align:center;padding:4px 6px" title="Ship week">Ship</th>
+                  <th style="width:24px"></th>
+                </tr></thead>
+                <tbody>
+                  ${items.length?items.map((item,idx)=>{
+                    const parsed=typeof parseProductString==='function'?parseProductString(item.product):{base:item.product,length:null};
+                    const region=item.bestMillRegion||'central';
+                    const rlPrice=latestRL?getRLPrice(latestRL,parsed.base,parsed.length,region):null;
+                    const landed=item.landed||null;
+                    const margin=item.sellDlvd&&landed?(item.sellDlvd-landed):null;
+                    const marginColor=margin===null?'var(--muted)':margin>=25?'var(--positive)':margin>=0?'var(--warn)':'var(--negative)';
+                    return`<tr style="border-bottom:1px solid var(--border)">
+                      <td style="padding:4px 6px;font-weight:600;color:var(--accent)">${escapeHtml(item.product||'—')}${rlPrice?'<div style=\"font-size:9px;color:var(--muted)\">RL $'+rlPrice+'</div>':''}</td>
+                      <td style="text-align:right;padding:4px 6px">${item.bestMillCost?`<span style="color:var(--positive)">$${item.bestMillCost}</span><div style="font-size:9px;color:var(--muted)">${escapeHtml(item.bestMill||'')}</div>`:'<span style="color:var(--muted)">—</span>'}</td>
+                      <td style="text-align:right;padding:4px 6px;color:var(--muted)">${item.freight?'$'+Math.round(item.freight):'—'}</td>
+                      <td style="text-align:right;padding:4px 6px;font-weight:600">${landed?'$'+landed:'—'}</td>
+                      <td style="text-align:center;padding:4px 2px"><input type="number" value="${item.sellDlvd||''}" placeholder="$" style="width:60px;padding:3px;text-align:center;font-weight:600;font-size:11px" onchange="updateQuoteSellDlvd(${idx},+this.value)"></td>
+                      <td style="text-align:right;padding:4px 6px;font-weight:600;color:${marginColor}">${margin!==null?'$'+margin:'—'}</td>
+                      <td style="text-align:center;padding:4px 2px"><input type="number" value="${item.tls||1}" min="1" style="width:36px;padding:3px;text-align:center;font-size:11px" onchange="qeUpdateTLs(${idx},this.value)"></td>
+                      <td style="text-align:center;padding:4px 2px"><input type="text" value="${escapeHtml(item.shipWeek||'')}" placeholder="Wk" style="width:48px;padding:3px;text-align:center;font-size:10px" onchange="qeUpdateShipWeek(${idx},this.value)"></td>
+                      <td style="padding:4px 2px"><button style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:14px;padding:0 2px" onclick="removeQuoteItem(${idx})" title="Remove">×</button></td>
+                    </tr>`;
+                  }).join(''):`<tr><td colspan="9" style="padding:30px;text-align:center;color:var(--muted)">Select products from the matrix and click "Add to Quote"</td></tr>`}
+                </tbody>
+                ${items.length&&items.some(i=>i.sellDlvd)?`<tfoot style="border-top:2px solid var(--border)">
+                  <tr style="font-weight:600">
+                    <td style="padding:6px">TOTAL</td>
+                    <td></td><td></td><td></td><td></td>
+                    <td style="text-align:right;padding:6px;color:${items.reduce((s,i)=>(i.sellDlvd&&i.landed)?s+(i.sellDlvd-i.landed):s,0)>=0?'var(--positive)':'var(--negative)'}">$${items.reduce((s,i)=>(i.sellDlvd&&i.landed)?s+(i.sellDlvd-i.landed):s,0)} avg</td>
+                    <td style="text-align:center;padding:6px">${items.reduce((s,i)=>s+(i.tls||1),0)} TL</td>
+                    <td></td><td></td>
+                  </tr>
+                </tfoot>`:''}
+              </table>
+            </div>
+            ${items.length?`<div style="padding:10px;border-top:1px solid var(--border);display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+              <span class="status-badge status-${S.quoteStatus||'draft'}">${S.quoteStatus||'draft'}</span>
+              <select onchange="S.quoteStatus=this.value;SS('quoteStatus',this.value);render()" style="font-size:10px;padding:3px">
+                <option value="draft" ${(S.quoteStatus||'draft')==='draft'?'selected':''}>Draft</option>
+                <option value="sent" ${S.quoteStatus==='sent'?'selected':''}>Sent</option>
+                <option value="approved" ${S.quoteStatus==='approved'?'selected':''}>Accepted</option>
+                <option value="cancelled" ${S.quoteStatus==='cancelled'?'selected':''}>Rejected</option>
+              </select>
+              <div style="flex:1"></div>
+              <button class="btn btn-primary btn-sm" onclick="copyQuickQuote()">📋 Copy Quote</button>
+              ${S.quoteStatus==='approved'?'<button class="btn btn-success btn-sm" onclick="convertQuoteToTrades()">Convert to Trades</button>':''}
+            </div>`:''}</div>
 
           <!-- Cached Lanes -->
-          ${S.lanes.length?`<div class="card">
+          ${S.lanes.length?`<div class="card" style="margin-top:12px">
             <div class="card-header">
               <span class="card-title">📍 Cached Lanes (${S.lanes.length})</span>
               <button class="btn btn-default btn-sm" onclick="S.lanes=[];save('lanes',S.lanes);render()">Clear</button>
             </div>
-            <div style="max-height:200px;overflow-y:auto;padding:8px">
+            <div style="max-height:150px;overflow-y:auto;padding:8px">
               <table style="width:100%;font-size:10px;border-collapse:collapse">
-                ${S.lanes.slice(0,10).map(l=>`<tr style="border-bottom:1px solid var(--border)"><td style="padding:4px">${l.origin}</td><td style="padding:4px">→</td><td style="padding:4px">${l.dest}</td><td style="padding:4px;text-align:right;color:var(--accent)">${l.miles} mi</td></tr>`).join('')}
-                ${S.lanes.length>10?`<tr><td colspan="4" style="padding:4px;color:var(--muted);text-align:center">+${S.lanes.length-10} more</td></tr>`:''}
+                ${S.lanes.slice(0,8).map(l=>`<tr style="border-bottom:1px solid var(--border)"><td style="padding:3px">${escapeHtml(l.origin)}</td><td style="padding:3px">→</td><td style="padding:3px">${escapeHtml(l.dest)}</td><td style="padding:3px;text-align:right;color:var(--accent)">${l.miles} mi</td></tr>`).join('')}
+                ${S.lanes.length>8?`<tr><td colspan="4" style="padding:3px;color:var(--muted);text-align:center">+${S.lanes.length-8} more</td></tr>`:''}
               </table>
             </div>
           </div>`:''}
         </div>
       </div>`;
+
+    // Initialize matrix headers after render
+    setTimeout(()=>qeUpdateMatrixHeaders(),0);
   }
   else if(S.view==='products'){
     // Calculate comprehensive product analytics

@@ -2268,9 +2268,7 @@ def get_config():
 # PRICING MATRIX — standalone read-only view
 # ==========================================
 
-PRICING_PASSWORD = os.environ.get('PRICING_PASSWORD')
-if not PRICING_PASSWORD:
-    print("WARNING: PRICING_PASSWORD env var not set. Pricing portal auth is disabled until configured.")
+PRICING_PASSWORD = os.environ.get('PRICING_PASSWORD', '2026')
 
 @app.route('/pricing')
 def pricing_page():

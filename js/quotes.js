@@ -2289,6 +2289,217 @@ Respond with JSON only, no explanation:
   }
 }
 
+// ============================================================
+// BUILD TAB — Product x Length Matrix
+// ============================================================
+
+function _qePid(p) { return p.replace(/\s+/g, '-') }
+
+function qeGetCheckedCombos() {
+  const combos = []
+  MI_PRODUCTS.forEach(p => {
+    QUOTE_LENGTHS.forEach(l => {
+      const cb = document.getElementById(`qe-mx-${_qePid(p)}-${l}`)
+      if (cb && cb.checked) combos.push({ product: p, length: l })
+    })
+  })
+  return combos
+}
+
+function qeUpdateMatrixHeaders() {
+  MI_PRODUCTS.forEach(p => {
+    const rowCb = document.getElementById(`qe-mx-row-${_qePid(p)}`)
+    if (!rowCb) return
+    const checks = QUOTE_LENGTHS.map(l => {
+      const cb = document.getElementById(`qe-mx-${_qePid(p)}-${l}`)
+      return cb ? cb.checked : false
+    })
+    rowCb.checked = checks.every(c => c)
+    rowCb.indeterminate = !checks.every(c => c) && !checks.every(c => !c)
+  })
+  QUOTE_LENGTHS.forEach(l => {
+    const colCb = document.getElementById(`qe-mx-col-${l}`)
+    if (!colCb) return
+    const checks = MI_PRODUCTS.map(p => {
+      const cb = document.getElementById(`qe-mx-${_qePid(p)}-${l}`)
+      return cb ? cb.checked : false
+    })
+    colCb.checked = checks.every(c => c)
+    colCb.indeterminate = !checks.every(c => c) && !checks.every(c => !c)
+  })
+  const count = qeGetCheckedCombos().length
+  const el = document.getElementById('qe-mx-count')
+  if (el) el.textContent = `${count} combo${count !== 1 ? 's' : ''} selected`
+}
+
+function qeToggleRow(product) {
+  const rowCb = document.getElementById(`qe-mx-row-${_qePid(product)}`)
+  const on = rowCb ? rowCb.checked : true
+  QUOTE_LENGTHS.forEach(l => {
+    const cb = document.getElementById(`qe-mx-${_qePid(product)}-${l}`)
+    if (cb) cb.checked = on
+  })
+  qeUpdateMatrixHeaders()
+}
+
+function qeToggleCol(length) {
+  const colCb = document.getElementById(`qe-mx-col-${length}`)
+  const on = colCb ? colCb.checked : true
+  MI_PRODUCTS.forEach(p => {
+    const cb = document.getElementById(`qe-mx-${_qePid(p)}-${length}`)
+    if (cb) cb.checked = on
+  })
+  qeUpdateMatrixHeaders()
+}
+
+function qeCellChanged() {
+  qeUpdateMatrixHeaders()
+}
+
+function qeApplyTemplate(name) {
+  S.qeBuildTemplate = name
+  let grid
+  if (QUOTE_TEMPLATES[name]) {
+    grid = QUOTE_TEMPLATES[name].build()
+  } else {
+    const custom = (S.quoteTemplates || []).find(t => t.name === name)
+    if (custom) grid = custom.grid
+    else return
+  }
+  MI_PRODUCTS.forEach(p => {
+    QUOTE_LENGTHS.forEach(l => {
+      const cb = document.getElementById(`qe-mx-${_qePid(p)}-${l}`)
+      if (cb) cb.checked = !!(grid[p] && grid[p][l])
+    })
+  })
+  qeUpdateMatrixHeaders()
+}
+
+// Convert matrix selections → S.quoteItems and auto-price
+async function qeBuildFromMatrix() {
+  const combos = qeGetCheckedCombos()
+  if (!combos.length) {
+    showToast('Check at least one product/length cell', 'warn')
+    return
+  }
+
+  // Merge with existing items (don't duplicate)
+  const existing = new Set((S.quoteItems || []).map(i => i.product))
+  let added = 0
+
+  combos.forEach(c => {
+    const label = formatProductLabel(c.product, c.length)
+    if (existing.has(label)) return
+    S.quoteItems.push({
+      id: genId(),
+      product: label,
+      selected: true,
+      shipWeek: '',
+      tls: 1,
+      notes: ''
+    })
+    existing.add(label)
+    added++
+  })
+
+  if (!added) {
+    showToast('All selected items already in quote', 'info')
+    return
+  }
+
+  save('quoteItems', S.quoteItems)
+  showToast(`Added ${added} items — fetching pricing...`, 'positive')
+  await showBestCosts()
+}
+
+// One-click reflow: re-run pricing on all current items
+async function qeReflowPricing() {
+  if (!(S.quoteItems || []).length) {
+    showToast('No items to reprice', 'warn')
+    return
+  }
+  showToast('Reflowing pricing...', 'info')
+  await showBestCosts()
+}
+
+// Update ship week on an item
+function qeUpdateShipWeek(idx, value) {
+  if (S.quoteItems[idx]) {
+    S.quoteItems[idx].shipWeek = value
+    save('quoteItems', S.quoteItems)
+  }
+}
+
+// Update TLs on an item
+function qeUpdateTLs(idx, value) {
+  if (S.quoteItems[idx]) {
+    S.quoteItems[idx].tls = parseInt(value) || 1
+    save('quoteItems', S.quoteItems)
+  }
+}
+
+// Update notes on an item
+function qeUpdateNotes(idx, value) {
+  if (S.quoteItems[idx]) {
+    S.quoteItems[idx].notes = value
+    save('quoteItems', S.quoteItems)
+  }
+}
+
+// Render the BUILD matrix grid HTML
+function qeRenderMatrixHTML() {
+  const lengths = QUOTE_LENGTHS
+  const gradeGroups = [
+    { label: '#1', products: MI_PRODUCTS.filter(p => p.includes('#1')) },
+    { label: '#2', products: MI_PRODUCTS.filter(p => p.includes('#2')) },
+    { label: '#3', products: MI_PRODUCTS.filter(p => p.includes('#3')) },
+    { label: '#4', products: MI_PRODUCTS.filter(p => p.includes('#4')) },
+    { label: 'MSR', products: MI_PRODUCTS.filter(p => p.includes('MSR')) },
+  ]
+
+  const colHeaders = lengths.map(l =>
+    `<th style="text-align:center;padding:3px;font-size:10px;font-weight:600;min-width:28px">
+      <div>${l === 'RL' ? 'RL' : l + "'"}</div>
+      <input type="checkbox" id="qe-mx-col-${l}" onchange="qeToggleCol('${l}')" style="margin-top:2px">
+    </th>`
+  ).join('')
+
+  const matrixRows = gradeGroups.map(grp => {
+    const groupHeader = `<tr><td colspan="${lengths.length + 1}" style="padding:6px 6px 2px;font-size:10px;font-weight:700;color:var(--muted);border-top:1px solid var(--border)">${grp.label}</td></tr>`
+    const rows = grp.products.map(p => {
+      const pid = _qePid(p)
+      const cells = lengths.map(l =>
+        `<td style="text-align:center;padding:3px"><input type="checkbox" id="qe-mx-${pid}-${l}" onchange="qeCellChanged()"></td>`
+      ).join('')
+      return `<tr>
+        <td style="white-space:nowrap;padding:3px 6px;font-size:11px;font-weight:600">
+          <label style="cursor:pointer;display:flex;align-items:center;gap:4px">
+            <input type="checkbox" id="qe-mx-row-${pid}" onchange="qeToggleRow('${p}')">
+            ${formatProductHeader(p)}
+          </label>
+        </td>
+        ${cells}
+      </tr>`
+    }).join('')
+    return groupHeader + rows
+  }).join('')
+
+  return `
+    <div style="overflow-x:auto">
+      <table style="font-size:11px;border-collapse:collapse;width:100%" id="qe-build-matrix">
+        <thead>
+          <tr>
+            <th style="text-align:left;padding:3px 6px;font-size:10px">PRODUCT</th>
+            ${colHeaders}
+          </tr>
+        </thead>
+        <tbody>
+          ${matrixRows}
+        </tbody>
+      </table>
+    </div>`
+}
+
 function calcAvgHistoricalMargin(){
   const buyByOrder={};
   S.buys.forEach(b=>{
