@@ -484,12 +484,8 @@ function onSellOrderChange(){
       document.getElementById('m-region').value=buy.region;
     }
     // Calculate available volume
-    const orderSold={};
-    S.sells.forEach(s=>{
-      const ord=String(s.orderNum||s.linkedPO||s.oc||'').trim();
-      if(ord)orderSold[ord]=(orderSold[ord]||0)+(s.volume||0);
-    });
-    const avail=(buy.volume||0)-(orderSold[orderNumStr]||0);
+    const orderSold=buildOrderSold();
+    const avail=(buy.volume||0)-(orderSold[normalizeOrderNum(orderNumStr)]||0);
     if(avail>0&&!document.getElementById('m-volume').value){
       document.getElementById('m-volume').value=avail;
     }
@@ -500,11 +496,7 @@ function onSellOrderChange(){
 // Sell against a long position from Risk view
 function sellPosition(product, length, volume){
   // Find ALL buys with this product/length that have available volume
-  const orderSold={};
-  S.sells.forEach(s=>{
-    const ord=String(s.orderNum||s.linkedPO||s.oc||'').trim();
-    if(ord)orderSold[ord]=(orderSold[ord]||0)+(s.volume||0);
-  });
+  const orderSold=buildOrderSold();
   
   // Normalize product for matching (remove spaces, lowercase)
   const normProd=p=>(p||'').toLowerCase().replace(/\s+/g,'');
@@ -516,23 +508,23 @@ function sellPosition(product, length, volume){
     if(normProd(b.product)!==targetProd)return false;
     const buyLen=String(b.length||'RL').replace(/'/g,'');
     if(targetLen && buyLen!==targetLen)return false;
-    const ord=String(b.orderNum||b.po||'').trim();
+    const ord=normalizeOrderNum(b.orderNum||b.po);
     if(!ord)return false;
     const sold=orderSold[ord]||0;
     return (b.volume||0)-sold>0;
   });
-  
+
   // Use first matching buy
   const matchingBuy=matchingBuys[0];
   const orderNum=matchingBuy?String(matchingBuy.orderNum||matchingBuy.po||'').trim():'';
-  
+
   // Show modal with pre-filled data
   showSellModal({
     orderNum:orderNum,
     linkedPO:orderNum,
     product:product,
     length:length==='RL'?'RL':String(length).replace(/'/g,''),
-    volume:matchingBuy?(matchingBuy.volume-(orderSold[orderNum]||0)):volume,
+    volume:matchingBuy?(matchingBuy.volume-(orderSold[normalizeOrderNum(orderNum)]||0)):volume,
     region:matchingBuy?.region||'west'
   });
   
@@ -1426,14 +1418,10 @@ function showSellModal(s=null){
   // Customer list from CRM
   const custList=[...new Set([...S.customers.map(c=>c.name),...S.sells.map(x=>normalizeCustomerName(x.customer)).filter(Boolean)])].sort();
   
-  // Get available buys (with volume remaining) - using orderNum, normalized to strings
-  const orderSold={};
-  S.sells.filter(x=>x.id!==s?.id).forEach(x=>{
-    const ord=String(x.orderNum||x.linkedPO||x.oc||'').trim();
-    if(ord)orderSold[ord]=(orderSold[ord]||0)+(x.volume||0);
-  });
+  // Get available buys (with volume remaining) - using orderNum, normalized
+  const orderSold=buildOrderSold(S.sells.filter(x=>x.id!==s?.id));
   const availBuys=S.buys.map(b=>{
-    const ord=String(b.orderNum||b.po||'').trim();
+    const ord=normalizeOrderNum(b.orderNum||b.po);
     const sold=orderSold[ord]||0;
     const avail=(b.volume||0)-sold;
     return{...b,ord,sold,avail};

@@ -177,13 +177,7 @@ function miMatrixControls(products, colCount, totalCols, millCount, totalMills) 
   </div>`;
 }
 
-// Normalize ship window to "Prompt" or "1-2 Weeks"
-function normalizeShipWindow(ship) {
-  if (!ship) return '1-2 Weeks';
-  const s = ship.toLowerCase().trim();
-  if (s === 'prompt' || s === 'immediate' || s === 'spot') return 'Prompt';
-  return '1-2 Weeks';
-}
+// normalizeShipWindow is defined in utils.js (handles prompt/immediate/spot/now/asap + day-based)
 
 // Update portal margin and re-render matrix
 function updatePortalMargin(val) {

@@ -80,17 +80,6 @@ function calcROC(prices,period){
   return past?((current-past)/past)*100:null;
 }
 
-// Get current market price for product
-function getCurrentPrice(product,region='west'){
-  const latestRL=S.rl.length?S.rl[S.rl.length-1]:null;
-  if(!latestRL)return null;
-
-  const normProd=(product||'').replace(/\s+/g,'');
-  return latestRL[region]?.[normProd]||
-         latestRL[region]?.[normProd+'#2']||
-         latestRL.composite?.[region]?.[normProd]||null;
-}
-
 // ============================================================================
 // TREND FOLLOWING SIGNALS
 // ============================================================================
@@ -101,7 +90,7 @@ function generateTrendSignals(){
   if(!config?.enabled)return[];
 
   const signals=[];
-  const products=['2x4#2','2x6#2','2x4#3','2x6#3','2x8#2','2x10#2','2x12#2'];
+  const products=PRODUCTS;
   const regions=['west','central','east'];
 
   products.forEach(product=>{
@@ -446,7 +435,7 @@ function generatePositionSignals(){
 
     // Large long position warning
     if(net>200){
-      const currentPrice=getCurrentPrice(p.product,'west');
+      const currentPrice=getMarketPrice(p.product,'west');
       if(currentPrice&&currentPrice<avgCost){
         signals.push({
           type:'position',
@@ -463,7 +452,7 @@ function generatePositionSignals(){
 
     // Uncovered short warning
     if(net<-100){
-      const currentPrice=getCurrentPrice(p.product,'west');
+      const currentPrice=getMarketPrice(p.product,'west');
       signals.push({
         type:'position',
         direction:'buy',
@@ -523,7 +512,13 @@ function calcSignalConfidence(signal,allSignals){
 // MASTER SIGNAL GENERATOR
 // ============================================================================
 
+let _signalCache=null;
+let _signalCacheTime=0;
+
 function generateSignals(){
+  const now=Date.now();
+  if(_signalCache&&now-_signalCacheTime<1000)return _signalCache;
+
   initSignalConfig();
 
   const allSignals=[
@@ -559,6 +554,8 @@ function generateSignals(){
   });
 
   S.signals=unique;
+  _signalCache=unique;
+  _signalCacheTime=Date.now();
   return unique;
 }
 

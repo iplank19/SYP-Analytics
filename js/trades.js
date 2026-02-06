@@ -154,7 +154,6 @@ async function saveBuy(id){
   if(!b.product||!b.price||!b.volume){showToast('Fill required fields (product, price, volume)','warn');return}
   // Warn on duplicate order number (different buy) - with fuzzy matching
   if(b.orderNum){
-    const normalizeOrderNum=s=>String(s||'').toLowerCase().replace(/[^a-z0-9]/g,'');
     const normalizedNew=normalizeOrderNum(b.orderNum);
     const dupe=S.buys.find(x=>x.id!==id&&normalizeOrderNum(x.orderNum||x.po)===normalizedNew);
     if(dupe){
@@ -319,7 +318,6 @@ async function saveSell(id){
   if(!s.product||!s.price||!s.volume){showToast('Fill required fields (product, price, volume)','warn');return}
   // Warn on duplicate order number (different sell) - with fuzzy matching
   if(s.orderNum){
-    const normalizeOrderNum=str=>String(str||'').toLowerCase().replace(/[^a-z0-9]/g,'');
     const normalizedNew=normalizeOrderNum(s.orderNum);
     const dupe=S.sells.find(x=>x.id!==id&&normalizeOrderNum(x.orderNum||x.linkedPO||x.oc)===normalizedNew);
     if(dupe){
@@ -327,8 +325,6 @@ async function saveSell(id){
       if(userInput?.toUpperCase()!=='SAVE'){showToast('Save cancelled - duplicate order','warn');return}
     }
   }
-  // Save rate as default
-  S.flatRate=s.rate;
   if(id){
     const existing=S.sells.find(x=>x.id===id);
     if(existing&&!canEdit(existing)){showToast('You can only edit your own trades','warn');return}

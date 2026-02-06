@@ -10,8 +10,8 @@ async function hashPassword(input){
 }
 
 // SETTINGS
-function saveKey(){S.apiKey=document.getElementById('api-key').value.trim();SS('apiKey',S.apiKey);showToast('API key saved!','positive')}
-function saveFlatRate(){S.flatRate=parseFloat(document.getElementById('flat-rate').value)||3.50;SS('flatRate',S.flatRate);showToast('Flat rate saved: $'+S.flatRate+'/mile','positive')}
+function saveKey(){const v=document.getElementById('api-key').value.trim();save('apiKey',v);showToast('API key saved!','positive')}
+function saveFlatRate(){const v=parseFloat(document.getElementById('flat-rate').value)||3.50;save('flatRate',v);showToast('Flat rate saved: $'+v+'/mile','positive')}
 
 // PPU Settings
 function savePPUSettings(){
@@ -22,19 +22,18 @@ function savePPUSettings(){
     const val=parseInt(inp.value);
     if(dim&&val>0)newPPU[dim]=val;
   });
-  S.ppu=newPPU;
-  SS('ppu',S.ppu);
+  save('ppu',newPPU);
   showToast('PPU settings saved!','positive');
 }
 
 function resetPPUDefaults(){
-  S.ppu={
+  const defaults={
     '2x4':208,'2x6':128,'2x8':96,'2x10':80,'2x12':64,
     '2x3':294,'2x14':52,
     '1x4':416,'1x6':256,'1x8':192,'1x10':160,'1x12':128,
     '4x4':64,'4x6':42,'6x6':24
   };
-  SS('ppu',S.ppu);
+  save('ppu',defaults);
   showToast('PPU reset to defaults','info');
   render();
 }
@@ -52,7 +51,7 @@ function addPPUDimension(){
   }
   if(!S.ppu)S.ppu={};
   S.ppu[dim.toLowerCase()]=val;
-  SS('ppu',S.ppu);
+  save('ppu',S.ppu);
   showToast(`Added ${dim} = ${val} pcs/unit`,'positive');
   render();
 }

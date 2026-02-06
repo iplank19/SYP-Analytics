@@ -20,11 +20,11 @@ function getPeriodCutoff(period){
   }
 }
 
-// Build buy order lookup
+// Build buy order lookup (uses normalizeOrderNum for consistency with analytics.js)
 function buildBuyByOrderForPnL(){
   const buyByOrder={};
   S.buys.forEach(b=>{
-    const ord=String(b.orderNum||b.po||'').trim();
+    const ord=normalizeOrderNum(b.orderNum||b.po);
     if(ord&&!buyByOrder[ord])buyByOrder[ord]=b;
   });
   return buyByOrder;
@@ -45,7 +45,7 @@ function getPnLBreakdown(options={}){
   S.sells.forEach(s=>{
     if(new Date(s.date)<cutoff)return;
 
-    const ord=String(s.orderNum||s.linkedPO||s.oc||'').trim();
+    const ord=normalizeOrderNum(s.orderNum||s.linkedPO||s.oc);
     const buy=ord?buyByOrder[ord]:null;
 
     // Determine group key
@@ -129,7 +129,7 @@ function getPnLBreakdown(options={}){
 // Get detailed P&L components for a single matched trade
 function getTradePnLComponents(sell){
   const buyByOrder=buildBuyByOrderForPnL();
-  const ord=String(sell.orderNum||sell.linkedPO||sell.oc||'').trim();
+  const ord=normalizeOrderNum(sell.orderNum||sell.linkedPO||sell.oc);
   const buy=ord?buyByOrder[ord]:null;
 
   if(!buy)return null;
@@ -170,7 +170,7 @@ function getMatchedTradesWithPnL(period='30d'){
   S.sells.forEach(s=>{
     if(new Date(s.date)<cutoff)return;
 
-    const ord=String(s.orderNum||s.linkedPO||s.oc||'').trim();
+    const ord=normalizeOrderNum(s.orderNum||s.linkedPO||s.oc);
     const buy=ord?buyByOrder[ord]:null;
     if(!buy)return;
 
@@ -208,15 +208,11 @@ function getMTMPnL(){
   const positions={};
 
   // Track volume sold per order to calculate remaining inventory
-  const orderSold={};
-  S.sells.forEach(s=>{
-    const ord=String(s.orderNum||s.linkedPO||s.oc||'').trim();
-    if(ord)orderSold[ord]=(orderSold[ord]||0)+(s.volume||0);
-  });
+  const orderSold=buildOrderSold();
 
   // Process buys to find open positions
   S.buys.forEach(b=>{
-    const ord=String(b.orderNum||b.po||'').trim();
+    const ord=normalizeOrderNum(b.orderNum||b.po);
     const soldVol=orderSold[ord]||0;
     const remainingVol=(b.volume||0)-soldVol;
 
@@ -292,7 +288,7 @@ function calcDetailedDailyPnL(days=30){
       };
     }
 
-    const ord=String(s.orderNum||s.linkedPO||s.oc||'').trim();
+    const ord=normalizeOrderNum(s.orderNum||s.linkedPO||s.oc);
     const buy=ord?buyByOrder[ord]:null;
 
     const vol=s.volume||0;
@@ -351,7 +347,7 @@ function getTraderPerformance(period='30d'){
     const trader=s.trader||'Unknown';
     if(!traderWins[trader])traderWins[trader]={wins:0,losses:0};
 
-    const ord=String(s.orderNum||s.linkedPO||s.oc||'').trim();
+    const ord=normalizeOrderNum(s.orderNum||s.linkedPO||s.oc);
     const buy=ord?buyByOrder[ord]:null;
     if(!buy)return;
 

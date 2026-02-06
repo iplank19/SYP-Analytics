@@ -350,3 +350,14 @@ function traderInitial(t){
   if(t==='Admin')return '★';
   return t?t.split(' ').map(w=>w.charAt(0)).join('').toUpperCase():'?';
 }
+
+// Build sold-volume-per-order map. Pass a custom sells array to filter;
+// defaults to S.sells when called with no arguments.
+function buildOrderSold(sells){
+  const orderSold={};
+  (sells||S.sells).forEach(s=>{
+    const ord=normalizeOrderNum(s.orderNum||s.linkedPO||s.oc);
+    if(ord)orderSold[ord]=(orderSold[ord]||0)+(s.volume||0);
+  });
+  return orderSold;
+}

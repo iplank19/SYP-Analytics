@@ -36,7 +36,7 @@ function generatePriceChangeAlerts(){
 
   const latest=S.rl[S.rl.length-1];
   const previous=S.rl[S.rl.length-2];
-  const products=['2x4#2','2x6#2','2x4#3','2x6#3','2x8#2','2x10#2','2x12#2'];
+  const products=PRODUCTS;
   const regions=['west','central','east'];
 
   products.forEach(product=>{
@@ -153,11 +153,7 @@ function generateInventoryAgingAlerts(){
   const now=new Date();
 
   // Track sold volume per order
-  const orderSold={};
-  S.sells.forEach(s=>{
-    const ord=String(s.orderNum||s.linkedPO||s.oc||'').trim();
-    if(ord)orderSold[ord]=(orderSold[ord]||0)+(s.volume||0);
-  });
+  const orderSold=buildOrderSold();
 
   // Group aging inventory by product
   const agingByProduct={};
@@ -167,7 +163,7 @@ function generateInventoryAgingAlerts(){
     const days=Math.floor((now-new Date(b.date))/(1000*60*60*24));
     if(days<agingThreshold)return;
 
-    const ord=String(b.orderNum||b.po||'').trim();
+    const ord=normalizeOrderNum(b.orderNum||b.po);
     const sold=orderSold[ord]||0;
     const remaining=(b.volume||0)-sold;
 
@@ -284,6 +280,7 @@ function generateAnomalyAlerts(){
 // ============================================================================
 
 function generateSpreadAlerts(){
+  if(!S.alertConfig?.spread?.enabled)return[];
   const alerts=[];
   const latestRL=S.rl.length?S.rl[S.rl.length-1]:null;
   if(!latestRL)return alerts;

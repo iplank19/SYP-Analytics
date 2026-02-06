@@ -89,11 +89,7 @@ function calcAgingSummary(buys){
   let fresh=0,week=0,twoToFourWeek=0,old=0;
 
   // Calculate sold volume per order
-  const orderSold={};
-  S.sells.forEach(s=>{
-    const ord=normalizeOrderNum(s.orderNum||s.linkedPO||s.oc);
-    if(ord)orderSold[ord]=(orderSold[ord]||0)+(s.volume||0);
-  });
+  const orderSold=buildOrderSold();
 
   buys.forEach(b=>{
     if(!b.date)return;
@@ -210,7 +206,7 @@ function calcMarketMovers(){
   const latest=S.rl[S.rl.length-1];
   const prev=S.rl[S.rl.length-2];
   const movers=[];
-  const products=['2x4#2','2x6#2','2x8#2','2x10#2','2x12#2'];
+  const products=PRODUCTS;
   const regions=['west','central','east'];
   regions.forEach(reg=>{
     products.forEach(prod=>{

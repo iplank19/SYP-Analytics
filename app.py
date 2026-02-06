@@ -13,7 +13,7 @@ import sqlite3
 import json
 import hashlib
 import secrets
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import tempfile
 import math
 
@@ -116,6 +116,19 @@ def get_crm_db():
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys=ON")
     return conn
+
+def db_execute_with_retry(conn, sql, params=(), max_retries=3):
+    """Execute SQL with retry on database locked errors."""
+    for attempt in range(max_retries):
+        try:
+            result = conn.execute(sql, params)
+            return result
+        except sqlite3.OperationalError as e:
+            if 'database is locked' in str(e) and attempt < max_retries - 1:
+                import time
+                time.sleep(0.1 * (attempt + 1))
+            else:
+                raise
 
 def init_crm_db():
     conn = get_crm_db()
@@ -591,6 +604,14 @@ def normalize_customer_name(name):
     if not trimmed:
         return trimmed
 
+    # Fetch customer names once from a single DB connection
+    try:
+        conn = get_crm_db()
+        rows = conn.execute('SELECT DISTINCT name FROM customers').fetchall()
+        conn.close()
+    except Exception:
+        rows = []
+
     # 1. Alias dictionary lookup
     lower = re.sub(r'[_\-\u2013\u2014]+', ' ', trimmed.lower()).strip()
     lower = re.sub(r'\s+', ' ', lower)
@@ -598,52 +619,34 @@ def normalize_customer_name(name):
     for alias, canonical in sorted_aliases:
         if lower == alias:
             # Check if an existing customer maps to this same canonical form
-            try:
-                conn = get_crm_db()
-                rows = conn.execute('SELECT DISTINCT name FROM customers').fetchall()
-                conn.close()
-                for row in rows:
-                    if row['name']:
-                        row_lower = re.sub(r'[_\-\u2013\u2014]+', ' ', row['name'].lower()).strip()
-                        row_lower = re.sub(r'\s+', ' ', row_lower)
-                        for a2, can2 in sorted_aliases:
-                            if row_lower == a2 and can2 == canonical:
-                                return row['name']
-            except Exception:
-                pass
+            for row in rows:
+                if row['name']:
+                    row_lower = re.sub(r'[_\-\u2013\u2014]+', ' ', row['name'].lower()).strip()
+                    row_lower = re.sub(r'\s+', ' ', row_lower)
+                    for a2, can2 in sorted_aliases:
+                        if row_lower == a2 and can2 == canonical:
+                            return row['name']
             return canonical
 
     # 2. Fuzzy match: normalize "&" <-> "and" and check existing customers
     fuzzy_lower = re.sub(r'\s*&\s*', ' and ', lower)
     fuzzy_lower = re.sub(r'\s+', ' ', fuzzy_lower).strip()
-    try:
-        conn = get_crm_db()
-        rows = conn.execute('SELECT DISTINCT name FROM customers').fetchall()
-        conn.close()
-        for row in rows:
-            if row['name']:
-                row_fuzzy = re.sub(r'[_\-\u2013\u2014]+', ' ', row['name'].lower()).strip()
-                row_fuzzy = re.sub(r'\s*&\s*', ' and ', row_fuzzy)
-                row_fuzzy = re.sub(r'\s+', ' ', row_fuzzy).strip()
-                if fuzzy_lower == row_fuzzy:
-                    return row['name']
-    except Exception:
-        pass
+    for row in rows:
+        if row['name']:
+            row_fuzzy = re.sub(r'[_\-\u2013\u2014]+', ' ', row['name'].lower()).strip()
+            row_fuzzy = re.sub(r'\s*&\s*', ' and ', row_fuzzy)
+            row_fuzzy = re.sub(r'\s+', ' ', row_fuzzy).strip()
+            if fuzzy_lower == row_fuzzy:
+                return row['name']
 
     # 3. Check existing customers in DB for suffix-stripped match
-    try:
-        conn = get_crm_db()
-        rows = conn.execute('SELECT DISTINCT name FROM customers').fetchall()
-        conn.close()
-        stripped = _CORP_SUFFIXES_RE.sub('', lower).strip()
-        if stripped:
-            for row in rows:
-                if row['name']:
-                    db_stripped = _CORP_SUFFIXES_RE.sub('', row['name'].lower()).strip()
-                    if stripped == db_stripped:
-                        return row['name']
-    except Exception:
-        pass
+    stripped = _CORP_SUFFIXES_RE.sub('', lower).strip()
+    if stripped:
+        for row in rows:
+            if row['name']:
+                db_stripped = _CORP_SUFFIXES_RE.sub('', row['name'].lower()).strip()
+                if stripped == db_stripped:
+                    return row['name']
 
     # 4. No match - return trimmed original
     return trimmed
@@ -1141,7 +1144,7 @@ def get_distance(origin_coords, dest_coords):
 # Single mileage lookup
 @app.route('/api/mileage', methods=['POST'])
 def mileage_lookup():
-    data = request.json
+    data = request.get_json()
     origin = data.get('origin', '')
     dest = data.get('dest', '')
     
@@ -1172,7 +1175,7 @@ def mileage_lookup():
 # Bulk mileage lookup
 @app.route('/api/mileage/bulk', methods=['POST'])
 def mileage_bulk():
-    data = request.json
+    data = request.get_json()
     lanes = data.get('lanes', [])
 
     if not lanes:
@@ -1227,7 +1230,7 @@ def mileage_bulk():
 # Geocode endpoint (for debugging)
 @app.route('/api/geocode', methods=['POST'])
 def geocode():
-    data = request.json
+    data = request.get_json()
     location = data.get('location', '')
     
     if not location:
@@ -1299,9 +1302,10 @@ def get_prospect(id):
 
 # Create prospect
 @app.route('/api/crm/prospects', methods=['POST'])
+@login_required
 def create_prospect():
     try:
-        data = request.json
+        data = request.get_json()
         conn = get_crm_db()
         normalized_name = normalize_customer_name(data.get('company_name'))
 
@@ -1360,9 +1364,10 @@ def create_prospect():
 
 # Update prospect
 @app.route('/api/crm/prospects/<int:id>', methods=['PUT'])
+@login_required
 def update_prospect(id):
     try:
-        data = request.json
+        data = request.get_json()
         conn = get_crm_db()
         # Only update fields that are present in the request (partial update support)
         # SECURITY: field names come from the hardcoded allowlist below, never from user input
@@ -1370,7 +1375,8 @@ def update_prospect(id):
         fields = [f for f in allowed if f in data]
         if not fields:
             return jsonify({'error': 'No fields to update'}), 400
-        assert all(f in allowed for f in fields), "Field not in allowlist"
+        if not all(f in allowed for f in fields):
+            return jsonify({'error': 'Invalid field'}), 400
         set_clause = ', '.join(f'{f} = ?' for f in fields) + ', updated_at = CURRENT_TIMESTAMP'
         values = [data[f] for f in fields] + [id]
         conn.execute(f'UPDATE prospects SET {set_clause} WHERE id = ?', values)
@@ -1392,6 +1398,7 @@ def update_prospect(id):
 
 # Delete prospect
 @app.route('/api/crm/prospects/<int:id>', methods=['DELETE'])
+@login_required
 def delete_prospect(id):
     try:
         conn = get_crm_db()
@@ -1411,9 +1418,10 @@ def delete_prospect(id):
 
 # Create touch
 @app.route('/api/crm/touches', methods=['POST'])
+@login_required
 def create_touch():
     try:
-        data = request.json
+        data = request.get_json()
         conn = get_crm_db()
         products = json.dumps(data.get('products_discussed')) if data.get('products_discussed') else None
 
@@ -1475,9 +1483,10 @@ def list_touches():
 
 # Add product interest
 @app.route('/api/crm/prospects/<int:id>/interests', methods=['POST'])
+@login_required
 def add_interest(id):
     try:
-        data = request.json
+        data = request.get_json()
         conn = get_crm_db()
 
         # Check if interest already exists
@@ -1506,6 +1515,7 @@ def add_interest(id):
 
 # Remove product interest
 @app.route('/api/crm/interests/<int:id>', methods=['DELETE'])
+@login_required
 def remove_interest(id):
     try:
         conn = get_crm_db()
@@ -1746,6 +1756,7 @@ def seed_mock_data():
 
 # Convert prospect to customer (update status)
 @app.route('/api/crm/prospects/<int:id>/convert', methods=['POST'])
+@login_required
 def convert_prospect(id):
     try:
         conn = get_crm_db()
@@ -1837,6 +1848,7 @@ def list_customers():
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/crm/customers', methods=['POST'])
+@login_required
 def create_customer():
     try:
         data = request.get_json()
@@ -1873,6 +1885,7 @@ def create_customer():
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/crm/customers/<int:id>', methods=['PUT'])
+@login_required
 def update_customer(id):
     try:
         data = request.get_json()
@@ -1883,7 +1896,8 @@ def update_customer(id):
         fields = [f for f in allowed if f in data]
         if not fields:
             return jsonify({'error': 'No fields to update'}), 400
-        assert all(f in allowed for f in fields), "Field not in allowlist"
+        if not all(f in allowed for f in fields):
+            return jsonify({'error': 'Invalid field'}), 400
         set_parts = []
         values = []
         for f in fields:
@@ -1911,6 +1925,7 @@ def update_customer(id):
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/crm/customers/<int:id>', methods=['DELETE'])
+@login_required
 def delete_customer(id):
     try:
         conn = get_crm_db()
@@ -1963,6 +1978,7 @@ def list_mills():
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/crm/mills', methods=['POST'])
+@login_required
 def create_mill():
     try:
         data = request.get_json()
@@ -2009,6 +2025,7 @@ def create_mill():
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/crm/mills/<int:id>', methods=['PUT'])
+@login_required
 def update_mill(id):
     try:
         data = request.get_json()
@@ -2019,7 +2036,8 @@ def update_mill(id):
         fields = [f for f in allowed if f in data]
         if not fields:
             return jsonify({'error': 'No fields to update'}), 400
-        assert all(f in allowed for f in fields), "Field not in allowlist"
+        if not all(f in allowed for f in fields):
+            return jsonify({'error': 'Invalid field'}), 400
         set_parts = []
         values = []
         for f in fields:
@@ -2064,6 +2082,7 @@ def update_mill(id):
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/crm/mills/<int:id>', methods=['DELETE'])
+@login_required
 def delete_mill(id):
     try:
         conn = get_crm_db()
@@ -2092,6 +2111,7 @@ def delete_mill(id):
 
 # Rename customer with old name returned for frontend trade-record sweep
 @app.route('/api/crm/customers/<int:id>/rename', methods=['POST'])
+@login_required
 def rename_customer(id):
     try:
         data = request.get_json()
@@ -2116,6 +2136,7 @@ def rename_customer(id):
 
 # Rename mill with old name returned for frontend trade-record sweep
 @app.route('/api/crm/mills/<int:id>/rename', methods=['POST'])
+@login_required
 def rename_mill(id):
     try:
         data = request.get_json()
@@ -2393,7 +2414,7 @@ def auth_login():
     """Authenticate a trader and return a JWT token."""
     if not jwt:
         return jsonify({'error': 'JWT support not available (pip install PyJWT)'}), 500
-    data = request.json or {}
+    data = request.get_json() or {}
     username = (data.get('username') or '').strip().lower()
     password = data.get('password') or ''
     if not username or not password:
@@ -2405,8 +2426,8 @@ def auth_login():
     payload = {
         'user': username,
         'trader': data.get('trader', username),
-        'exp': datetime.utcnow() + timedelta(hours=JWT_EXPIRY_HOURS),
-        'iat': datetime.utcnow()
+        'exp': datetime.now(timezone.utc) + timedelta(hours=JWT_EXPIRY_HOURS),
+        'iat': datetime.now(timezone.utc)
     }
     token = jwt.encode(payload, JWT_SECRET, algorithm='HS256')
     return jsonify({'token': token, 'user': username, 'expires_in': JWT_EXPIRY_HOURS * 3600})
@@ -2454,7 +2475,7 @@ def pricing_auth():
         remaining = int(record['lockout_until'] - now)
         return jsonify({'ok': False, 'error': f'Too many attempts. Try again in {remaining}s.'}), 429
 
-    data = request.json or {}
+    data = request.get_json() or {}
     if data.get('password') == PRICING_PASSWORD:
         # Reset on success
         _pricing_login_attempts.pop(ip, None)
@@ -2515,7 +2536,7 @@ def get_matrix_cutoff():
 
 @app.route('/api/pricing/cutoff', methods=['POST'])
 def set_matrix_cutoff():
-    data = request.json or {}
+    data = request.get_json() or {}
     _matrix_cutoff['since'] = data.get('since', '')
     return jsonify({'since': _matrix_cutoff['since']})
 
@@ -2534,8 +2555,9 @@ def mi_list_mills():
     return jsonify([dict(r) for r in rows])
 
 @app.route('/api/mi/mills', methods=['POST'])
+@login_required
 def mi_create_mill():
-    data = request.json
+    data = request.get_json()
     name = data.get('name', '').strip()
     if not name:
         return jsonify({'error': 'Mill name required'}), 400
@@ -2568,8 +2590,9 @@ def mi_get_mill(mill_id):
     return jsonify(result)
 
 @app.route('/api/mi/mills/<int:mill_id>', methods=['PUT'])
+@login_required
 def mi_update_mill(mill_id):
-    data = request.json
+    data = request.get_json()
     # Update CRM mill
     conn = get_crm_db()
     fields = []
@@ -2603,7 +2626,7 @@ def mi_update_mill(mill_id):
 
 @app.route('/api/mi/mills/geocode', methods=['POST'])
 def mi_geocode_mill():
-    data = request.json
+    data = request.get_json()
     location = data.get('location', '')
     if not location:
         return jsonify({'error': 'Location required'}), 400
@@ -2735,8 +2758,9 @@ def mi_list_quotes():
     return jsonify([dict(r) for r in rows])
 
 @app.route('/api/mi/quotes', methods=['POST'])
+@login_required
 def mi_submit_quotes():
-    data = request.json
+    data = request.get_json()
     quotes = data if isinstance(data, list) else [data]
     conn = get_mi_db()
     created = []
@@ -2834,6 +2858,7 @@ def mi_submit_quotes():
     return jsonify({'created': len(created), 'quotes': created}), 201
 
 @app.route('/api/mi/quotes/by-mill', methods=['DELETE'])
+@login_required
 def mi_delete_mill_quotes():
     """Delete all quotes for a specific mill."""
     mill_name = request.args.get('mill', '').strip()
@@ -2847,6 +2872,7 @@ def mi_delete_mill_quotes():
     return jsonify({'deleted': cur.rowcount, 'mill': mill_name})
 
 @app.route('/api/mi/quotes/<int:quote_id>', methods=['DELETE'])
+@login_required
 def mi_delete_quote(quote_id):
     conn = get_mi_db()
     conn.execute("DELETE FROM mill_quotes WHERE id=?", (quote_id,))
@@ -2856,9 +2882,10 @@ def mi_delete_quote(quote_id):
     return jsonify({'deleted': quote_id})
 
 @app.route('/api/mi/quotes/rename-mill', methods=['POST'])
+@login_required
 def mi_rename_mill_quotes():
     """Bulk rename mill_name in quotes (admin utility)."""
-    data = request.json
+    data = request.get_json()
     old_name = data.get('old_name', '').strip()
     new_name = data.get('new_name', '').strip()
     if not old_name or not new_name:
@@ -3401,7 +3428,7 @@ def mi_list_customers():
 
 @app.route('/api/mi/customers', methods=['POST'])
 def mi_create_customer():
-    data = request.json
+    data = request.get_json()
     name = data.get('name', '').strip()
     if not name:
         return jsonify({'error': 'Name required'}), 400
@@ -3429,8 +3456,9 @@ def mi_list_rl():
     return jsonify([dict(r) for r in rows])
 
 @app.route('/api/mi/rl', methods=['POST'])
+@login_required
 def mi_add_rl():
-    data = request.json
+    data = request.get_json()
     entries = data if isinstance(data, list) else [data]
     rows = []
     for e in entries:
@@ -3473,8 +3501,9 @@ def mi_list_lanes():
     return jsonify([dict(r) for r in rows])
 
 @app.route('/api/mi/lanes', methods=['POST'])
+@login_required
 def mi_add_lane():
-    data = request.json or {}
+    data = request.get_json() or {}
     origin = data.get('origin', '')
     dest = data.get('dest', '')
     miles = data.get('miles', 0)
@@ -3494,7 +3523,7 @@ def mi_add_lane():
 
 @app.route('/api/mi/mileage', methods=['POST'])
 def mi_mileage_lookup():
-    data = request.json
+    data = request.get_json()
     origin = data.get('origin', '')
     dest = data.get('dest', '')
     if not origin or not dest:
@@ -3531,8 +3560,9 @@ def mi_get_settings():
     return jsonify({r['key']: r['value'] for r in rows})
 
 @app.route('/api/mi/settings', methods=['PUT'])
+@login_required
 def mi_update_settings():
-    data = request.json
+    data = request.get_json()
     conn = get_mi_db()
     for k, v in data.items():
         conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?,?)", (k, str(v)))
@@ -3571,7 +3601,7 @@ def _log_audit(user, action, entity_type, entity_id=None, entity_name=None,
 def create_audit_entry():
     """Accept audit log entries from the frontend."""
     try:
-        data = request.json or {}
+        data = request.get_json() or {}
         _log_audit(
             user=data.get('user', g.user),
             action=data.get('action', 'unknown'),
@@ -3677,7 +3707,7 @@ TRADE_STATUS_FLOW = {
 def upsert_trade_status():
     """Create or update a trade status record."""
     try:
-        data = request.json or {}
+        data = request.get_json() or {}
         trade_id = data.get('trade_id', '').strip()
         trade_type = data.get('trade_type', '').strip()
         status = data.get('status', 'draft').strip()
@@ -3826,7 +3856,7 @@ def advance_trade(trade_id):
             return jsonify({'error': f'Trade in "{current}" status cannot be advanced.'}), 400
 
         # Use requested status if provided and valid, otherwise take the first allowed
-        data = request.json or {}
+        data = request.get_json() or {}
         requested = data.get('status', '').strip()
         if requested:
             if requested not in allowed_next:
@@ -3873,9 +3903,11 @@ def advance_trade(trade_id):
 # ==================== TRADE VALIDATION ====================
 
 VALID_PRODUCTS = [
+    '2x4#1', '2x6#1', '2x8#1', '2x10#1', '2x12#1',
     '2x4#2', '2x6#2', '2x8#2', '2x10#2', '2x12#2',
-    '2x4#3', '2x6#3', '2x8#3',
-    'MSR', 'Wides', 'Studs'
+    '2x4#3', '2x6#3', '2x8#3', '2x10#3', '2x12#3',
+    '2x4#4', '2x6#4', '2x8#4', '2x10#4', '2x12#4',
+    '2x4 MSR', '2x6 MSR', '2x8 MSR', '2x10 MSR', '2x12 MSR',
 ]
 
 @app.route('/api/trades/validate', methods=['POST'])
@@ -3883,7 +3915,7 @@ VALID_PRODUCTS = [
 def validate_trade():
     """Validate a trade before saving."""
     try:
-        data = request.json or {}
+        data = request.get_json() or {}
         errors = []
         warnings = []
 
@@ -4016,7 +4048,7 @@ def get_credit(customer):
 def update_credit(customer):
     """Update credit limit and terms for a customer."""
     try:
-        data = request.json or {}
+        data = request.get_json() or {}
         conn = get_crm_db()
         existing = conn.execute(
             'SELECT * FROM credit_limits WHERE UPPER(customer_name) = UPPER(?)',
@@ -4102,7 +4134,7 @@ def credit_summary():
 def freight_reconcile():
     """Compare estimated vs actual freight for a trade or set of trades."""
     try:
-        data = request.json or {}
+        data = request.get_json() or {}
         trades = data.get('trades', [data] if 'trade_id' in data else [])
         results = []
 

@@ -91,6 +91,29 @@ function generateWeeklyReport(){
   const totalMatchedVol=pnl.totals.matchedVolume||0;
   const avgMargin=totalMatchedVol?pnl.totals.pnl/totalMatchedVol:0;
 
+  // Compute overall win rate from trader performance
+  const totalWins=traderPerf.reduce((s,t)=>s+(t.wins||0),0);
+  const totalLosses=traderPerf.reduce((s,t)=>s+(t.losses||0),0);
+  const totalWL=totalWins+totalLosses;
+  const overallWinRate=totalWL?(totalWins/totalWL)*100:0;
+
+  // Compute per-product win rates from matched trades
+  const buyByOrder=buildBuyByOrderForPnL();
+  const productWins={};
+  S.sells.filter(s=>new Date(s.date)>=weekStart).forEach(s=>{
+    const prod=s.product||'Unknown';
+    if(!productWins[prod])productWins[prod]={wins:0,losses:0};
+    const ord=normalizeOrderNum(s.orderNum||s.linkedPO||s.oc);
+    const buy=ord?buyByOrder[ord]:null;
+    if(!buy)return;
+    const vol=s.volume||0;
+    const freightPerMBF=vol>0?(s.freight||0)/vol:0;
+    const sellFOB=(s.price||0)-freightPerMBF;
+    const margin=sellFOB-(buy.price||0);
+    if(margin>0)productWins[prod].wins++;
+    else productWins[prod].losses++;
+  });
+
   return{
     type:'weeklyReport',
     weekStart:weekStart.toISOString().split('T')[0],
@@ -103,9 +126,9 @@ function generateWeeklyReport(){
       volume:pnl.totals.volume,
       trades:pnl.totals.trades,
       avgMargin,
-      winRate:0
+      winRate:overallWinRate
     },
-    byProduct:pnl.items.slice(0,8).map(p=>({...p,totalPnL:p.pnl,avgMargin:p.marginPerMBF,tradePnL:p.pnl,freightPnL:p.freight,winRate:0})),
+    byProduct:pnl.items.slice(0,8).map(p=>{const pw=productWins[p.key];const pwTotal=(pw?.wins||0)+(pw?.losses||0);return{...p,totalPnL:p.pnl,avgMargin:p.marginPerMBF,tradePnL:p.pnl,freightPnL:p.freight,winRate:pwTotal?(pw.wins/pwTotal)*100:0};}),
     traderPerformance:traderPerf.map(t=>({...t,totalPnL:t.pnl})),
     topCustomers:customerProf.slice(0,10),
     topTrades,
@@ -160,6 +183,29 @@ function generateMonthlyReport(){
   const ytdMatchedVol=ytdPnL.totals.matchedVolume||0;
   const ytdAvgMargin=ytdMatchedVol?ytdPnL.totals.pnl/ytdMatchedVol:0;
 
+  // Compute overall win rate from trader performance
+  const mtdTotalWins=traderPerf.reduce((s,t)=>s+(t.wins||0),0);
+  const mtdTotalLosses=traderPerf.reduce((s,t)=>s+(t.losses||0),0);
+  const mtdTotalWL=mtdTotalWins+mtdTotalLosses;
+  const mtdWinRate=mtdTotalWL?(mtdTotalWins/mtdTotalWL)*100:0;
+
+  // Compute per-product win rates from matched trades
+  const buyByOrder=buildBuyByOrderForPnL();
+  const productWins={};
+  S.sells.filter(s=>new Date(s.date)>=monthStart).forEach(s=>{
+    const prod=s.product||'Unknown';
+    if(!productWins[prod])productWins[prod]={wins:0,losses:0};
+    const ord=normalizeOrderNum(s.orderNum||s.linkedPO||s.oc);
+    const buy=ord?buyByOrder[ord]:null;
+    if(!buy)return;
+    const vol=s.volume||0;
+    const freightPerMBF=vol>0?(s.freight||0)/vol:0;
+    const sellFOB=(s.price||0)-freightPerMBF;
+    const margin=sellFOB-(buy.price||0);
+    if(margin>0)productWins[prod].wins++;
+    else productWins[prod].losses++;
+  });
+
   return{
     type:'monthlyReport',
     month:`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`,
@@ -169,7 +215,7 @@ function generateMonthlyReport(){
       volume:pnl30d.totals.volume,
       trades:pnl30d.totals.trades,
       avgMargin:mtdAvgMargin,
-      winRate:0
+      winRate:mtdWinRate
     },
     ytdPerformance:{
       totalPnL:ytdPnL.totals.pnl,
@@ -177,7 +223,7 @@ function generateMonthlyReport(){
       trades:ytdPnL.totals.trades,
       avgMargin:ytdAvgMargin
     },
-    byProduct:pnl30d.items.slice(0,8).map(p=>({...p,totalPnL:p.pnl,avgMargin:p.marginPerMBF,tradePnL:p.pnl,freightPnL:p.freight,winRate:0})),
+    byProduct:pnl30d.items.slice(0,8).map(p=>{const pw=productWins[p.key];const pwTotal=(pw?.wins||0)+(pw?.losses||0);return{...p,totalPnL:p.pnl,avgMargin:p.marginPerMBF,tradePnL:p.pnl,freightPnL:p.freight,winRate:pwTotal?(pw.wins/pwTotal)*100:0};}),
     byTrader:traderPerf.map(t=>({...t,totalPnL:t.pnl})),
     portfolioHealth:{
       totalValue:portfolio.totalMTM,

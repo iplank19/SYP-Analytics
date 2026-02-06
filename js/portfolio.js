@@ -22,17 +22,13 @@ function calcDailyMTM(){
   if(!latestRL)return{date:null,positions:[],totalValue:0,totalCost:0,unrealizedPnL:0};
 
   // Track sold volume per order
-  const orderSold={};
-  S.sells.forEach(s=>{
-    const ord=String(s.orderNum||s.linkedPO||s.oc||'').trim();
-    if(ord)orderSold[ord]=(orderSold[ord]||0)+(s.volume||0);
-  });
+  const orderSold=buildOrderSold();
 
   const positions=[];
   let totalValue=0,totalCost=0;
 
   S.buys.forEach(b=>{
-    const ord=String(b.orderNum||b.po||'').trim();
+    const ord=normalizeOrderNum(b.orderNum||b.po);
     const sold=orderSold[ord]||0;
     const openVol=(b.volume||0)-sold;
     if(openVol<=0)return;
@@ -102,11 +98,7 @@ function getMTMHistory(days=30){
     }
 
     // Count open positions as of that date
-    const orderSold={};
-    S.sells.filter(s=>s.date<=dateStr).forEach(s=>{
-      const ord=String(s.orderNum||s.linkedPO||s.oc||'').trim();
-      if(ord)orderSold[ord]=(orderSold[ord]||0)+(s.volume||0);
-    });
+    const orderSold=buildOrderSold(S.sells.filter(s=>s.date<=dateStr));
 
     let totalValue=0,totalCost=0;
     S.buys.filter(b=>b.date<=dateStr).forEach(b=>{
@@ -312,15 +304,11 @@ function getOptimalInventory(){
   });
 
   // Current inventory by product
-  const orderSold={};
-  S.sells.forEach(s=>{
-    const ord=String(s.orderNum||s.linkedPO||s.oc||'').trim();
-    if(ord)orderSold[ord]=(orderSold[ord]||0)+(s.volume||0);
-  });
+  const orderSold=buildOrderSold();
 
   const inventory={};
   S.buys.forEach(b=>{
-    const ord=String(b.orderNum||b.po||'').trim();
+    const ord=normalizeOrderNum(b.orderNum||b.po);
     const sold=orderSold[ord]||0;
     const remaining=(b.volume||0)-sold;
     if(remaining<=0)return;
@@ -364,17 +352,13 @@ function getDeadStock(ageDays=30){
   const deadStock=[];
 
   // Track sold volume per order
-  const orderSold={};
-  S.sells.forEach(s=>{
-    const ord=String(s.orderNum||s.linkedPO||s.oc||'').trim();
-    if(ord)orderSold[ord]=(orderSold[ord]||0)+(s.volume||0);
-  });
+  const orderSold=buildOrderSold();
 
   S.buys.forEach(b=>{
     const days=Math.floor((now-new Date(b.date))/(1000*60*60*24));
     if(days<ageDays)return;
 
-    const ord=String(b.orderNum||b.po||'').trim();
+    const ord=normalizeOrderNum(b.orderNum||b.po);
     const sold=orderSold[ord]||0;
     const remaining=(b.volume||0)-sold;
     if(remaining<=0)return;
@@ -407,16 +391,12 @@ function getInventoryTurnover(){
   const days90=new Date(now.getTime()-90*24*60*60*1000);
 
   // Track sold volume per order
-  const orderSold={};
-  S.sells.forEach(s=>{
-    const ord=String(s.orderNum||s.linkedPO||s.oc||'').trim();
-    if(ord)orderSold[ord]=(orderSold[ord]||0)+(s.volume||0);
-  });
+  const orderSold=buildOrderSold();
 
   // Calculate average inventory
   let totalInventory=0,inventoryCount=0;
   S.buys.forEach(b=>{
-    const ord=String(b.orderNum||b.po||'').trim();
+    const ord=normalizeOrderNum(b.orderNum||b.po);
     const sold=orderSold[ord]||0;
     const remaining=(b.volume||0)-sold;
     if(remaining>0){
@@ -446,7 +426,7 @@ function getInventoryTurnover(){
   // Calculate average inventory value
   let avgInvValue=0;
   S.buys.forEach(b=>{
-    const ord=String(b.orderNum||b.po||'').trim();
+    const ord=normalizeOrderNum(b.orderNum||b.po);
     const sold=orderSold[ord]||0;
     const remaining=(b.volume||0)-sold;
     if(remaining>0){

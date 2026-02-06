@@ -551,8 +551,12 @@ function executeAITool(name,params){
       }
       case 'add_mill_quote':{
         if(!params.mill||!params.product||!params.price)return{success:false,message:'mill, product, and price required'};
-        const mq={mill:params.mill,product:params.product,price:parseFloat(params.price),length:params.length||'RL',volume:parseFloat(params.volume)||0,tls:parseInt(params.tls)||0,shipWindow:params.shipWindow||'',notes:params.notes||'',source:'ai'};
-        addMillQuote(mq);
+        const mq={mill:params.mill,product:params.product,price:parseFloat(params.price),length:params.length||'RL',volume:parseFloat(params.volume)||0,tls:parseInt(params.tls)||0,shipWindow:params.shipWindow||'Prompt',date:today(),notes:params.notes||'',source:'ai'};
+        if(typeof miSubmitQuotes==='function'){
+          miSubmitQuotes([mq]).catch(e=>console.error('miSubmitQuotes error (AI):',e));
+        }else{
+          addMillQuote(mq);
+        }
         return{success:true,message:`Added mill quote: ${mq.mill} ${mq.product} @ $${mq.price}`};
       }
       case 'get_mill_prices':{

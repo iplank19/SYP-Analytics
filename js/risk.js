@@ -20,15 +20,11 @@ function getExposure(groupBy='product'){
   };
 
   // Calculate sold volume per order for net position
-  const orderSold={};
-  S.sells.forEach(s=>{
-    const ord=String(s.orderNum||s.linkedPO||s.oc||'').trim();
-    if(ord)orderSold[ord]=(orderSold[ord]||0)+(s.volume||0);
-  });
+  const orderSold=buildOrderSold();
 
   // Process buys (long exposure)
   S.buys.forEach(b=>{
-    const ord=String(b.orderNum||b.po||'').trim();
+    const ord=normalizeOrderNum(b.orderNum||b.po);
     const sold=orderSold[ord]||0;
     const netVol=(b.volume||0)-sold;
     if(netVol<=0)return; // Fully covered
@@ -494,7 +490,7 @@ function getRiskDashboard(){
 
 // Get volatility metrics for all products
 function getVolatilityReport(weeks=12){
-  const products=['2x4#2','2x6#2','2x8#2','2x10#2','2x12#2'];
+  const products=PRODUCTS;
   const regions=['west','central','east'];
   const report=[];
 
@@ -553,7 +549,7 @@ function calcCorrelation(prices1,prices2){
 
 // Get correlation matrix for products
 function getCorrelationMatrix(weeks=12){
-  const products=['2x4#2','2x6#2','2x8#2','2x10#2','2x12#2'];
+  const products=PRODUCTS;
   const region='west';
   const matrix={};
 

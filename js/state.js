@@ -107,9 +107,9 @@ function extractState(location){
   return null;
 }
 
-// Normalize order number for matching buys to sells (case-insensitive trim)
+// Normalize order number for matching buys to sells (strip non-alphanumeric, lowercase)
 function normalizeOrderNum(s){
-  return String(s||'').trim().toUpperCase();
+  return String(s||'').toLowerCase().replace(/[^a-z0-9]/g,'');
 }
 
 // Find a customer by name using normalizeCustomerName + exact match
