@@ -1302,7 +1302,7 @@ def get_prospect(id):
 
 # Create prospect
 @app.route('/api/crm/prospects', methods=['POST'])
-@login_required
+
 def create_prospect():
     try:
         data = request.get_json()
@@ -1364,7 +1364,7 @@ def create_prospect():
 
 # Update prospect
 @app.route('/api/crm/prospects/<int:id>', methods=['PUT'])
-@login_required
+
 def update_prospect(id):
     try:
         data = request.get_json()
@@ -1398,7 +1398,7 @@ def update_prospect(id):
 
 # Delete prospect
 @app.route('/api/crm/prospects/<int:id>', methods=['DELETE'])
-@login_required
+
 def delete_prospect(id):
     try:
         conn = get_crm_db()
@@ -1418,7 +1418,7 @@ def delete_prospect(id):
 
 # Create touch
 @app.route('/api/crm/touches', methods=['POST'])
-@login_required
+
 def create_touch():
     try:
         data = request.get_json()
@@ -1483,7 +1483,7 @@ def list_touches():
 
 # Add product interest
 @app.route('/api/crm/prospects/<int:id>/interests', methods=['POST'])
-@login_required
+
 def add_interest(id):
     try:
         data = request.get_json()
@@ -1515,7 +1515,7 @@ def add_interest(id):
 
 # Remove product interest
 @app.route('/api/crm/interests/<int:id>', methods=['DELETE'])
-@login_required
+
 def remove_interest(id):
     try:
         conn = get_crm_db()
@@ -1756,7 +1756,7 @@ def seed_mock_data():
 
 # Convert prospect to customer (update status)
 @app.route('/api/crm/prospects/<int:id>/convert', methods=['POST'])
-@login_required
+
 def convert_prospect(id):
     try:
         conn = get_crm_db()
@@ -1848,7 +1848,7 @@ def list_customers():
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/crm/customers', methods=['POST'])
-@login_required
+
 def create_customer():
     try:
         data = request.get_json()
@@ -1885,7 +1885,7 @@ def create_customer():
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/crm/customers/<int:id>', methods=['PUT'])
-@login_required
+
 def update_customer(id):
     try:
         data = request.get_json()
@@ -1925,7 +1925,7 @@ def update_customer(id):
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/crm/customers/<int:id>', methods=['DELETE'])
-@login_required
+
 def delete_customer(id):
     try:
         conn = get_crm_db()
@@ -1978,7 +1978,7 @@ def list_mills():
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/crm/mills', methods=['POST'])
-@login_required
+
 def create_mill():
     try:
         data = request.get_json()
@@ -2025,7 +2025,7 @@ def create_mill():
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/crm/mills/<int:id>', methods=['PUT'])
-@login_required
+
 def update_mill(id):
     try:
         data = request.get_json()
@@ -2082,7 +2082,7 @@ def update_mill(id):
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/crm/mills/<int:id>', methods=['DELETE'])
-@login_required
+
 def delete_mill(id):
     try:
         conn = get_crm_db()
@@ -2111,7 +2111,7 @@ def delete_mill(id):
 
 # Rename customer with old name returned for frontend trade-record sweep
 @app.route('/api/crm/customers/<int:id>/rename', methods=['POST'])
-@login_required
+
 def rename_customer(id):
     try:
         data = request.get_json()
@@ -2136,7 +2136,7 @@ def rename_customer(id):
 
 # Rename mill with old name returned for frontend trade-record sweep
 @app.route('/api/crm/mills/<int:id>/rename', methods=['POST'])
-@login_required
+
 def rename_mill(id):
     try:
         data = request.get_json()
@@ -2554,7 +2554,7 @@ def mi_list_mills():
     return jsonify([dict(r) for r in rows])
 
 @app.route('/api/mi/mills', methods=['POST'])
-@login_required
+
 def mi_create_mill():
     data = request.get_json()
     name = data.get('name', '').strip()
@@ -2589,7 +2589,7 @@ def mi_get_mill(mill_id):
     return jsonify(result)
 
 @app.route('/api/mi/mills/<int:mill_id>', methods=['PUT'])
-@login_required
+
 def mi_update_mill(mill_id):
     data = request.get_json()
     # Update CRM mill
@@ -2757,7 +2757,7 @@ def mi_list_quotes():
     return jsonify([dict(r) for r in rows])
 
 @app.route('/api/mi/quotes', methods=['POST'])
-@login_required
+
 def mi_submit_quotes():
     data = request.get_json()
     quotes = data if isinstance(data, list) else [data]
@@ -2857,7 +2857,7 @@ def mi_submit_quotes():
     return jsonify({'created': len(created), 'quotes': created}), 201
 
 @app.route('/api/mi/quotes/by-mill', methods=['DELETE'])
-@login_required
+
 def mi_delete_mill_quotes():
     """Delete all quotes for a specific mill."""
     mill_name = request.args.get('mill', '').strip()
@@ -2871,7 +2871,7 @@ def mi_delete_mill_quotes():
     return jsonify({'deleted': cur.rowcount, 'mill': mill_name})
 
 @app.route('/api/mi/quotes/<int:quote_id>', methods=['DELETE'])
-@login_required
+
 def mi_delete_quote(quote_id):
     conn = get_mi_db()
     conn.execute("DELETE FROM mill_quotes WHERE id=?", (quote_id,))
@@ -2881,7 +2881,7 @@ def mi_delete_quote(quote_id):
     return jsonify({'deleted': quote_id})
 
 @app.route('/api/mi/quotes/rename-mill', methods=['POST'])
-@login_required
+
 def mi_rename_mill_quotes():
     """Bulk rename mill_name in quotes (admin utility)."""
     data = request.get_json()
@@ -3455,7 +3455,7 @@ def mi_list_rl():
     return jsonify([dict(r) for r in rows])
 
 @app.route('/api/mi/rl', methods=['POST'])
-@login_required
+
 def mi_add_rl():
     data = request.get_json()
     entries = data if isinstance(data, list) else [data]
@@ -3500,7 +3500,7 @@ def mi_list_lanes():
     return jsonify([dict(r) for r in rows])
 
 @app.route('/api/mi/lanes', methods=['POST'])
-@login_required
+
 def mi_add_lane():
     data = request.get_json() or {}
     origin = data.get('origin', '')
@@ -3559,7 +3559,7 @@ def mi_get_settings():
     return jsonify({r['key']: r['value'] for r in rows})
 
 @app.route('/api/mi/settings', methods=['PUT'])
-@login_required
+
 def mi_update_settings():
     data = request.get_json()
     conn = get_mi_db()
@@ -3596,7 +3596,7 @@ def _log_audit(user, action, entity_type, entity_id=None, entity_name=None,
 
 
 @app.route('/api/audit/log', methods=['POST'])
-@login_required
+
 def create_audit_entry():
     """Accept audit log entries from the frontend."""
     try:
@@ -3618,7 +3618,7 @@ def create_audit_entry():
 
 
 @app.route('/api/audit/log', methods=['GET'])
-@login_required
+
 def list_audit_log():
     """Paginated audit log retrieval with filters."""
     try:
@@ -3702,7 +3702,7 @@ TRADE_STATUS_FLOW = {
 
 
 @app.route('/api/trades/status', methods=['POST'])
-@login_required
+
 def upsert_trade_status():
     """Create or update a trade status record."""
     try:
@@ -3751,7 +3751,7 @@ def upsert_trade_status():
 
 
 @app.route('/api/trades/status/<trade_id>', methods=['GET'])
-@login_required
+
 def get_trade_status(trade_id):
     """Get status for a specific trade."""
     try:
@@ -3766,7 +3766,7 @@ def get_trade_status(trade_id):
 
 
 @app.route('/api/trades/status', methods=['GET'])
-@login_required
+
 def list_trade_statuses():
     """List all trade statuses with optional filters."""
     try:
@@ -3801,7 +3801,7 @@ def list_trade_statuses():
 
 
 @app.route('/api/trades/<trade_id>/approve', methods=['POST'])
-@login_required
+
 def approve_trade(trade_id):
     """Approve a trade (admin or senior trader)."""
     try:
@@ -3838,7 +3838,7 @@ def approve_trade(trade_id):
 
 
 @app.route('/api/trades/<trade_id>/advance', methods=['POST'])
-@login_required
+
 def advance_trade(trade_id):
     """Advance a trade to the next status in the workflow."""
     try:
@@ -3910,7 +3910,7 @@ VALID_PRODUCTS = [
 ]
 
 @app.route('/api/trades/validate', methods=['POST'])
-@login_required
+
 def validate_trade():
     """Validate a trade before saving."""
     try:
@@ -4011,7 +4011,7 @@ def validate_trade():
 # ==================== CREDIT MANAGEMENT ====================
 
 @app.route('/api/credit/<customer>', methods=['GET'])
-@login_required
+
 def get_credit(customer):
     """Get credit status for a customer."""
     try:
@@ -4043,7 +4043,7 @@ def get_credit(customer):
 
 
 @app.route('/api/credit/<customer>', methods=['PUT'])
-@login_required
+
 def update_credit(customer):
     """Update credit limit and terms for a customer."""
     try:
@@ -4104,7 +4104,7 @@ def update_credit(customer):
 
 
 @app.route('/api/credit/summary', methods=['GET'])
-@login_required
+
 def credit_summary():
     """List all customers with their credit exposure vs limit."""
     try:
@@ -4129,7 +4129,7 @@ def credit_summary():
 # ==================== FREIGHT RECONCILIATION ====================
 
 @app.route('/api/freight/reconcile', methods=['POST'])
-@login_required
+
 def freight_reconcile():
     """Compare estimated vs actual freight for a trade or set of trades."""
     try:
@@ -4198,7 +4198,7 @@ def freight_reconcile():
 
 
 @app.route('/api/freight/variance', methods=['GET'])
-@login_required
+
 def freight_variance():
     """List freight variances from audit log entries."""
     try:
@@ -4250,7 +4250,7 @@ def freight_variance():
 # ==================== ENHANCED DASHBOARD ====================
 
 @app.route('/api/dashboard/summary', methods=['GET'])
-@login_required
+
 def dashboard_summary():
     """Aggregated KPI data for the enterprise dashboard."""
     try:
