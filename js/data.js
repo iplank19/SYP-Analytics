@@ -57,10 +57,12 @@ async function dbSet(key,value){
 
 // Supabase Cloud Sync
 let supabase=null;
-// Credentials loaded from backend /api/config or user settings — never hardcoded
+// Pre-configured Supabase (anon key is public — security via RLS policies)
+const DEFAULT_SUPABASE_URL='https://miydcdlywbcemcmqqocv.supabase.co';
+const DEFAULT_SUPABASE_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1peWRjZGx5d2JjZW1jbXFxb2N2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjkxMDA0NjIsImV4cCI6MjA4NDY3NjQ2Mn0.LDe7owtdqhGUyE5O5DE8krJI7OdCPCv7I4l7RVl0CqI';
 let _supabaseConfigLoaded=false
-let SUPABASE_URL=LS('supabaseUrl','')
-let SUPABASE_KEY=LS('supabaseKey','')
+let SUPABASE_URL=LS('supabaseUrl','')||DEFAULT_SUPABASE_URL
+let SUPABASE_KEY=LS('supabaseKey','')||DEFAULT_SUPABASE_KEY
 
 async function loadSupabaseConfig(){
   if(_supabaseConfigLoaded)return
