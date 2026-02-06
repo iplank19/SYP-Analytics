@@ -633,11 +633,23 @@ function miSendToQuoteEngine() {
 
 // --- Render quote results ---
 
+function miSetProfitAdder(val) {
+  S.miProfitAdder = Math.max(0, parseInt(val) || 0)
+  SS('miProfitAdder', S.miProfitAdder)
+  miRenderQuoteResults()
+}
+
 function miCopyQuoteResults() {
-  const results = _miQuoteResults.filter(r => r.best);
-  if (!results.length) return;
+  const results = _miQuoteResults.filter(r => r.best)
+  if (!results.length) return
   const dest = document.getElementById('mi-quote-dest')?.value?.trim() ||
-    document.getElementById('mi-quote-customer')?.selectedOptions?.[0]?.text || '';
+    document.getElementById('mi-quote-customer')?.selectedOptions?.[0]?.text || ''
+  const profit = S.miProfitAdder || 0
+
+  const getPrice = (r) => {
+    const base = r.best.landedCost != null ? r.best.landedCost : r.best.fobPrice
+    return Math.round(base + profit)
+  }
 
   // Build HTML table (matches Build tab style for Outlook paste)
   const html = `<html><body style="font-family:Calibri,Arial,sans-serif;">
@@ -653,7 +665,7 @@ function miCopyQuoteResults() {
   <tbody>
     ${results.map((r, i) => `<tr style="background:${i % 2 ? '#f5f5f5' : 'white'};">
       <td style="padding:6px 12px;border:1px solid #ddd;">${r.label}</td>
-      <td style="padding:6px 12px;text-align:right;border:1px solid #ddd;font-weight:bold;color:#2e7d32;">${r.best.landedCost != null ? '$' + Math.round(r.best.landedCost) : '$' + Math.round(r.best.fobPrice)}</td>
+      <td style="padding:6px 12px;text-align:right;border:1px solid #ddd;font-weight:bold;color:#2e7d32;">$${getPrice(r)}</td>
       <td style="padding:6px 12px;text-align:center;border:1px solid #ddd;">${r.best.tls || 1} TL</td>
       <td style="padding:6px 12px;text-align:right;border:1px solid #ddd;color:#666;">${r.best.shipWindow || 'Prompt'}</td>
     </tr>`).join('')}
@@ -662,15 +674,14 @@ function miCopyQuoteResults() {
 <p style="font-family:Calibri,Arial,sans-serif;font-size:10pt;color:#666;margin-top:8px;">
   <strong>DLVD ${dest}</strong>
 </p>
-</body></html>`;
+</body></html>`
 
   // Plain text fallback
-  const lines = ['SYP Quote \u2014 Delivered: ' + dest, ''];
-  lines.push(['Product', 'Price', 'Qty', 'Ship'].join('\t'));
+  const lines = ['SYP Quote \u2014 Delivered: ' + dest, '']
+  lines.push(['Product', 'Price', 'Qty', 'Ship'].join('\t'))
   results.forEach(r => {
-    const price = r.best.landedCost != null ? '$' + Math.round(r.best.landedCost) : '$' + Math.round(r.best.fobPrice);
-    lines.push([r.label, price, (r.best.tls || 1) + ' TL', r.best.shipWindow || 'Prompt'].join('\t'));
-  });
+    lines.push([r.label, '$' + getPrice(r), (r.best.tls || 1) + ' TL', r.best.shipWindow || 'Prompt'].join('\t'))
+  })
   const noOffer = _miQuoteResults.filter(r => !r.best);
   if (noOffer.length) { lines.push(''); lines.push('No offers: ' + noOffer.map(r => r.label).join(', ')); }
   const text = lines.join('\n');
@@ -701,10 +712,17 @@ function miRenderQuoteResults() {
   const noResults = _miQuoteResults.filter(r => !r.best);
   const isMatrixMode = !!document.getElementById('matrix-quotes-content');
 
+  const profitAdder = S.miProfitAdder || 0
+
   el.innerHTML = (hasResults ? `
-    <div style="margin-bottom:16px;display:flex;gap:8px">
-      ${isMatrixMode ? '' : '<button class="btn btn-success" onclick="miSendToQuoteEngine()" style="flex:1">SEND TO QUOTE ENGINE</button>'}
-      <button class="btn btn-default" onclick="miCopyQuoteResults()" style="${isMatrixMode ? 'flex:1' : ''}"><span style="margin-right:4px">📋</span> COPY TO CLIPBOARD</button>
+    <div style="margin-bottom:12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <div style="display:flex;align-items:center;gap:8px;flex:1;min-width:200px;background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:8px 12px">
+        <label style="font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--muted);white-space:nowrap">Profit $/M</label>
+        <input type="range" min="0" max="100" step="5" value="${profitAdder}" oninput="miSetProfitAdder(this.value)" style="flex:1;accent-color:var(--accent)">
+        <input type="number" min="0" max="999" step="1" value="${profitAdder}" onchange="miSetProfitAdder(this.value)" style="width:56px;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:4px;padding:4px 6px;text-align:center;font-size:13px;font-weight:600">
+      </div>
+      ${isMatrixMode ? '' : '<button class="btn btn-success" onclick="miSendToQuoteEngine()" style="flex:0 0 auto">SEND TO QUOTE ENGINE</button>'}
+      <button class="btn btn-default" onclick="miCopyQuoteResults()" style="flex:0 0 auto"><span style="margin-right:4px">📋</span> COPY${profitAdder ? ' (+$' + profitAdder + '/M)' : ''}</button>
     </div>
   ` : '') +
 
@@ -726,9 +744,12 @@ function miRenderQuoteResults() {
         `}
       </tr></thead>
       <tbody>
-        ${_miQuoteResults.filter(r => r.best).map(r => isMatrixMode ? `<tr style="border-bottom:1px solid var(--border)">
+        ${_miQuoteResults.filter(r => r.best).map(r => {
+          const basePrice = r.best.landedCost != null ? r.best.landedCost : r.best.fobPrice
+          const withProfit = basePrice + profitAdder
+          return isMatrixMode ? `<tr style="border-bottom:1px solid var(--border)">
           <td style="padding:4px 6px;font-weight:600;color:var(--accent)">${r.label}${r.best.date && miAgeLabel(r.best.date) !== 'Today' ? `<span style="font-size:9px;padding:1px 5px;border-radius:3px;margin-left:6px;background:${miAgeBadgeBg(r.best.date)};color:${miAgeBadgeColor(r.best.date)}">${miAgeLabel(r.best.date)}</span>` : ''}</td>
-          <td style="padding:4px 6px;text-align:right;font-weight:600;color:var(--positive)" class="mono">${r.best.landedCost != null ? fmt(r.best.landedCost) : fmt(r.best.fobPrice)}</td>
+          <td style="padding:4px 6px;text-align:right;font-weight:600;color:var(--positive)" class="mono">${fmt(withProfit)}${profitAdder ? `<span style="font-size:9px;color:var(--muted);margin-left:4px">(+${profitAdder})</span>` : ''}</td>
           <td style="padding:4px 6px;text-align:center" class="mono">${r.best.tls || 1} TL</td>
           <td style="padding:4px 6px;text-align:right;color:var(--muted)">${r.best.shipWindow || 'Prompt'}</td>
         </tr>` : `<tr style="border-bottom:1px solid var(--border)">
@@ -737,7 +758,7 @@ function miRenderQuoteResults() {
           <td style="padding:4px 6px;text-align:right" class="mono">${fmt(r.best.fobPrice)}</td>
           <td style="padding:4px 6px;text-align:right" class="mono">${r.best.freightPerMBF != null ? fmt(r.best.freightPerMBF) : '—'}</td>
           <td style="padding:4px 6px;text-align:right;font-weight:600;color:var(--positive)" class="mono">${r.best.landedCost != null ? fmt(r.best.landedCost) : '—'}</td>
-        </tr>`).join('')}
+        </tr>`}).join('')}
       </tbody>
     </table>
   ` : '') +
