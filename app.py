@@ -810,6 +810,170 @@ def seed_crm_mills():
 seed_crm_mills()
 sync_crm_mills_to_mi()
 
+# Seed Mill Intel SQLite from Supabase cloud data on startup
+# This ensures Railway (ephemeral filesystem) always has mill quotes after deploy
+def seed_mi_from_supabase():
+    supa_url = os.environ.get('SUPABASE_URL', '')
+    supa_key = os.environ.get('SUPABASE_ANON_KEY', '')
+    if not supa_url or not supa_key:
+        print("Supabase not configured — skipping MI cloud seed")
+        return
+
+    # Only seed if mill_quotes table is empty (fresh deploy)
+    mi_conn = get_mi_db()
+    count = mi_conn.execute("SELECT COUNT(*) FROM mill_quotes").fetchone()[0]
+    if count > 0:
+        mi_conn.close()
+        print(f"MI already has {count} quotes — skipping cloud seed")
+        return
+    mi_conn.close()
+
+    print("MI tables empty — seeding from Supabase cloud...")
+    try:
+        res = requests.get(
+            f"{supa_url}/rest/v1/syp_data?select=data&limit=1",
+            headers={'apikey': supa_key, 'Authorization': f'Bearer {supa_key}'},
+            timeout=15
+        )
+        if not res.ok:
+            print(f"Supabase fetch failed: {res.status_code}")
+            return
+        rows = res.json()
+        if not rows or not rows[0].get('data'):
+            print("No cloud data found")
+            return
+
+        d = rows[0]['data']
+
+        # Seed mills into CRM → MI
+        cloud_mills = d.get('mills', [])
+        if cloud_mills:
+            crm_conn = get_crm_db()
+            existing = {r['name'].upper() for r in crm_conn.execute("SELECT name FROM mills").fetchall()}
+            added = 0
+            for m in cloud_mills:
+                name = m.get('name', '').strip()
+                if not name or name.upper() in existing:
+                    continue
+                city = m.get('city', '')
+                state = m.get('state', '')
+                region = m.get('region', 'central')
+                location = m.get('location', '')
+                if not location and city:
+                    location = f"{city}, {state}" if state else city
+                locations = m.get('locations', '[]')
+                if isinstance(locations, list):
+                    locations = json.dumps(locations)
+                products = m.get('products', '[]')
+                if isinstance(products, list):
+                    products = json.dumps(products)
+                lat = m.get('lat')
+                lon = m.get('lon')
+                try:
+                    crm_conn.execute(
+                        "INSERT INTO mills (name, location, city, state, region, lat, lon, locations, products, notes, trader) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                        (name, location, city, state, region, lat, lon, locations, products, m.get('notes', ''), m.get('trader', ''))
+                    )
+                    existing.add(name.upper())
+                    added += 1
+                except Exception:
+                    pass
+            if added:
+                crm_conn.commit()
+                print(f"  Seeded {added} mills from cloud into CRM")
+            crm_conn.close()
+            # Re-sync CRM → MI so mill IDs are available for quotes
+            sync_crm_mills_to_mi()
+
+        # Seed mill quotes
+        cloud_quotes = d.get('millQuotes', [])
+        if cloud_quotes:
+            mi_conn = get_mi_db()
+            crm_conn = get_crm_db()
+            inserted = 0
+            for q in cloud_quotes:
+                mill_name = (q.get('mill') or q.get('mill_name') or '').strip()
+                product = (q.get('product') or '').strip()
+                price = q.get('price') or q.get('fob')
+                if not mill_name or not product or not price:
+                    continue
+                try:
+                    price_val = float(price)
+                    if price_val <= 0:
+                        continue
+                except (ValueError, TypeError):
+                    continue
+
+                # Find mill_id from CRM
+                mill_row = crm_conn.execute("SELECT id FROM mills WHERE UPPER(name)=?", (mill_name.upper(),)).fetchone()
+                if not mill_row:
+                    # Create mill stub
+                    city = q.get('city') or q.get('location') or ''
+                    state_code = mi_extract_state(city) if city else ''
+                    region = mi_get_region(state_code) if state_code else 'central'
+                    crm_conn.execute(
+                        "INSERT INTO mills (name, location, city, state, region, products, notes, trader) VALUES (?,?,?,?,?,?,?,?)",
+                        (mill_name, city, city.split(',')[0].strip() if city else '', state_code, region, '[]', '', q.get('trader', ''))
+                    )
+                    crm_conn.commit()
+                    mill_row = crm_conn.execute("SELECT id FROM mills WHERE UPPER(name)=?", (mill_name.upper(),)).fetchone()
+                    # Sync new mill to MI
+                    new_mill = crm_conn.execute("SELECT * FROM mills WHERE id=?", (mill_row['id'],)).fetchone()
+                    sync_mill_to_mi(dict(new_mill), mi_conn=mi_conn)
+
+                mill_id = mill_row['id']
+                length = q.get('length', 'RL') or 'RL'
+                date = q.get('date') or datetime.now().strftime('%Y-%m-%d')
+                trader = q.get('trader', 'Unknown')
+                ship_window = q.get('shipWindow') or q.get('ship_window') or q.get('ship') or ''
+
+                mi_conn.execute(
+                    """INSERT INTO mill_quotes (mill_id, mill_name, product, price, length, volume, tls,
+                       ship_window, notes, date, trader, source)
+                       VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    (mill_id, mill_name, product, price_val, length,
+                     q.get('volume', 0) or 0, q.get('tls', 0) or 0,
+                     ship_window, q.get('notes', ''), date, trader, 'cloud_seed')
+                )
+                inserted += 1
+
+            mi_conn.commit()
+            mi_conn.close()
+            crm_conn.close()
+            print(f"  Seeded {inserted} mill quotes from cloud")
+
+        # Seed customers
+        cloud_customers = d.get('customers', [])
+        if cloud_customers:
+            crm_conn = get_crm_db()
+            existing = {r['name'].upper() for r in crm_conn.execute("SELECT name FROM customers").fetchall()} if crm_conn.execute("SELECT COUNT(*) FROM customers").fetchone()[0] > 0 else set()
+            added = 0
+            for c in cloud_customers:
+                name = (c.get('name') or '').strip()
+                if not name or name.upper() in existing:
+                    continue
+                dest = c.get('destination') or ''
+                locations = c.get('locations', '[]')
+                if isinstance(locations, list):
+                    locations = json.dumps(locations)
+                try:
+                    crm_conn.execute(
+                        "INSERT INTO customers (name, destination, locations, trader) VALUES (?,?,?,?)",
+                        (name, dest, locations, c.get('trader', ''))
+                    )
+                    existing.add(name.upper())
+                    added += 1
+                except Exception:
+                    pass
+            if added:
+                crm_conn.commit()
+                print(f"  Seeded {added} customers from cloud")
+            crm_conn.close()
+
+        print("Cloud seed complete!")
+    except Exception as e:
+        print(f"Cloud seed error: {e}")
+
 def mi_extract_state(location):
     if not location:
         return None
@@ -822,6 +986,9 @@ def mi_extract_state(location):
 
 def mi_get_region(state_code):
     return MI_STATE_REGIONS.get(state_code, 'central')
+
+# Now that mi_extract_state and mi_get_region are defined, run the cloud seed
+seed_mi_from_supabase()
 
 def mi_geocode_location(location):
     """Geocode using shared geo_cache, with DB fallback then Nominatim."""
