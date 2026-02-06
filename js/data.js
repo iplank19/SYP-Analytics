@@ -119,9 +119,9 @@ function _mergeById(local,remote,key='id'){
   return[...merged.values()]
 }
 
-async function cloudSync(action='push'){
+async function cloudSync(action='push',opts={}){
   if(!supabase)return{success:false,error:'Supabase not configured'};
-  
+
   const userId=LS('supabaseUserId','')||'default';
   console.log('Cloud sync:',action,'user:',userId,'trader:',S.trader,'url:',supabase.url);
   
@@ -269,13 +269,21 @@ async function cloudSync(action='push'){
       const rows=await res.json();
       if(rows&&rows.length>0&&rows[0].data){
         const d=rows[0].data;
-        // Merge arrays by item ID instead of full replacement
-        S.buys=_mergeById(S.buys,d.buys||[])
-        S.sells=_mergeById(S.sells,d.sells||[])
-        // RL: merge by date instead of full replacement to preserve local-only entries
-        S.rl=_mergeById(S.rl,d.rl||[],'date').sort((a,b)=>new Date(a.date)-new Date(b.date))
-        S.customers=_mergeById(S.customers,d.customers||[],'name')
-        S.mills=_mergeById(S.mills,d.mills||[],'name')
+        // Cloud wins on pull — direct replacement (no merge conflicts)
+        // Use _mergeById only for explicit merge scenarios (opts.merge=true)
+        if(opts.merge){
+          S.buys=_mergeById(S.buys,d.buys||[])
+          S.sells=_mergeById(S.sells,d.sells||[])
+          S.rl=_mergeById(S.rl,d.rl||[],'date').sort((a,b)=>new Date(a.date)-new Date(b.date))
+          S.customers=_mergeById(S.customers,d.customers||[],'name')
+          S.mills=_mergeById(S.mills,d.mills||[],'name')
+        }else{
+          S.buys=d.buys||[]
+          S.sells=d.sells||[]
+          S.rl=(d.rl||[]).sort((a,b)=>new Date(a.date)-new Date(b.date))
+          S.customers=d.customers||[]
+          S.mills=d.mills||[]
+        }
         S.nextId=d.nextId||1
         S.flatRate=d.flatRate||3.50
         // Shared quote engine data
@@ -313,11 +321,14 @@ async function cloudSync(action='push'){
         // Reports
         if(d.reportSchedules){S.reportSchedules=d.reportSchedules;SS('reportSchedules',S.reportSchedules)}
         if(d.reportHistory){S.reportHistory=d.reportHistory;SS('reportHistory',S.reportHistory)}
-        // Save to local storage too
+        // Save cloud data locally (skip cloud push — we just pulled, don't push back)
+        _isPulling=true; // keeps the debounced push from firing
         await saveAllLocal();
-        // Sync pulled customers/mills into SQLite (so loadCRMData finds them)
-        await syncCustomersToServer(S.customers);
-        await syncMillsToServer(S.mills);
+        // Cancel any push that saveAllLocal may have scheduled
+        clearTimeout(_cloudPushTimer);
+        // Sync pulled customers/mills into SQLite (fire-and-forget, don't block UI)
+        syncCustomersToServer(S.customers).catch(e=>console.warn('Customer sync:',e));
+        syncMillsToServer(S.mills).catch(e=>console.warn('Mill sync:',e));
         _isPulling=false;
         return{success:true,action:'pulled',updated:rows[0].updated_at};
       }

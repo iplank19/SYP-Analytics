@@ -46,7 +46,7 @@ async function renderMiAggregated() {
 async function miRenderAggTable() {
   const el = document.getElementById('mi-agg-content');
   try {
-    const quotes = await miLoadLatestQuotes({product: S.miFilterProduct || undefined});
+    const quotes = await miLoadLatestQuotes({product: S.miFilterProduct || undefined, since: _miMatrixCutoff || undefined});
     const allMills = [...new Set(quotes.map(q => q.mill_name))].sort();
     const allProducts = [...new Set(quotes.map(q => q.product))].sort();
     const allTraders = [...new Set(quotes.map(q => q.trader))].sort();

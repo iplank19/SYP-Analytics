@@ -58,7 +58,6 @@ async function miLoadLatestQuotes(filters = {}) {
   if (filters.product) params.set('product', filters.product);
   if (filters.region) params.set('region', filters.region);
   if (filters.since) params.set('since', filters.since);
-  else if (typeof _miMatrixCutoff !== 'undefined' && _miMatrixCutoff) params.set('since', _miMatrixCutoff);
   return miApiGet('/api/mi/quotes/latest?' + params);
 }
 
