@@ -2444,7 +2444,6 @@ def auth_verify():
 # ==================== CONFIG ENDPOINT ====================
 
 @app.route('/api/config', methods=['GET'])
-@login_required
 def get_config():
     """Return Supabase credentials (behind auth so frontend doesn't hardcode them)."""
     return jsonify({

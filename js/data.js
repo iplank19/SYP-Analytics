@@ -64,7 +64,6 @@ let SUPABASE_KEY=LS('supabaseKey','')
 
 async function loadSupabaseConfig(){
   if(_supabaseConfigLoaded)return
-  _supabaseConfigLoaded=true
   // Try backend config endpoint first
   try{
     const res=await fetch('/api/config')
@@ -72,11 +71,14 @@ async function loadSupabaseConfig(){
       const cfg=await res.json()
       if(cfg.supabaseUrl)SUPABASE_URL=cfg.supabaseUrl
       if(cfg.supabaseKey)SUPABASE_KEY=cfg.supabaseKey
+      _supabaseConfigLoaded=true
       return
     }
   }catch(e){console.debug('Backend config not available:',e.message)}
   // Fall back to user-configured values from localStorage
-  if(!SUPABASE_URL||!SUPABASE_KEY){
+  if(SUPABASE_URL&&SUPABASE_KEY){
+    _supabaseConfigLoaded=true
+  }else{
     console.warn('Supabase not configured — set URL and key in Settings')
   }
 }
