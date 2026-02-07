@@ -32,7 +32,7 @@ function generatePriceChangeAlerts(){
   const threshold=config.threshold||5;
 
   // Need at least 2 RL data points to compare
-  if(S.rl.length<2)return alerts;
+  if(!S.rl||S.rl.length<2)return alerts;
 
   const latest=S.rl[S.rl.length-1];
   const previous=S.rl[S.rl.length-2];

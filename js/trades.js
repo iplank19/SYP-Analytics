@@ -749,7 +749,7 @@ function calcMillDirectHedge(){
   // Compare to rolling average basis (uses historical futures prices paired with RL dates)
   const lookback=p.basisLookback||8;
   const historicalBasis=getHistoricalBasis(lookback);
-  const rollingBasisVals=historicalBasis.map(h=>h.basis);
+  const rollingBasisVals=historicalBasis.map(h=>h.basis).filter(v=>v!=null&&!isNaN(v));
   const rollingAvg=rollingBasisVals.length?rollingBasisVals.reduce((a,b)=>a+b,0)/rollingBasisVals.length:null;
   const vsAvg=rollingAvg!==null?Math.round(lockedBasis-rollingAvg):null;
   const el=document.getElementById('calc-results');
@@ -796,7 +796,7 @@ function calcBasisTarget(){
   // Z-score at target basis
   const lookback=p.basisLookback||8;
   const historicalBasis=getHistoricalBasis(lookback);
-  const rollingBasisVals=historicalBasis.map(h=>h.basis);
+  const rollingBasisVals=historicalBasis.map(h=>h.basis).filter(v=>v!=null&&!isNaN(v));
   const rollingAvg=rollingBasisVals.length?rollingBasisVals.reduce((a,b)=>a+b,0)/rollingBasisVals.length:null;
   const rollingStdDev=rollingBasisVals.length>1?Math.sqrt(rollingBasisVals.reduce((s,v)=>s+Math.pow(v-rollingAvg,2),0)/(rollingBasisVals.length-1)):null;
   const zAtTarget=(rollingAvg!==null&&rollingStdDev&&rollingStdDev>0)?(target-rollingAvg)/rollingStdDev:null;

@@ -202,7 +202,7 @@ function calcWeeklyPerformance(allBuys,allSells){
 
 // Market Movers — biggest week-over-week RL price changes
 function calcMarketMovers(){
-  if(S.rl.length<2)return[];
+  if(!S.rl||S.rl.length<2)return[];
   const latest=S.rl[S.rl.length-1];
   const prev=S.rl[S.rl.length-2];
   const movers=[];

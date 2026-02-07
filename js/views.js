@@ -4,7 +4,7 @@ function renderNav(){
   NAV.forEach(n=>navMap[n.id]=n);
   document.getElementById('nav').innerHTML=NAV_GROUPS.map(g=>{
     const items=g.items.map(id=>navMap[id]).filter(Boolean);
-    return `<div class="nav-group"><div class="nav-group-label">${g.label}</div>${items.map(n=>`<button class="nav-item ${S.view===n.id?'active':''}" onclick="go('${n.id}')"><span>${n.icon}</span><span class="nav-label">${n.label}</span></button>`).join('')}</div>`;
+    return `<div class="nav-group"><div class="nav-group-label">${g.label}</div>${items.map(n=>`<button class="nav-item ${S.view===n.id?'active':''}" onclick="go('${n.id}')"${S.view===n.id?' aria-current="page"':''}><span>${n.icon}</span><span class="nav-label">${n.label}</span></button>`).join('')}</div>`;
   }).join('');
 }
 
@@ -29,11 +29,22 @@ function renderMkt(){
   document.getElementById('mkt-d').textContent=rl?.date||'';
 }
 
+function renderSkeleton(){
+  return `<div style="padding:8px 0">
+    <div class="skeleton skeleton-bar" style="width:40%"></div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin:12px 0">
+      <div class="skeleton skeleton-kpi"></div><div class="skeleton skeleton-kpi"></div><div class="skeleton skeleton-kpi"></div><div class="skeleton skeleton-kpi"></div>
+    </div>
+    <div class="skeleton skeleton-bar" style="width:25%;margin-top:16px"></div>
+    <div class="skeleton skeleton-table" style="margin-top:8px"></div>
+  </div>`;
+}
+
 function go(v){
   // Clear any pending blotter search timeout
   if(window._blotterSearchTimeout){clearTimeout(window._blotterSearchTimeout);window._blotterSearchTimeout=null;}
   const content=document.getElementById('content');
-  if(content)content.classList.add('fading');
+  if(content){content.classList.add('fading');content.innerHTML=renderSkeleton();}
   setTimeout(()=>{
     S.view=v;
     closeMobileSidebar();

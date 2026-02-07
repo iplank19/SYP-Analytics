@@ -868,6 +868,15 @@ async function runAIWithTools(systemCtx,userMsg,depth=0){
 
   const messages=S.aiMsgs.slice(-12).map(m=>({role:m.role,content:m.content}));
 
+  // Show typing indicator
+  const msgsEl=document.getElementById('ai-msgs');
+  if(msgsEl){
+    const typingEl=document.createElement('div');
+    typingEl.className='ai-typing';typingEl.id='ai-typing';
+    typingEl.innerHTML='<div class="ai-typing-dot"></div><div class="ai-typing-dot"></div><div class="ai-typing-dot"></div>';
+    msgsEl.appendChild(typingEl);msgsEl.scrollTop=msgsEl.scrollHeight;
+  }
+
   try{
     const res=await fetch('https://api.anthropic.com/v1/messages',{
       method:'POST',
@@ -879,6 +888,10 @@ async function runAIWithTools(systemCtx,userMsg,depth=0){
       const err=await res.json().catch(()=>({}));
       throw new Error(err.error?.message||`API error: ${res.status}`);
     }
+
+    // Remove typing indicator
+    const typingIndicator=document.getElementById('ai-typing');
+    if(typingIndicator)typingIndicator.remove();
 
     // Stream the response
     let reply='';
@@ -968,6 +981,7 @@ async function runAIWithTools(systemCtx,userMsg,depth=0){
       return;
     }
   }catch(e){
+    const ti=document.getElementById('ai-typing');if(ti)ti.remove();
     S.aiMsgs.push({role:'assistant',content:'Error: '+e.message});
   }
 

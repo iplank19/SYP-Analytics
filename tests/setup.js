@@ -117,7 +117,12 @@ function resetState() {
     miFilterDays: 7,
     miQuoteCustomer: '',
     miQuoteItems: [],
-    quoteTemplates: []
+    quoteTemplates: [],
+    signalConfig: null,
+    signalHistory: [],
+    signals: [],
+    riskLimits: null,
+    alertConfig: null
   };
 }
 

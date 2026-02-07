@@ -7,16 +7,17 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="styles.css?v=1770437280">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.2/html2pdf.bundle.min.js"></script>
 </head>
 <body>
+<a href="#content" class="skip-link">Skip to main content</a>
 <!-- Mobile Header -->
 <div class="mobile-header">
-  <button class="hamburger" onclick="toggleMobileSidebar()">&#9776;</button>
+  <button class="hamburger" onclick="toggleMobileSidebar()" aria-label="Open menu">&#9776;</button>
   <div class="logo">SYP ANALYTICS</div>
-  <button class="hamburger" onclick="S.view='settings';closeMobileSidebar();render()">&#9881;&#65039;</button>
+  <button class="hamburger" onclick="S.view='settings';closeMobileSidebar();render()" aria-label="Settings">&#9881;&#65039;</button>
 </div>
 
 <!-- Sidebar Overlay -->
@@ -49,10 +50,10 @@
 </div>
 
 <!-- Toast Container -->
-<div class="toast-container" id="toast-container"></div>
+<div class="toast-container" id="toast-container" aria-live="polite" role="status"></div>
 
 <!-- Status Bar -->
-<div class="status-bar">
+<div class="status-bar" role="status">
   <div class="status-left">
     <span class="status-app">SYP ANALYTICS</span>
     <span class="status-sep">|</span>
@@ -69,11 +70,11 @@
 </div>
 
 <div id="app">
-  <aside class="sidebar" id="sidebar">
+  <aside class="sidebar" id="sidebar" role="navigation" aria-label="Main navigation">
     <div class="sidebar-header">
       <div class="logo">SYP ANALYTICS</div>
       <div class="company">Buckeye Pacific</div>
-      <button class="theme-toggle" onclick="toggleTheme()" title="Toggle theme">&#9681; Theme</button>
+      <button class="theme-toggle" onclick="toggleTheme()" title="Toggle theme" aria-label="Toggle theme">&#9681; Theme</button>
       <div style="margin-top:12px">
         <select id="trader-select" onchange="setTrader(this.value)" style="width:100%;padding:8px;background:var(--panel);border:1px solid var(--accent);color:var(--accent);font-weight:600;border-radius:4px;font-size:12px"></select>
       </div>
@@ -86,9 +87,9 @@
       <div class="mkt-row east"><span>East</span><span class="price" id="mkt-e">&mdash;</span></div>
       <div class="mkt-date" id="mkt-d"></div>
     </div>
-    <button class="sidebar-toggle-btn" onclick="toggleSidebar()" title="Toggle sidebar">&#9664;</button>
+    <button class="sidebar-toggle-btn" onclick="toggleSidebar()" title="Toggle sidebar" aria-label="Toggle sidebar">&#9664;</button>
   </aside>
-  <main class="main">
+  <main class="main" role="main">
     <div class="breadcrumbs" id="breadcrumbs"></div>
     <header class="header">
       <div class="header-left">
@@ -118,36 +119,36 @@
     </div>
   </aside>
 </div>
-<button class="ai-toggle" onclick="toggleAIPanel()" title="AI Assistant" style="display:none">&#129302;</button>
+<button class="ai-toggle" onclick="toggleAIPanel()" title="AI Assistant" aria-label="AI Assistant" style="display:none">&#129302;</button>
 <div id="modal"></div>
 
 <!-- Scripts loaded in dependency order -->
-<script src="js/state.js?v=1770434049"></script>
-<script src="js/data.js?v=1770434049"></script>
-<script src="js/utils.js?v=1770434049"></script>
-<script src="js/analytics.js?v=1770434049"></script>
-<script src="js/pnl.js?v=1770434049"></script>
-<script src="js/risk.js?v=1770434049"></script>
-<script src="js/portfolio.js?v=1770434049"></script>
-<script src="js/signals.js?v=1770434049"></script>
-<script src="js/alerts.js?v=1770434049"></script>
-<script src="js/reports.js?v=1770434049"></script>
-<script src="js/charts.js?v=1770434049"></script>
-<script src="js/views.js?v=1770434049"></script>
-<script src="js/modals.js?v=1770434049"></script>
-<script src="js/quotes.js?v=1770434049"></script>
-<script src="js/millpricing.js?v=1770434049"></script>
-<script src="js/miutils.js?v=1770434049"></script>
-<script src="js/midata.js?v=1770434049"></script>
-<script src="js/miintake.js?v=1770434049"></script>
-<script src="js/miaggregated.js?v=1770434049"></script>
-<script src="js/miquotes.js?v=1770434049"></script>
-<script src="js/crm.js?v=1770434049"></script>
-<script src="js/trades.js?v=1770434049"></script>
-<script src="js/ai.js?v=1770434049"></script>
-<script src="js/audit.js?v=1770434049"></script>
-<script src="js/workflow.js?v=1770434049"></script>
-<script src="js/keyboard.js?v=1770434049"></script>
-<script src="js/app.js?v=1770434049"></script>
+<script src="js/state.js?v=1770437280"></script>
+<script src="js/data.js?v=1770437280"></script>
+<script src="js/utils.js?v=1770437280"></script>
+<script src="js/analytics.js?v=1770437280"></script>
+<script src="js/pnl.js?v=1770437280"></script>
+<script src="js/risk.js?v=1770437280"></script>
+<script src="js/portfolio.js?v=1770437280"></script>
+<script src="js/signals.js?v=1770437280"></script>
+<script src="js/alerts.js?v=1770437280"></script>
+<script src="js/reports.js?v=1770437280"></script>
+<script src="js/charts.js?v=1770437280"></script>
+<script src="js/views.js?v=1770437280"></script>
+<script src="js/modals.js?v=1770437280"></script>
+<script src="js/quotes.js?v=1770437280"></script>
+<script src="js/millpricing.js?v=1770437280"></script>
+<script src="js/miutils.js?v=1770437280"></script>
+<script src="js/midata.js?v=1770437280"></script>
+<script src="js/miintake.js?v=1770437280"></script>
+<script src="js/miaggregated.js?v=1770437280"></script>
+<script src="js/miquotes.js?v=1770437280"></script>
+<script src="js/crm.js?v=1770437280"></script>
+<script src="js/trades.js?v=1770437280"></script>
+<script src="js/ai.js?v=1770437280"></script>
+<script src="js/audit.js?v=1770437280"></script>
+<script src="js/workflow.js?v=1770437280"></script>
+<script src="js/keyboard.js?v=1770437280"></script>
+<script src="js/app.js?v=1770437280"></script>
 </body>
 </html>

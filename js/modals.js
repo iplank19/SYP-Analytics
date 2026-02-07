@@ -1,6 +1,11 @@
 // SYP Analytics - Modal Functions
 // MODALS
-function closeModal(){setHTML('modal','')}
+let _modalTrigger=null;
+function closeModal(){
+  setHTML('modal','');
+  // Return focus to trigger element
+  if(_modalTrigger&&_modalTrigger.focus){_modalTrigger.focus();_modalTrigger=null;}
+}
 function closeModalSafe(){
   const modal=document.querySelector('#modal .modal');
   if(modal){
@@ -31,6 +36,57 @@ document.addEventListener('keydown',e=>{
       e.preventDefault();
     }
   }
+});
+
+// Enhance modal accessibility: role, aria-modal, focus trap
+function enhanceModal(){
+  const container=document.getElementById('modal');
+  if(!container)return;
+  const overlay=container.querySelector('.modal-overlay');
+  const modal=container.querySelector('.modal');
+  if(!modal)return;
+  // Save trigger for focus restoration
+  if(!_modalTrigger)_modalTrigger=document.activeElement;
+  // Add ARIA attributes
+  modal.setAttribute('role','dialog');
+  modal.setAttribute('aria-modal','true');
+  const titleEl=modal.querySelector('.modal-title');
+  if(titleEl){
+    const titleId='modal-title-'+Date.now();
+    titleEl.id=titleId;
+    modal.setAttribute('aria-labelledby',titleId);
+  }
+  // Focus trap
+  modal.addEventListener('keydown',function _trap(e){
+    if(e.key!=='Tab')return;
+    const focusable=modal.querySelectorAll('button,input,select,textarea,a[href],[tabindex]:not([tabindex="-1"])');
+    if(!focusable.length)return;
+    const first=focusable[0],last=focusable[focusable.length-1];
+    if(e.shiftKey){if(document.activeElement===first){e.preventDefault();last.focus()}}
+    else{if(document.activeElement===last){e.preventDefault();first.focus()}}
+  });
+  // Auto-associate labels with inputs
+  modal.querySelectorAll('.form-group').forEach((fg,i)=>{
+    const label=fg.querySelector('.form-label,label');
+    const input=fg.querySelector('input,select,textarea');
+    if(label&&input&&!label.htmlFor&&!input.id?.startsWith('m-')){
+      // Only add for/id if input doesn't already have a meaningful id
+    }else if(label&&input&&input.id){
+      label.setAttribute('for',input.id);
+    }
+  });
+  // Focus first focusable element
+  const firstFocusable=modal.querySelector('input,select,textarea,button:not(.modal-close)');
+  if(firstFocusable)setTimeout(()=>firstFocusable.focus(),50);
+}
+// Auto-enhance modals via MutationObserver
+const _modalObserver=new MutationObserver(()=>{
+  const container=document.getElementById('modal');
+  if(container&&container.querySelector('.modal'))enhanceModal();
+});
+document.addEventListener('DOMContentLoaded',()=>{
+  const m=document.getElementById('modal');
+  if(m)_modalObserver.observe(m,{childList:true});
 });
 
 function showBuyModal(b=null){
@@ -650,7 +706,7 @@ function toggleBuyOptions(){
   }
   
   // Auto-fill #1 base price for single-length MSR products
-  if(isMSR&&!isRL&&S.rl.length>0){
+  if(isMSR&&!isRL&&S.rl?.length>0){
     const latestRL=S.rl[S.rl.length-1];
     const baseMatch=product.match(/(\d+x\d+)/i);
     if(baseMatch){
@@ -914,7 +970,7 @@ function toggleSellOptions(){
   }
   
   // Auto-fill #1 base price for single-length MSR products
-  if(isMSR&&!isRL&&S.rl.length>0){
+  if(isMSR&&!isRL&&S.rl?.length>0){
     const latestRL=S.rl[S.rl.length-1];
     const baseMatch=product.match(/(\d+x\d+)/i);
     if(baseMatch){

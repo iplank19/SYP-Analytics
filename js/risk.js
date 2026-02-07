@@ -448,19 +448,19 @@ function getRiskDashboard(){
   riskScore+=positionRisk;
 
   // Concentration risk (up to 20 points)
-  const concRisk=Math.min(20,portfolio.topProductConcentration/2);
+  const concRisk=Math.min(20,(portfolio.topProductConcentration||0)/2);
   riskScore+=concRisk;
 
   // VaR risk (up to 25 points)
-  const varRisk=Math.min(25,(var95.conservativeVaR/portfolio.totalNotional)*250||0);
+  const varRisk=Math.min(25,portfolio.totalNotional>0?(var95.conservativeVaR/portfolio.totalNotional)*250:0);
   riskScore+=varRisk;
 
   // Drawdown risk (up to 15 points)
-  const ddRisk=Math.min(15,drawdown.maxDrawdownPct);
+  const ddRisk=Math.min(15,drawdown.maxDrawdownPct||0);
   riskScore+=ddRisk;
 
   // Inventory aging risk (up to 10 points)
-  const agingRisk=Math.min(10,((aging.twoToFourWeek+aging.old)/aging.total)*20||0);
+  const agingRisk=Math.min(10,aging.total>0?((aging.twoToFourWeek+aging.old)/aging.total)*20:0);
   riskScore+=agingRisk;
 
   // Determine risk level
