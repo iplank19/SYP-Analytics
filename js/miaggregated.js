@@ -290,7 +290,7 @@ async function miRenderGranularMatrix(el) {
   const densityClass = `matrix-${_miMatrixDensity}`;
 
   const portalMarginInput = `
-    <div style="display:flex;align-items:center;gap:6px;padding:4px 8px;background:var(--bg);border-radius:4px">
+    <div style="display:flex;align-items:center;gap:6px;padding:4px 8px;background:var(--bg)">
       <span style="font-size:10px;color:var(--muted)">Margin ±:</span>
       <input type="number" id="portal-margin" value="${_miPortalMargin||''}" placeholder="0" style="width:55px;padding:4px;font-size:11px;text-align:center" onchange="updatePortalMargin(this.value)" title="Add/subtract $/MBF margin to all prices">
       <span style="font-size:10px;color:var(--muted)">$/MBF</span>

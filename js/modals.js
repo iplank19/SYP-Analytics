@@ -1,6 +1,25 @@
 // SYP Analytics - Modal Functions
 // MODALS
 function closeModal(){setHTML('modal','')}
+function closeModalSafe(){
+  const modal=document.querySelector('#modal .modal');
+  if(modal){
+    const inputs=modal.querySelectorAll('input,textarea,select');
+    const hasData=Array.from(inputs).some(el=>{
+      if(el.tagName==='SELECT')return false;
+      if(el.type==='checkbox'||el.type==='radio')return false;
+      if(el.type==='hidden'||el.readOnly||el.disabled)return false;
+      return el.value&&el.value.trim()!=='';
+    });
+    if(hasData){
+      if(confirm('Close without saving?'))closeModal();
+    }else{
+      closeModal();
+    }
+  }else{
+    closeModal();
+  }
+}
 
 // Global keyboard shortcuts
 document.addEventListener('keydown',e=>{
@@ -8,7 +27,7 @@ document.addEventListener('keydown',e=>{
   if(e.key==='Escape'){
     const modal=document.getElementById('modal');
     if(modal&&modal.innerHTML){
-      closeModal();
+      closeModalSafe();
       e.preventDefault();
     }
   }
@@ -44,10 +63,10 @@ function showBuyModal(b=null){
     return ord && !buyOrders.has(ord);
   });
   
-  document.getElementById('modal').innerHTML=`<div class="modal-overlay" onclick="closeModal()"><div class="modal wide" onclick="event.stopPropagation()">
+  document.getElementById('modal').innerHTML=`<div class="modal-overlay" onclick="closeModalSafe()"><div class="modal wide" onclick="event.stopPropagation()">
     <div class="modal-header"><span class="modal-title positive">${b?'EDIT':'NEW'} BUY</span><button class="modal-close" onclick="closeModal()">×</button></div>
     <div class="modal-body">
-      ${S.trader==='Admin'?`<div style="margin-bottom:16px;padding:12px;background:rgba(232,115,74,0.1);border:1px solid #e8734a;border-radius:4px">
+      ${S.trader==='Admin'?`<div style="margin-bottom:16px;padding:12px;background:rgba(232,115,74,0.1);border:1px solid #e8734a">
         <div class="form-group" style="margin:0"><label class="form-label" style="color:#e8734a;font-weight:600">🔑 Assign to Trader</label>
         <select id="m-trader" style="width:200px">${TRADERS.map(t=>`<option value="${t}" ${(b?.trader||'Ian P')===t?'selected':''}>${t}</option>`).join('')}</select></div>
       </div>`:''}
@@ -249,10 +268,10 @@ function showQuickEntryModal(){
 
   qeRowCount=0;
 
-  document.getElementById('modal').innerHTML=`<div class="modal-overlay" onclick="closeModal()"><div class="modal extra-wide" onclick="event.stopPropagation()">
+  document.getElementById('modal').innerHTML=`<div class="modal-overlay" onclick="closeModalSafe()"><div class="modal extra-wide" onclick="event.stopPropagation()">
     <div class="modal-header"><span class="modal-title" style="color:var(--warn)">QUICK ENTRY - Quote Items</span><button class="modal-close" onclick="closeModal()">×</button></div>
     <div class="modal-body" style="overflow-x:auto">
-      <div style="margin-bottom:12px;padding:8px 12px;background:var(--panel-alt);border-radius:4px;font-size:11px;color:var(--muted)">
+      <div style="margin-bottom:12px;padding:8px 12px;background:var(--panel-alt);font-size:11px;color:var(--muted)">
         Tab through cells to enter multiple products quickly. Product format: <span style="color:var(--accent)">2x4 #2 16'</span> or <span style="color:var(--accent)">2x6#2</span> (length optional)
       </div>
       <datalist id="qe-origin-list">${origins.map(o=>`<option value="${o}">`).join('')}</datalist>
@@ -396,7 +415,7 @@ function saveQuickEntry(){
   }
 
   if(savedCount===0){
-    alert('No valid rows to save. Enter at least one product.');
+    showToast('No valid rows to save. Enter at least one product.','warn');
     return;
   }
 
@@ -407,7 +426,7 @@ function saveQuickEntry(){
 
   // Show brief success message
   const msg=document.createElement('div');
-  msg.style.cssText='position:fixed;top:20px;right:20px;background:var(--positive);color:#fff;padding:12px 20px;border-radius:4px;font-size:12px;z-index:9999;animation:fadeIn 0.2s';
+  msg.style.cssText='position:fixed;top:20px;right:20px;background:var(--positive);color:#fff;padding:12px 20px;font-size:12px;z-index:9999;animation:fadeIn 0.2s';
   msg.textContent=`Added ${savedCount} quote item${savedCount!==1?'s':''}`;
   document.body.appendChild(msg);
   setTimeout(()=>msg.remove(),2000);
@@ -530,9 +549,9 @@ function sellPosition(product, length, volume){
   
   // Alert if no matching buys found or multiple options
   if(matchingBuys.length===0){
-    setTimeout(()=>alert(`No orders with available volume found for ${product} ${length}. Make sure your buys have Order #s assigned.`),100);
+    showToast(`No orders with available volume found for ${product} ${length}. Make sure your buys have Order #s assigned.`,'warn');
   }else if(matchingBuys.length>1){
-    setTimeout(()=>alert(`Multiple orders found for ${product} ${length}. Please verify the correct Order # from the dropdown.`),100);
+    showToast(`Multiple orders found for ${product} ${length}. Please verify the correct Order # from the dropdown.`,'warn');
   }
 }
 
@@ -566,9 +585,7 @@ function coverPosition(product, length, volume){
   });
   
   if(!matchingSell){
-    setTimeout(()=>{
-      alert(`No uncovered short orders found for ${product} ${length}. Make sure your sells have Order #s assigned, or select from the dropdown.`);
-    },100);
+    showToast(`No uncovered short orders found for ${product} ${length}. Make sure your sells have Order #s assigned, or select from the dropdown.`,'warn');
   }
 }
 
@@ -576,7 +593,7 @@ function coverSell(sellId){
   // Find the sell by ID and open buy modal to cover it
   const sell=S.sells.find(s=>s.id===sellId);
   if(!sell){
-    alert('Sell not found');
+    showToast('Sell not found','negative');
     return;
   }
 
@@ -1431,10 +1448,10 @@ function showSellModal(s=null){
   const isMSR=s?.product?.toUpperCase().includes('MSR')||s?.product?.toUpperCase().includes('2400');
   const isRL=s?.length==='RL'||s?.tally;
   
-  document.getElementById('modal').innerHTML=`<div class="modal-overlay" onclick="closeModal()"><div class="modal wide" onclick="event.stopPropagation()">
+  document.getElementById('modal').innerHTML=`<div class="modal-overlay" onclick="closeModalSafe()"><div class="modal wide" onclick="event.stopPropagation()">
     <div class="modal-header"><span class="modal-title">${s?'EDIT':'NEW'} SELL</span><button class="modal-close" onclick="closeModal()">×</button></div>
     <div class="modal-body">
-      ${S.trader==='Admin'?`<div style="margin-bottom:16px;padding:12px;background:rgba(232,115,74,0.1);border:1px solid #e8734a;border-radius:4px">
+      ${S.trader==='Admin'?`<div style="margin-bottom:16px;padding:12px;background:rgba(232,115,74,0.1);border:1px solid #e8734a">
         <div class="form-group" style="margin:0"><label class="form-label" style="color:#e8734a;font-weight:600">🔑 Assign to Trader</label>
         <select id="m-trader" style="width:200px">${TRADERS.map(t=>`<option value="${t}" ${(s?.trader||'Ian P')===t?'selected':''}>${t}</option>`).join('')}</select></div>
       </div>`:''}
@@ -1615,8 +1632,8 @@ async function createPOFromOC(){
   const destination=document.getElementById('m-dest')?.value||'';
   const oc=document.getElementById('m-oc')?.value||'';
 
-  if(!oc){alert('Enter OC # first');return}
-  if(!product||!price){alert('Enter product and price first');return}
+  if(!oc){showToast('Enter OC # first','warn');return}
+  if(!product||!price){showToast('Enter product and price first','warn');return}
 
   // Save customer to CRM if new
   if(customer&&!S.customers.find(c=>c.name===customer)){
@@ -1690,8 +1707,8 @@ async function createOCFromPO(){
   const origin=document.getElementById('m-origin')?.value||'';
   const po=document.getElementById('m-po')?.value||'';
 
-  if(!po){alert('Enter PO # first');return}
-  if(!product||!price){alert('Enter product and price first');return}
+  if(!po){showToast('Enter PO # first','warn');return}
+  if(!product||!price){showToast('Enter product and price first','warn');return}
 
   // Save mill to CRM if new
   if(mill&&!S.mills.find(m=>m.name===mill)){
@@ -1955,7 +1972,7 @@ function updateSellCalc(){
 }
 
 function showRLModal(){
-  document.getElementById('modal').innerHTML=`<div class="modal-overlay" onclick="closeModal()"><div class="modal wide" onclick="event.stopPropagation()">
+  document.getElementById('modal').innerHTML=`<div class="modal-overlay" onclick="closeModalSafe()"><div class="modal wide" onclick="event.stopPropagation()">
     <div class="modal-header"><span class="modal-title">ADD RL DATA</span><button class="modal-close" onclick="closeModal()">×</button></div>
     <div class="modal-body">
       <div class="form-group" style="margin-bottom:20px;max-width:200px"><label class="form-label">Report Date</label><input type="date" id="rl-date"></div>
@@ -1987,7 +2004,7 @@ function showParseModal(){
 async function loadPDFDirect(event){
   const file=event.target.files[0];
   if(!file)return;
-  if(!S.apiKey){alert('Add API key in Settings first');return}
+  if(!S.apiKey){showToast('Add API key in Settings first','warn');return}
   
   document.getElementById('pdf-filename').textContent=file.name;
   document.getElementById('ai-loading').style.display='block';
@@ -2109,8 +2126,6 @@ IMPORTANT:
     }
     
     const reply=data.content?.[0]?.text||'';
-    console.log('AI Response:',reply);
-    
     // Extract JSON from response
     const jsonMatch=reply.match(/\{[\s\S]*\}/);
     if(!jsonMatch){
@@ -2197,12 +2212,12 @@ IMPORTANT:
 }
 
 function parseText(){aiParsePDF(document.getElementById('pdf-text')?.value||'')}
-async function aiParsePDF(text){if(text)alert('Please use the PDF upload button instead.')}
+async function aiParsePDF(text){if(text)showToast('Please use the PDF upload button instead.','warn')}
 
 async function saveParsedRL(){
   if(!parsedRL)return;
   parsedRL.date=document.getElementById('parsed-date').value;
-  if(!parsedRL.date){alert('Enter a date');return}
+  if(!parsedRL.date){showToast('Enter a date','warn');return}
   
   // Convert new format to also include simple west/central/east for backward compatibility
   if(parsedRL.composite){
@@ -2230,7 +2245,7 @@ async function saveParsedRL(){
 // ==================== CSV ORDER IMPORT ====================
 
 function showImportModal(){
-  document.getElementById('modal').innerHTML=`<div class="modal-overlay" onclick="closeModal()"><div class="modal wide" onclick="event.stopPropagation()">
+  document.getElementById('modal').innerHTML=`<div class="modal-overlay" onclick="closeModalSafe()"><div class="modal wide" onclick="event.stopPropagation()">
     <div class="modal-header"><span class="modal-title">📥 IMPORT ORDERS</span><button class="modal-close" onclick="closeModal()">×</button></div>
     <div class="modal-body" id="import-body">
       <div style="padding:20px">
@@ -2249,7 +2264,7 @@ function showImportModal(){
           <button id="import-mode-csv" class="btn btn-default btn-sm" onclick="setImportMode('csv')" style="font-size:10px">Classic CSV</button>
         </div>
         <div id="import-ai-section">
-          <textarea id="import-text" placeholder="Paste orders here — CSV data, email text, order confirmations, or free-form descriptions...&#10;&#10;Examples:&#10;• CSV rows with headers&#10;• &quot;Sold 5 units 2x4#2 10' to ABC Lumber at $580, buying from XYZ Mill at $450&quot;&#10;• Forwarded order confirmation emails&#10;• Any structured or unstructured order data" style="width:100%;height:200px;font-family:monospace;font-size:11px;padding:12px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);resize:vertical"></textarea>
+          <textarea id="import-text" placeholder="Paste orders here — CSV data, email text, order confirmations, or free-form descriptions...&#10;&#10;Examples:&#10;• CSV rows with headers&#10;• &quot;Sold 5 units 2x4#2 10' to ABC Lumber at $580, buying from XYZ Mill at $450&quot;&#10;• Forwarded order confirmation emails&#10;• Any structured or unstructured order data" style="width:100%;height:200px;font-family:monospace;font-size:11px;padding:12px;border:1px solid var(--border);background:var(--surface);color:var(--text);resize:vertical"></textarea>
           <div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px">
             <div style="display:flex;align-items:center;gap:8px">
               <input type="file" id="import-file-ai" accept=".csv,.txt,.xlsx,.xls,.pdf" style="display:none" onchange="loadOrderFile(event)">
@@ -2260,7 +2275,7 @@ function showImportModal(){
           </div>
         </div>
         <div id="import-csv-section" style="display:none">
-          <div style="text-align:center;padding:40px 20px;border:2px dashed var(--border);border-radius:8px">
+          <div style="text-align:center;padding:40px 20px;border:2px dashed var(--border)">
             <div style="font-size:12px;color:var(--muted);margin-bottom:16px">Upload a CSV or Excel file in the OC Reports format</div>
             <input type="file" id="import-file" accept=".csv,.xlsx,.xls" style="display:none" onchange="processCSVImport(event)">
             <button class="btn btn-primary" onclick="document.getElementById('import-file').click()" style="padding:10px 28px;font-size:12px">Choose File</button>
@@ -2374,8 +2389,8 @@ async function processCSVImport(event){
 
 async function processAIImport(){
   const text=(document.getElementById('import-text')?.value||'').trim();
-  if(!text){alert('Paste some order text first.');return}
-  if(!S.apiKey){alert('Add your Anthropic API key in Settings first.');return}
+  if(!text){showToast('Paste some order text first','warn');return}
+  if(!S.apiKey){showToast('Add your Anthropic API key in Settings first','warn');return}
 
   const body=document.getElementById('import-body');
   const parseBtn=body.querySelector('.btn-primary:last-child');
@@ -2400,7 +2415,7 @@ async function processAIImport(){
     if(parseBtn){parseBtn.disabled=false;parseBtn.textContent=origBtnText;}
     document.getElementById('import-body').innerHTML=`<div style="text-align:center;padding:40px;color:var(--negative)">
       <div style="font-size:14px;font-weight:600;margin-bottom:8px">AI Parse Error</div>
-      <div style="font-size:11px;max-height:200px;overflow:auto;text-align:left;background:var(--surface);padding:12px;border-radius:6px;margin-bottom:16px;white-space:pre-wrap;font-family:monospace">${e.message.replace(/</g,'&lt;')}</div>
+      <div style="font-size:11px;max-height:200px;overflow:auto;text-align:left;background:var(--surface);padding:12px;margin-bottom:16px;white-space:pre-wrap;font-family:monospace">${e.message.replace(/</g,'&lt;')}</div>
       <div style="display:flex;gap:8px;justify-content:center">
         <button class="btn btn-default" onclick="showImportModal()" style="font-size:11px">Try Again</button>
         <button class="btn btn-default" onclick="setImportMode('csv');showImportModal()" style="font-size:11px">Use Classic CSV</button>

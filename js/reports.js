@@ -548,19 +548,19 @@ function renderDailyFlashHTML(report){
     <div class="section" style="margin-bottom:24px;">
       <h2 style="font-size:16px;color:#d0d4da;margin:0 0 12px;">Today's Summary</h2>
       <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:16px;">
-        <div style="background:#0e0e16;padding:16px;border-radius:8px;">
+        <div style="background:#0e0e16;padding:16px;">
           <div style="font-size:10px;color:#5a6270;text-transform:uppercase;">Today P&L</div>
           <div style="font-size:24px;color:${report.summary.todayPnL>=0?'#00e676':'#ff5252'}">${fmt(report.summary.todayPnL)}</div>
         </div>
-        <div style="background:#0e0e16;padding:16px;border-radius:8px;">
+        <div style="background:#0e0e16;padding:16px;">
           <div style="font-size:10px;color:#5a6270;text-transform:uppercase;">MTD P&L</div>
           <div style="font-size:24px;color:${report.summary.mtdPnL>=0?'#00e676':'#ff5252'}">${fmt(report.summary.mtdPnL)}</div>
         </div>
-        <div style="background:#0e0e16;padding:16px;border-radius:8px;">
+        <div style="background:#0e0e16;padding:16px;">
           <div style="font-size:10px;color:#5a6270;text-transform:uppercase;">Net Position</div>
           <div style="font-size:24px;color:#d0d4da">${fmtN(report.summary.openPositions)} MBF</div>
         </div>
-        <div style="background:#0e0e16;padding:16px;border-radius:8px;">
+        <div style="background:#0e0e16;padding:16px;">
           <div style="font-size:10px;color:#5a6270;text-transform:uppercase;">Risk Level</div>
           <div style="font-size:24px;color:${report.risk.level==='LOW'?'#00e676':report.risk.level==='HIGH'?'#ff5252':'#ffab40'}">${report.risk.level}</div>
         </div>
@@ -569,15 +569,15 @@ function renderDailyFlashHTML(report){
     <div class="section" style="margin-bottom:24px;">
       <h2 style="font-size:16px;color:#d0d4da;margin:0 0 12px;">Market Prices (2x4#2)</h2>
       <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;">
-        <div style="background:#0e0e16;padding:16px;border-radius:8px;border-left:3px solid #4d8df7;">
+        <div style="background:#0e0e16;padding:16px;border-left:3px solid #4d8df7;">
           <div style="font-size:10px;color:#5a6270;">West</div>
           <div style="font-size:20px;color:#d0d4da">${report.marketSummary.west24?fmt(report.marketSummary.west24):'—'}</div>
         </div>
-        <div style="background:#0e0e16;padding:16px;border-radius:8px;border-left:3px solid #ffab40;">
+        <div style="background:#0e0e16;padding:16px;border-left:3px solid #ffab40;">
           <div style="font-size:10px;color:#5a6270;">Central</div>
           <div style="font-size:20px;color:#d0d4da">${report.marketSummary.central24?fmt(report.marketSummary.central24):'—'}</div>
         </div>
-        <div style="background:#0e0e16;padding:16px;border-radius:8px;border-left:3px solid #64b5f6;">
+        <div style="background:#0e0e16;padding:16px;border-left:3px solid #64b5f6;">
           <div style="font-size:10px;color:#5a6270;">East</div>
           <div style="font-size:20px;color:#d0d4da">${report.marketSummary.east24?fmt(report.marketSummary.east24):'—'}</div>
         </div>
@@ -587,7 +587,7 @@ function renderDailyFlashHTML(report){
     <div class="section">
       <h2 style="font-size:16px;color:#d0d4da;margin:0 0 12px;">Active Alerts</h2>
       ${report.alerts.map(a=>`
-        <div style="background:#0e0e16;padding:12px;border-radius:4px;margin-bottom:8px;border-left:3px solid ${a.severity==='critical'?'#ff5252':a.severity==='high'?'#ffab40':'#5a6270'};">
+        <div style="background:#0e0e16;padding:12px;margin-bottom:8px;border-left:3px solid ${a.severity==='critical'?'#ff5252':a.severity==='high'?'#ffab40':'#5a6270'};">
           <span style="color:#d0d4da;">${a.title}</span>
         </div>
       `).join('')}
@@ -601,19 +601,19 @@ function renderWeeklyReportHTML(report){
     <div class="section" style="margin-bottom:24px;">
       <h2 style="font-size:16px;color:#d0d4da;margin:0 0 12px;">Week Performance</h2>
       <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:16px;">
-        <div style="background:#0e0e16;padding:16px;border-radius:8px;">
+        <div style="background:#0e0e16;padding:16px;">
           <div style="font-size:10px;color:#5a6270;text-transform:uppercase;">Total P&L</div>
           <div style="font-size:24px;color:${report.performance.totalPnL>=0?'#00e676':'#ff5252'}">${fmt(report.performance.totalPnL)}</div>
         </div>
-        <div style="background:#0e0e16;padding:16px;border-radius:8px;">
+        <div style="background:#0e0e16;padding:16px;">
           <div style="font-size:10px;color:#5a6270;text-transform:uppercase;">Volume</div>
           <div style="font-size:24px;color:#d0d4da">${fmtN(report.performance.volume)} MBF</div>
         </div>
-        <div style="background:#0e0e16;padding:16px;border-radius:8px;">
+        <div style="background:#0e0e16;padding:16px;">
           <div style="font-size:10px;color:#5a6270;text-transform:uppercase;">Avg Margin</div>
           <div style="font-size:24px;color:#d0d4da">${fmt(report.performance.avgMargin)}/MBF</div>
         </div>
-        <div style="background:#0e0e16;padding:16px;border-radius:8px;">
+        <div style="background:#0e0e16;padding:16px;">
           <div style="font-size:10px;color:#5a6270;text-transform:uppercase;">Win Rate</div>
           <div style="font-size:24px;color:#d0d4da">${report.performance.winRate.toFixed(0)}%</div>
         </div>
@@ -665,19 +665,19 @@ function renderMonthlyReportHTML(report){
     <div class="section" style="margin-bottom:24px;">
       <h2 style="font-size:16px;color:#d0d4da;margin:0 0 12px;">Month-to-Date Performance</h2>
       <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:16px;">
-        <div style="background:#0e0e16;padding:16px;border-radius:8px;">
+        <div style="background:#0e0e16;padding:16px;">
           <div style="font-size:10px;color:#5a6270;text-transform:uppercase;">MTD P&L</div>
           <div style="font-size:24px;color:${report.mtdPerformance.totalPnL>=0?'#00e676':'#ff5252'}">${fmt(report.mtdPerformance.totalPnL)}</div>
         </div>
-        <div style="background:#0e0e16;padding:16px;border-radius:8px;">
+        <div style="background:#0e0e16;padding:16px;">
           <div style="font-size:10px;color:#5a6270;text-transform:uppercase;">YTD P&L</div>
           <div style="font-size:24px;color:${report.ytdPerformance.totalPnL>=0?'#00e676':'#ff5252'}">${fmt(report.ytdPerformance.totalPnL)}</div>
         </div>
-        <div style="background:#0e0e16;padding:16px;border-radius:8px;">
+        <div style="background:#0e0e16;padding:16px;">
           <div style="font-size:10px;color:#5a6270;text-transform:uppercase;">Volume</div>
           <div style="font-size:24px;color:#d0d4da">${fmtN(report.mtdPerformance.volume)} MBF</div>
         </div>
-        <div style="background:#0e0e16;padding:16px;border-radius:8px;">
+        <div style="background:#0e0e16;padding:16px;">
           <div style="font-size:10px;color:#5a6270;text-transform:uppercase;">Trades</div>
           <div style="font-size:24px;color:#d0d4da">${report.mtdPerformance.trades}</div>
         </div>
@@ -686,19 +686,19 @@ function renderMonthlyReportHTML(report){
     <div class="section" style="margin-bottom:24px;">
       <h2 style="font-size:16px;color:#d0d4da;margin:0 0 12px;">Portfolio Health</h2>
       <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:16px;">
-        <div style="background:#0e0e16;padding:16px;border-radius:8px;">
+        <div style="background:#0e0e16;padding:16px;">
           <div style="font-size:10px;color:#5a6270;text-transform:uppercase;">Portfolio Value</div>
           <div style="font-size:20px;color:#d0d4da">${fmt(report.portfolioHealth.totalValue)}</div>
         </div>
-        <div style="background:#0e0e16;padding:16px;border-radius:8px;">
+        <div style="background:#0e0e16;padding:16px;">
           <div style="font-size:10px;color:#5a6270;text-transform:uppercase;">Unrealized P&L</div>
           <div style="font-size:20px;color:${report.portfolioHealth.unrealizedPnL>=0?'#00e676':'#ff5252'}">${fmt(report.portfolioHealth.unrealizedPnL)}</div>
         </div>
-        <div style="background:#0e0e16;padding:16px;border-radius:8px;">
+        <div style="background:#0e0e16;padding:16px;">
           <div style="font-size:10px;color:#5a6270;text-transform:uppercase;">Inv Turnover</div>
           <div style="font-size:20px;color:#d0d4da">${report.portfolioHealth.inventoryTurnover}x</div>
         </div>
-        <div style="background:#0e0e16;padding:16px;border-radius:8px;">
+        <div style="background:#0e0e16;padding:16px;">
           <div style="font-size:10px;color:#5a6270;text-transform:uppercase;">Risk Level</div>
           <div style="font-size:20px;color:${report.riskMetrics.level==='LOW'?'#00e676':report.riskMetrics.level==='HIGH'?'#ff5252':'#ffab40'}">${report.riskMetrics.level}</div>
         </div>
@@ -712,19 +712,19 @@ function renderRiskReportHTML(report){
     <div class="section" style="margin-bottom:24px;">
       <h2 style="font-size:16px;color:#d0d4da;margin:0 0 12px;">Risk Overview</h2>
       <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:16px;">
-        <div style="background:#0e0e16;padding:16px;border-radius:8px;">
+        <div style="background:#0e0e16;padding:16px;">
           <div style="font-size:10px;color:#5a6270;text-transform:uppercase;">Risk Score</div>
           <div style="font-size:24px;color:${report.overallRisk.score<30?'#00e676':report.overallRisk.score>60?'#ff5252':'#ffab40'}">${report.overallRisk.score}/100</div>
         </div>
-        <div style="background:#0e0e16;padding:16px;border-radius:8px;">
+        <div style="background:#0e0e16;padding:16px;">
           <div style="font-size:10px;color:#5a6270;text-transform:uppercase;">VaR (95%)</div>
           <div style="font-size:24px;color:#ff5252">${fmt(report.valueAtRisk.var95)}</div>
         </div>
-        <div style="background:#0e0e16;padding:16px;border-radius:8px;">
+        <div style="background:#0e0e16;padding:16px;">
           <div style="font-size:10px;color:#5a6270;text-transform:uppercase;">Max Drawdown</div>
           <div style="font-size:24px;color:#ff5252">${fmt(report.drawdown.max)}</div>
         </div>
-        <div style="background:#0e0e16;padding:16px;border-radius:8px;">
+        <div style="background:#0e0e16;padding:16px;">
           <div style="font-size:10px;color:#5a6270;text-transform:uppercase;">Volatility</div>
           <div style="font-size:24px;color:#d0d4da">${report.volatility.regime}</div>
         </div>
@@ -734,7 +734,7 @@ function renderRiskReportHTML(report){
     <div class="section" style="margin-bottom:24px;">
       <h2 style="font-size:16px;color:#ff5252;margin:0 0 12px;">Limit Breaches</h2>
       ${report.breaches.map(b=>`
-        <div style="background:#1a0a0a;padding:12px;border-radius:4px;margin-bottom:8px;border-left:3px solid #ff5252;">
+        <div style="background:#1a0a0a;padding:12px;margin-bottom:8px;border-left:3px solid #ff5252;">
           <span style="color:#d0d4da;font-weight:600;">${b.name}</span>
           <span style="color:#5a6270;"> - ${b.type} at ${fmtN(b.current)} vs limit ${fmtN(b.limit)}</span>
         </div>

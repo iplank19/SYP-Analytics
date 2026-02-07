@@ -1,4 +1,5 @@
 // SYP Analytics - CRM Functions
+let _viewedProspect = null;
 async function loadCRMData(){
   try{
     // Each trader sees only their own CRM data
@@ -76,14 +77,14 @@ async function resetAllCRMData(){
   if(!confirm('This will DELETE ALL CRM data (prospects, customers, mills) for ALL traders. This cannot be undone. Continue?'))return;
   if(!confirm('Are you SURE? Type "RESET" in the next prompt to confirm.'))return;
   const confirmation=prompt('Type RESET to confirm deletion of all CRM data:');
-  if(confirmation!=='RESET'){alert('Cancelled.');return;}
+  if(confirmation!=='RESET'){showToast('Cancelled','info');return;}
   try{
     const res=await fetch('/api/crm/wipe-all',{method:'POST'});
     const result=await res.json();
-    alert(result.message||'All CRM data wiped');
+    showToast(result.message||'All CRM data wiped','positive');
     S.crmProspects=[];S.customers=[];S.mills=[];
     loadCRMData();
-  }catch(e){alert('Error: '+e.message)}
+  }catch(e){showToast('Error: '+e.message,'negative')}
 }
 
 async function seedMockData(){
@@ -91,13 +92,13 @@ async function seedMockData(){
   try{
     const res=await fetch('/api/crm/seed-mock',{method:'POST'});
     const result=await res.json();
-    alert(`Mock data loaded: ${result.prospects_created} prospects, ${result.touches_created} touches`);
+    showToast(`Mock data loaded: ${result.prospects_created} prospects, ${result.touches_created} touches`,'positive');
     loadCRMProspects();
-  }catch(e){alert('Error seeding mock data: '+e.message)}
+  }catch(e){showToast('Error seeding mock data: '+e.message,'negative')}
 }
 
 function showProspectModal(p=null){
-  document.getElementById('modal').innerHTML=`<div class="modal-overlay" onclick="closeModal()"><div class="modal" onclick="event.stopPropagation()">
+  document.getElementById('modal').innerHTML=`<div class="modal-overlay" onclick="closeModalSafe()"><div class="modal" onclick="event.stopPropagation()">
     <div class="modal-header"><span class="modal-title info">${p?'EDIT':'NEW'} PROSPECT</span><button class="modal-close" onclick="closeModal()">×</button></div>
     <div class="modal-body">
       <div class="form-grid">
@@ -139,24 +140,24 @@ async function saveProspect(id){
     notes:document.getElementById('p-notes').value,
     trader:S.trader==='Admin'?'':S.trader
   };
-  if(!data.company_name){alert('Company name required');return}
+  if(!data.company_name){showToast('Company name required','warn');return}
   try{
     const url=id?'/api/crm/prospects/'+id:'/api/crm/prospects';
     const res=await fetch(url,{method:id?'PUT':'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
     const result=await res.json();
     // Handle duplicate detection responses (only on create)
     if(!id&&result.existing){
-      alert('A prospect named "'+result.company_name+'" already exists (status: '+result.status+'). Opening existing record.');
+      showToast('A prospect named "'+result.company_name+'" already exists (status: '+result.status+'). Opening existing record.','info');
       closeModal();loadCRMProspects();
       return;
     }
     if(!id&&result.warning==='already_customer'){
-      alert(result.message+'. No prospect created.');
+      showToast(result.message+'. No prospect created.','warn');
       closeModal();loadCRMProspects();
       return;
     }
     closeModal();loadCRMProspects();
-  }catch(e){alert('Error saving prospect')}
+  }catch(e){showToast('Error saving prospect','negative')}
 }
 
 async function deleteProspect(id){
@@ -164,13 +165,14 @@ async function deleteProspect(id){
   try{
     await fetch('/api/crm/prospects/'+id,{method:'DELETE'});
     closeModal();loadCRMProspects();
-  }catch(e){alert('Error deleting prospect')}
+  }catch(e){showToast('Error deleting prospect','negative')}
 }
 
 async function viewProspect(id){
   try{
     const res=await fetch('/api/crm/prospects/'+id);
     const p=await res.json();
+    _viewedProspect = p;
     document.getElementById('modal').innerHTML=`<div class="modal-overlay" onclick="closeModal()"><div class="modal wide" onclick="event.stopPropagation()">
       <div class="modal-header">
         <span class="modal-title info">${escapeHtml(p.company_name||'')}</span>
@@ -187,7 +189,7 @@ async function viewProspect(id){
               <div><strong>Address:</strong> ${escapeHtml(p.address||'—')}</div>
               <div><strong>Status:</strong> <span class="badge badge-pending">${escapeHtml(p.status||'')}</span></div>
               <div><strong>Source:</strong> ${escapeHtml(p.source||'—')}</div>
-              ${p.notes?`<div style="margin-top:8px"><strong>Notes:</strong><div style="background:var(--bg);padding:8px;margin-top:4px;border-radius:4px">${escapeHtml(p.notes)}</div></div>`:''}
+              ${p.notes?`<div style="margin-top:8px"><strong>Notes:</strong><div style="background:var(--bg);padding:8px;margin-top:4px">${escapeHtml(p.notes)}</div></div>`:''}
             </div>
           </div>
           <div>
@@ -214,16 +216,16 @@ async function viewProspect(id){
         </div>
       </div>
       <div class="modal-footer">
-        <button class="btn btn-default" onclick="showProspectModal(${JSON.stringify(p).replace(/"/g,'&quot;')})">Edit</button>
+        <button class="btn btn-default" onclick="showProspectModal(_viewedProspect)">Edit</button>
         <button class="btn btn-info" onclick="closeModal();showTouchModal(${p.id})">Log Touch</button>
         ${p.status!=='converted'?`<button class="btn btn-success" onclick="convertProspect(${p.id})">Convert to Customer</button>`:''}
       </div>
     </div></div>`;
-  }catch(e){alert('Error loading prospect')}
+  }catch(e){showToast('Error loading prospect','negative')}
 }
 
 function showTouchModal(prospectId){
-  document.getElementById('modal').innerHTML=`<div class="modal-overlay" onclick="closeModal()"><div class="modal" onclick="event.stopPropagation()">
+  document.getElementById('modal').innerHTML=`<div class="modal-overlay" onclick="closeModalSafe()"><div class="modal" onclick="event.stopPropagation()">
     <div class="modal-header"><span class="modal-title positive">LOG CONTACT TOUCH</span><button class="modal-close" onclick="closeModal()">×</button></div>
     <div class="modal-body">
       <div class="form-grid">
@@ -240,7 +242,7 @@ function showTouchModal(prospectId){
         <div class="form-group full">
           <label class="form-label">Products Discussed</label>
           <div style="display:flex;flex-wrap:wrap;gap:6px">
-            ${PRODUCTS.map(p=>`<label style="display:flex;align-items:center;gap:4px;padding:4px 8px;background:var(--bg);border-radius:4px;font-size:10px;cursor:pointer"><input type="checkbox" value="${p}" class="prod-check">${p}</label>`).join('')}
+            ${PRODUCTS.map(p=>`<label style="display:flex;align-items:center;gap:4px;padding:4px 8px;background:var(--bg);font-size:10px;cursor:pointer"><input type="checkbox" value="${p}" class="prod-check">${p}</label>`).join('')}
           </div>
         </div>
         <div class="form-group"><label class="form-label">Follow-up Date</label><input type="date" id="t-followup"></div>
@@ -263,7 +265,7 @@ function selectTouchType(type){
 
 async function saveTouch(prospectId){
   const notes=document.getElementById('t-notes').value;
-  if(!notes){alert('Notes required');return}
+  if(!notes){showToast('Notes required','warn');return}
   const products=Array.from(document.querySelectorAll('.prod-check:checked')).map(c=>c.value);
   const data={
     prospect_id:prospectId,
@@ -275,7 +277,7 @@ async function saveTouch(prospectId){
   try{
     await fetch('/api/crm/touches',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
     closeModal();loadCRMProspects();
-  }catch(e){alert('Error saving touch')}
+  }catch(e){showToast('Error saving touch','negative')}
 }
 
 async function convertProspect(id){
@@ -329,8 +331,8 @@ async function convertProspect(id){
       await saveAllLocal();
     }
     closeModal();loadCRMProspects();
-    alert('Prospect converted! They have been added to your Customers list.');
-  }catch(e){alert('Error converting prospect: '+e.message)}
+    showToast('Prospect converted! Added to Customers list.','positive');
+  }catch(e){showToast('Error converting prospect: '+e.message,'negative')}
 }
 
 // Rename customer in SQLite and sweep S.sells to update matching trade records
@@ -378,7 +380,7 @@ function showCustModal(c=null){
   document.getElementById('modal').innerHTML=`<div class="modal-overlay" onclick="closeModal()"><div class="modal" onclick="event.stopPropagation()">
     <div class="modal-header"><span class="modal-title">${c?'EDIT':'NEW'} CUSTOMER</span><button class="modal-close" onclick="closeModal()">×</button></div>
     <div class="modal-body">
-      ${S.trader==='Admin'?`<div style="margin-bottom:16px;padding:12px;background:rgba(232,115,74,0.1);border:1px solid #e8734a;border-radius:4px">
+      ${S.trader==='Admin'?`<div style="margin-bottom:16px;padding:12px;background:rgba(232,115,74,0.1);border:1px solid #e8734a">
         <div class="form-group" style="margin:0"><label class="form-label" style="color:#e8734a;font-weight:600">🔑 Assign to Trader</label>
         <select id="m-trader" style="width:200px">${TRADERS.map(t=>`<option value="${t}" ${(c?.trader||'Ian P')===t?'selected':''}>${t}</option>`).join('')}</select></div>
       </div>`:''}

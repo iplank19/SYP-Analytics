@@ -931,9 +931,9 @@ function renderMarginHeatmap(){
 
   // Legend
   html+='<div style="display:flex;justify-content:center;gap:16px;margin-top:8px;font-size:10px;color:#5a6270;">';
-  html+='<span style="display:flex;align-items:center;gap:4px;"><span style="display:inline-block;width:12px;height:12px;background:rgba(255,80,80,0.7);border-radius:2px;"></span> Negative</span>';
-  html+='<span style="display:flex;align-items:center;gap:4px;"><span style="display:inline-block;width:12px;height:12px;background:rgba(255,255,100,0.5);border-radius:2px;"></span> Break-even</span>';
-  html+='<span style="display:flex;align-items:center;gap:4px;"><span style="display:inline-block;width:12px;height:12px;background:rgba(0,180,80,0.7);border-radius:2px;"></span> High margin</span>';
+  html+='<span style="display:flex;align-items:center;gap:4px;"><span style="display:inline-block;width:12px;height:12px;background:rgba(255,80,80,0.7);"></span> Negative</span>';
+  html+='<span style="display:flex;align-items:center;gap:4px;"><span style="display:inline-block;width:12px;height:12px;background:rgba(255,255,100,0.5);"></span> Break-even</span>';
+  html+='<span style="display:flex;align-items:center;gap:4px;"><span style="display:inline-block;width:12px;height:12px;background:rgba(0,180,80,0.7);"></span> High margin</span>';
   html+='</div>';
 
   container.innerHTML=html;

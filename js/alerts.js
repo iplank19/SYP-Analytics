@@ -643,12 +643,12 @@ function renderAlertPanel(){
           <span style="font-size:10px;color:var(--muted);margin-left:auto">${alerts.length}</span>
         </div>
         ${alerts.map(a=>`
-          <div style="padding:8px 10px;margin-bottom:4px;background:var(--panel-alt);border-radius:4px;border-left:3px solid ${tier.color};${a.acknowledged?'opacity:0.6':''}">
+          <div style="padding:8px 10px;margin-bottom:4px;background:var(--panel-alt);border-left:3px solid ${tier.color};${a.acknowledged?'opacity:0.6':''}">
             <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
               <div style="font-size:11px;font-weight:600;color:var(--fg)">${escapeHtml(a.title)}</div>
               <div style="display:flex;gap:4px;flex-shrink:0">
-                ${!a.acknowledged&&ALERT_TIERS[a.tier]?.requiresAck?`<button onclick="acknowledgeAlert('${a.id}')" style="font-size:9px;padding:2px 6px;background:${tier.color};color:#fff;border:none;border-radius:3px;cursor:pointer">ACK</button>`:''}
-                ${!a.read?`<button onclick="markAlertRead('${a.id}');this.closest('[style]').style.opacity='0.5'" style="font-size:9px;padding:2px 6px;background:var(--border);color:var(--fg);border:none;border-radius:3px;cursor:pointer">Dismiss</button>`:''}
+                ${!a.acknowledged&&ALERT_TIERS[a.tier]?.requiresAck?`<button onclick="acknowledgeAlert('${a.id}')" style="font-size:9px;padding:2px 6px;background:${tier.color};color:#fff;border:none;cursor:pointer">ACK</button>`:''}
+                ${!a.read?`<button onclick="markAlertRead('${a.id}');this.closest('[style]').style.opacity='0.5'" style="font-size:9px;padding:2px 6px;background:var(--border);color:var(--fg);border:none;cursor:pointer">Dismiss</button>`:''}
               </div>
             </div>
             <div style="font-size:10px;color:var(--muted);margin-top:4px">${escapeHtml(a.message)}</div>
@@ -665,9 +665,9 @@ function renderAlertPanel(){
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
         <div style="font-size:13px;font-weight:700;color:var(--fg)">Alert Center</div>
         <div style="display:flex;gap:8px;font-size:10px">
-          ${summary.urgent?`<span style="background:#dc2626;color:#fff;padding:2px 8px;border-radius:10px;font-weight:600">${summary.urgent} urgent</span>`:''}
-          ${summary.critical?`<span style="background:#ef4444;color:#fff;padding:2px 8px;border-radius:10px;font-weight:600">${summary.critical} critical</span>`:''}
-          ${summary.warning?`<span style="background:#f59e0b;color:#000;padding:2px 8px;border-radius:10px;font-weight:600">${summary.warning} warning</span>`:''}
+          ${summary.urgent?`<span style="background:#dc2626;color:#fff;padding:2px 8px;font-weight:600">${summary.urgent} urgent</span>`:''}
+          ${summary.critical?`<span style="background:#ef4444;color:#fff;padding:2px 8px;font-weight:600">${summary.critical} critical</span>`:''}
+          ${summary.warning?`<span style="background:#f59e0b;color:#000;padding:2px 8px;font-weight:600">${summary.warning} warning</span>`:''}
         </div>
       </div>
       ${hasAlerts?

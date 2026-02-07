@@ -727,16 +727,16 @@ function renderSignalCards(){
     const typeLabel={trend:'Trend',meanReversion:'Mean Rev',seasonal:'Seasonal',spread:'Spread',momentum:'Momentum',position:'Position'}[s.type]||s.type
 
     return`
-      <div style="padding:10px 12px;margin-bottom:6px;background:var(--panel-alt);border-radius:4px;border-left:3px solid ${dirColor}">
+      <div style="padding:10px 12px;margin-bottom:6px;background:var(--panel-alt);border-left:3px solid ${dirColor}">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
           <div style="font-size:12px;font-weight:600;color:var(--fg)">${escapeHtml(s.product)} <span style="color:${dirColor};font-weight:700">${dirLabel}</span></div>
           <div style="display:flex;align-items:center;gap:6px">
-            <span style="font-size:9px;padding:2px 6px;background:var(--border);border-radius:3px;color:var(--muted);text-transform:uppercase">${escapeHtml(typeLabel)}</span>
+            <span style="font-size:9px;padding:2px 6px;background:var(--border);color:var(--muted);text-transform:uppercase">${escapeHtml(typeLabel)}</span>
             <span style="font-size:11px;font-weight:700;color:${confColor}">${s.confidence}%</span>
           </div>
         </div>
-        <div style="background:var(--bg);border-radius:3px;height:6px;overflow:hidden;margin-bottom:6px">
-          <div style="height:100%;width:${s.confidence}%;background:${confColor};border-radius:3px;transition:width 0.3s"></div>
+        <div style="background:var(--bg);height:6px;overflow:hidden;margin-bottom:6px">
+          <div style="height:100%;width:${s.confidence}%;background:${confColor};transition:width 0.3s"></div>
         </div>
         <div style="font-size:10px;color:var(--muted)">${escapeHtml(s.reason)}</div>
         ${s.price?`<div style="font-size:10px;color:var(--muted);margin-top:2px">${escapeHtml(s.region||'all')} @ $${s.price.toFixed(0)}</div>`:''}

@@ -86,7 +86,7 @@ function showShortcutOverlay(){
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
         ${items.map(i=>`
           <div style="display:flex;align-items:center;gap:10px;padding:4px 0">
-            <kbd style="display:inline-block;min-width:28px;padding:3px 8px;font-size:12px;font-weight:600;line-height:1.4;color:var(--fg);background:var(--panel-alt);border:1px solid var(--border);border-radius:4px;text-align:center;font-family:inherit">${escapeHtml(i.key==='Escape'?'Esc':i.key==='/'?'/':i.key)}</kbd>
+            <kbd style="display:inline-block;min-width:28px;padding:3px 8px;font-size:12px;font-weight:600;line-height:1.4;color:var(--fg);background:var(--panel-alt);border:1px solid var(--border);text-align:center;font-family:inherit">${escapeHtml(i.key==='Escape'?'Esc':i.key==='/'?'/':i.key)}</kbd>
             <span style="font-size:12px;color:var(--fg)">${escapeHtml(i.desc)}</span>
           </div>
         `).join('')}
@@ -99,13 +99,13 @@ function showShortcutOverlay(){
   overlay.style.cssText='position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.6);backdrop-filter:blur(2px)'
   overlay.onclick=e=>{if(e.target===overlay)hideShortcutOverlay()}
   overlay.innerHTML=`
-    <div style="background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:24px;width:420px;max-width:90vw;max-height:80vh;overflow-y:auto" onclick="event.stopPropagation()">
+    <div style="background:var(--panel);border:1px solid var(--border);padding:24px;width:420px;max-width:90vw;max-height:80vh;overflow-y:auto" onclick="event.stopPropagation()">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
         <div style="font-size:14px;font-weight:700;color:var(--accent);letter-spacing:0.5px">KEYBOARD SHORTCUTS</div>
         <button onclick="hideShortcutOverlay()" style="background:none;border:none;color:var(--muted);font-size:18px;cursor:pointer;padding:4px 8px;line-height:1">&times;</button>
       </div>
       ${groupsHtml}
-      <div style="margin-top:12px;font-size:10px;color:var(--muted);text-align:center">Press <kbd style="padding:2px 6px;font-size:10px;background:var(--panel-alt);border:1px solid var(--border);border-radius:3px">?</kbd> or <kbd style="padding:2px 6px;font-size:10px;background:var(--panel-alt);border:1px solid var(--border);border-radius:3px">Esc</kbd> to close</div>
+      <div style="margin-top:12px;font-size:10px;color:var(--muted);text-align:center">Press <kbd style="padding:2px 6px;font-size:10px;background:var(--panel-alt);border:1px solid var(--border)">?</kbd> or <kbd style="padding:2px 6px;font-size:10px;background:var(--panel-alt);border:1px solid var(--border)">Esc</kbd> to close</div>
     </div>`
   document.body.appendChild(overlay)
 }

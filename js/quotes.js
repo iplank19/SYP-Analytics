@@ -344,7 +344,7 @@ function loadFromInventory(){
   
   const longPos=Object.values(positions).filter(p=>p.bought>p.sold);
   if(!longPos.length){
-    alert('No long positions to load. Add some buys first.');
+    showToast('No long positions to load. Add some buys first.','warn');
     return;
   }
   
@@ -612,7 +612,7 @@ function addLane(){
   const miles=+document.getElementById('lane-miles')?.value||0;
   
   if(!origin||!dest||!miles){
-    alert('Please fill in origin, destination, and miles');
+    showToast('Please fill in origin, destination, and miles','warn');
     return;
   }
   
@@ -854,7 +854,7 @@ function generateSpecificCityQuote(){
   const city=cityInput?.value?.trim();
   
   if(!city){
-    alert('Enter a city (e.g. "Cincinnati, OH")');
+    showToast('Enter a city (e.g. "Cincinnati, OH")','warn');
     return;
   }
   
@@ -862,10 +862,10 @@ function generateSpecificCityQuote(){
   
   const items=S.quoteItems.filter(i=>i.selected!==false);
   if(!items.length){
-    alert('No items selected');
+    showToast('No items selected','warn');
     return;
   }
-  
+
   // Check for missing lanes (use getLaneMiles which does fuzzy matching)
   const neededLanes=[];
   items.forEach(item=>{
@@ -914,11 +914,11 @@ function finishSpecificCityQuote(items,city){
       'text/plain':textBlob
     })
   ]).then(()=>{
-    alert(`Quote for ${city} copied to clipboard! Paste into Outlook for formatted table.`);
+    showToast(`Quote for ${city} copied to clipboard!`,'positive');
     render();
   }).catch(e=>{
     navigator.clipboard.writeText(text).then(()=>{
-      alert(`Quote for ${city} copied as text`);
+      showToast(`Quote for ${city} copied as text`,'positive');
       render();
     });
   });
@@ -932,12 +932,12 @@ function copyQuoteOutput(){
   const customer=custName?S.customers.find(c=>c.name===custName):S.customers.filter(c=>c.type!=='mill')[0];
 
   if(!items.length){
-    alert('No items selected');
+    showToast('No items selected','warn');
     return;
   }
 
   if(!customer){
-    alert('Select a customer');
+    showToast('Select a customer','warn');
     return;
   }
 
@@ -967,11 +967,11 @@ function copyQuoteOutput(){
       'text/plain':textBlob
     })
   ]).then(()=>{
-    alert(`Copied ${locations.length} location${locations.length>1?'s':''} to clipboard! Paste into Outlook for formatted tables.`);
+    showToast(`Copied ${locations.length} location${locations.length>1?'s':''} to clipboard!`,'positive');
   }).catch(e=>{
     // Fallback to plain text
     navigator.clipboard.writeText(text).then(()=>{
-      alert('Copied as text (HTML copy not supported in this browser)');
+      showToast('Copied as text (HTML copy not supported in this browser)','positive');
     });
   });
 }
@@ -1049,11 +1049,11 @@ function generateAllQuotes(){
   const customers=S.customers.filter(c=>c.type!=='mill'&&c.quoteSelected);
   
   if(!items.length){
-    alert('No items selected');
+    showToast('No items selected','warn');
     return;
   }
   if(!customers.length){
-    alert('No customers selected');
+    showToast('No customers selected','warn');
     return;
   }
   
@@ -1123,12 +1123,10 @@ async function lookupMileageWithAPI(lanes){
             if(existingIdx>=0){
               const old=S.lanes[existingIdx];
               if(old.miles!==r.miles){
-                console.log(`↻ Lane updated: ${old.origin} → ${old.dest} (${old.miles} → ${r.miles} mi)`);
                 old.miles=r.miles;old.origin=r.origin;old.dest=r.dest;old.added=new Date().toISOString();
               }
             }else{
               S.lanes.push({origin:r.origin,dest:r.dest,miles:r.miles,added:new Date().toISOString()});
-              console.log(`✓ ${r.origin} → ${r.dest}: ${r.miles} mi`);
             }
           }else{
             failedLanes.push({origin:r.origin,dest:r.dest});
@@ -1139,9 +1137,7 @@ async function lookupMileageWithAPI(lanes){
         return failedLanes;
       }
     }
-  }catch(e){
-    console.log('Server API not available, trying direct lookup...');
-  }
+  }catch(e){}
   
   // Fallback: Direct API calls from browser
   for(const lane of lanes){
@@ -1157,12 +1153,10 @@ async function lookupMileageWithAPI(lanes){
       if(existingIdx>=0){
         const old=S.lanes[existingIdx];
         if(old.miles!==miles){
-          console.log(`↻ Lane updated: ${old.origin} → ${old.dest} (${old.miles} → ${miles} mi)`);
           old.miles=miles;old.origin=lane.origin;old.dest=lane.dest;old.added=new Date().toISOString();
         }
       }else{
         S.lanes.push({origin:lane.origin,dest:lane.dest,miles,added:new Date().toISOString()});
-        console.log(`✓ ${lane.origin} → ${lane.dest}: ${miles} mi`);
       }
     }else{
       failedLanes.push(lane);
@@ -1274,7 +1268,7 @@ function showMileageModal(lanes,callback){
           <p style="margin-bottom:16px;color:var(--muted);font-size:11px">Auto-lookup failed for these lanes. Enter miles manually:</p>
           <div style="max-height:300px;overflow-y:auto">
             ${lanes.map((l,i)=>`
-              <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;padding:8px;background:var(--bg);border-radius:4px">
+              <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;padding:8px;background:var(--bg)">
                 <div style="flex:1;font-size:11px">
                   <div style="color:var(--text)">${l.origin}</div>
                   <div style="color:var(--muted)">→ ${l.dest}</div>
@@ -1384,12 +1378,12 @@ function doGenerateQuotes(items,customers){
       'text/plain':textBlob
     })
   ]).then(()=>{
-    alert(`Generated ${quoteCount} quotes for ${customers.length} customers!\nPaste into Outlook for formatted tables.`);
+    showToast(`Generated ${quoteCount} quotes for ${customers.length} customers!`,'positive');
     render();
   }).catch(e=>{
     // Fallback to plain text
     navigator.clipboard.writeText(allText).then(()=>{
-      alert(`Generated ${quoteCount} quotes (copied as text)`);
+      showToast(`Generated ${quoteCount} quotes (copied as text)`,'positive');
       render();
     });
   });
@@ -1404,12 +1398,12 @@ function createSingleDraft(){
   const customer=custName?S.customers.find(c=>c.name===custName):null;
   
   if(!items.length){
-    alert('No items selected');
+    showToast('No items selected','warn');
     return;
   }
-  
+
   if(!customer){
-    alert('Select a customer from the dropdown');
+    showToast('Select a customer from the dropdown','warn');
     return;
   }
   
@@ -1463,7 +1457,7 @@ function doCreateSingleDraft(items,customer,dest,email,custName){
     })
   ]).then(()=>{
     // Show alert first so user knows clipboard is ready
-    alert('Quote copied to clipboard!\n\nOutlook will open - paste (Ctrl+V) into the email body.');
+    showToast('Quote copied to clipboard! Outlook will open.','positive');
     
     // Now open mailto link
     const subject=encodeURIComponent(`SYP Availability - ${custName}`);
@@ -1472,7 +1466,7 @@ function doCreateSingleDraft(items,customer,dest,email,custName){
   }).catch(e=>{
     console.error('Clipboard error:',e);
     // Fallback - just open mailto with text body (mailto has text limit so might truncate)
-    alert('Could not copy formatted table. Opening email with plain text...');
+    showToast('Could not copy formatted table. Opening email with plain text...','warn');
     const subject=encodeURIComponent(`SYP Availability - ${custName}`);
     const encodedBody=encodeURIComponent(text);
     const mailto=`mailto:${email}?subject=${subject}&body=${encodedBody}`;
@@ -1561,16 +1555,16 @@ function showNewProfileModal(){
 function createNewProfile(){
   const name=document.getElementById('new-profile-name')?.value?.trim();
   if(!name){
-    alert('Enter a profile name');
+    showToast('Enter a profile name','warn');
     return;
   }
-  
+
   const id=name.toLowerCase().replace(/[^a-z0-9]/g,'-');
   
   if(!S.quoteProfiles)S.quoteProfiles={default:{name:'Default',customers:[],items:[]}};
   
   if(S.quoteProfiles[id]){
-    alert('Profile already exists');
+    showToast('Profile already exists','warn');
     return;
   }
   
@@ -1611,13 +1605,13 @@ function editCurrentProfile(){
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px">
             <div>
               <label class="form-label">Customers (${profile.customers?.length||0})</label>
-              <div style="max-height:150px;overflow-y:auto;border:1px solid var(--border);border-radius:4px;padding:8px">
+              <div style="max-height:150px;overflow-y:auto;border:1px solid var(--border);padding:8px">
                 ${profile.customers?.length?profile.customers.map(c=>`<div style="padding:2px 0;font-size:11px">${c}</div>`).join(''):'<div style="color:var(--muted);font-size:11px">No customers</div>'}
               </div>
             </div>
             <div>
               <label class="form-label">Products (${profile.items?.length||0})</label>
-              <div style="max-height:150px;overflow-y:auto;border:1px solid var(--border);border-radius:4px;padding:8px">
+              <div style="max-height:150px;overflow-y:auto;border:1px solid var(--border);padding:8px">
                 ${profile.items?.length?profile.items.map(i=>`<div style="padding:2px 0;font-size:11px">${i.product||'—'} from ${i.origin||'—'}</div>`).join(''):'<div style="color:var(--muted);font-size:11px">No products</div>'}
               </div>
             </div>
@@ -1635,10 +1629,10 @@ function editCurrentProfile(){
 function saveProfileEdit(profileId){
   const name=document.getElementById('edit-profile-name')?.value?.trim();
   if(!name){
-    alert('Enter a profile name');
+    showToast('Enter a profile name','warn');
     return;
   }
-  
+
   if(!S.quoteProfiles)S.quoteProfiles={default:{name:'Default',customers:[]}};
   if(S.quoteProfiles[profileId]){
     S.quoteProfiles[profileId].name=name;
@@ -1652,7 +1646,7 @@ function saveProfileEdit(profileId){
 function deleteCurrentProfile(){
   const profileId=S.quoteProfile||'default';
   if(profileId==='default'){
-    alert('Cannot delete default profile');
+    showToast('Cannot delete default profile','warn');
     return;
   }
   
@@ -1875,13 +1869,13 @@ function emailWeeklyReport(){
 function refreshFromRL(){
   const rl=S.rl.length?S.rl[S.rl.length-1]:null;
   if(!rl){
-    alert('No RL data available. Import Random Lengths data first.');
+    showToast('No RL data available. Import Random Lengths data first.','warn');
     return;
   }
   
   const selected=S.quoteItems.filter(i=>i.selected!==false&&i.product);
   if(!selected.length){
-    alert('No items to update');
+    showToast('No items to update','warn');
     return;
   }
   
@@ -1913,21 +1907,21 @@ function refreshFromRL(){
   save('quoteItems',S.quoteItems);
   render();
   
-  alert(`Updated ${updated} items from RL print (${rl.date})`);
+  showToast(`Updated ${updated} items from RL print (${rl.date})`,'positive');
 }
 
 async function aiPriceSelected(){
   const rl=S.rl.length?S.rl[S.rl.length-1]:null;
   if(!rl){
-    alert('No RL data available. Import Random Lengths data first for AI pricing.');
+    showToast('No RL data available. Import RL data first for AI pricing.','warn');
     return;
   }
-  
+
   // Prompt for API key if not set
   if(!S.apiKey){
     const key=prompt('Enter your Claude API key for smart pricing:\n\n(Get one at console.anthropic.com/settings/keys)\n\nThis will be saved for future use.');
     if(!key){
-      alert('API key required for AI pricing.');
+      showToast('API key required for AI pricing.','warn');
       return;
     }
     S.apiKey=key;
@@ -1936,10 +1930,10 @@ async function aiPriceSelected(){
   
   const selected=S.quoteItems.filter(i=>i.selected!==false&&i.product);
   if(!selected.length){
-    alert('No items selected');
+    showToast('No items selected','warn');
     return;
   }
-  
+
   // Build context for Claude
   const itemsList=selected.map(item=>{
     const parsed=parseProductString(item.product);
@@ -1994,10 +1988,10 @@ Respond with ONLY a JSON array, no explanation:
     if(statusEl)statusEl.textContent='';
     
     if(data.error){
-      alert('API Error: '+data.error.message);
+      showToast('API Error: '+data.error.message,'negative');
       return;
     }
-    
+
     const text=data.content?.[0]?.text||'';
     // Extract JSON from response
     const jsonMatch=text.match(/\[[\s\S]*\]/);
@@ -2019,14 +2013,14 @@ Respond with ONLY a JSON array, no explanation:
       save('quoteItems',S.quoteItems);
       saveCurrentProfileSelections();
       render();
-      alert(`AI priced ${updated} items. Review and adjust as needed.`);
+      showToast(`AI priced ${updated} items. Review and adjust.`,'positive');
     }else{
-      alert('Could not parse AI response. Try again.');
+      showToast('Could not parse AI response. Try again.','negative');
     }
   }catch(e){
     document.body.style.cursor='default';
     console.error('Claude API error:',e);
-    alert('API error: '+e.message);
+    showToast('API error: '+e.message,'negative');
   }
 }
 
@@ -2034,10 +2028,10 @@ function aiPriceAll(){
   // Get latest RL data for pricing reference
   const rl=S.rl.length?S.rl[S.rl.length-1]:null;
   if(!rl){
-    alert('No RL data available. Import Random Lengths data first for AI pricing.');
+    showToast('No RL data available. Import RL data first for AI pricing.','warn');
     return;
   }
-  
+
   S.quoteItems.forEach(item=>{
     if(!item.product)return;
     
@@ -2191,13 +2185,13 @@ function getHistoricalSpread(baseProduct){
 // Claude API pricing - smart FOB suggestions
 async function aiPriceWithClaude(){
   if(!S.apiKey){
-    alert('Please set your Claude API key in Settings first.');
+    showToast('Please set your Claude API key in Settings first.','warn');
     return;
   }
   
   const items=S.quoteItems.filter(i=>i.selected!==false);
   if(!items.length){
-    alert('No items selected for AI pricing.');
+    showToast('No items selected for AI pricing.','warn');
     return;
   }
   
@@ -2254,10 +2248,10 @@ Respond with JSON only, no explanation:
     document.body.style.cursor='default';
     
     if(data.error){
-      alert('API Error: '+data.error.message);
+      showToast('API Error: '+data.error.message,'negative');
       return;
     }
-    
+
     const text=data.content?.[0]?.text||'';
     // Extract JSON from response
     const jsonMatch=text.match(/\{[\s\S]*\}/);
@@ -2275,16 +2269,16 @@ Respond with JSON only, no explanation:
         save('quoteItems',S.quoteItems);
         saveCurrentProfileSelections();
         render();
-        alert('AI pricing applied! Review and adjust as needed.');
+        showToast('AI pricing applied! Review and adjust.','positive');
       }
     }else{
-      alert('Could not parse AI response. Using standard pricing instead.');
+      showToast('Could not parse AI response. Using standard pricing.','negative');
       aiPriceAll();
     }
   }catch(e){
     document.body.style.cursor='default';
     console.error('Claude API error:',e);
-    alert('API error: '+e.message+'. Using standard pricing instead.');
+    showToast('API error: '+e.message,'negative');
     aiPriceAll();
   }
 }

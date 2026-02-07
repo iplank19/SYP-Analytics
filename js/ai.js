@@ -96,7 +96,6 @@ const AI_TOOLS=[
 ];
 
 function executeAITool(name,params){
-  console.log('Executing tool:',name,params);
   try{
     switch(name){
       case 'create_buy':{

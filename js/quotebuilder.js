@@ -531,7 +531,7 @@ function renderQuoteBuilder(){
             </div>
             <div class="form-group" style="margin:0">
               <label class="form-label">Flat Rate</label>
-              <div style="padding:8px;background:var(--bg);border-radius:4px;text-align:center">
+              <div style="padding:8px;background:var(--bg);text-align:center">
                 $${(S.flatRate||3.50).toFixed(2)}/mi
               </div>
             </div>
@@ -541,7 +541,7 @@ function renderQuoteBuilder(){
           </div>
 
           ${S.qb.customerData?`
-            <div style="margin-top:12px;padding:8px 12px;background:var(--bg);border-radius:4px;font-size:11px;display:flex;gap:20px">
+            <div style="margin-top:12px;padding:8px 12px;background:var(--bg);font-size:11px;display:flex;gap:20px">
               <span>📦 ${S.qb.customerData.totalOrders} orders</span>
               <span>💰 Avg margin: $${S.qb.customerData.avgMargin}</span>
               <span>📅 Last: ${S.qb.customerData.lastOrder?new Date(S.qb.customerData.lastOrder).toLocaleDateString():'Never'}</span>
@@ -612,7 +612,7 @@ function renderQuoteBuilder(){
                     </td>
                     <td style="text-align:right">${q.fob?'$'+q.fob.toFixed(0):'—'}</td>
                     <td style="text-align:right">
-                      ${q.freight!==null?`
+                      ${q.freight!=null?`
                         <input type="number" value="${q.freight.toFixed(0)}"
                           onchange="qbAdjustFreight('${q.product}',this.value)"
                           style="width:60px;text-align:right;font-size:11px;padding:2px 4px">
@@ -657,14 +657,14 @@ function renderQuoteBuilder(){
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
               <div>
                 <div style="font-size:11px;color:var(--muted);margin-bottom:8px">Customer-Facing (prices only)</div>
-                <pre style="background:var(--bg);padding:12px;border-radius:4px;font-size:11px;max-height:200px;overflow:auto">${S.qb.customer} - Delivered ${S.qb.destination}
+                <pre style="background:var(--bg);padding:12px;font-size:11px;max-height:200px;overflow:auto">${S.qb.customer} - Delivered ${S.qb.destination}
 
 ${S.qb.quotes.filter(q=>q.price).map(q=>`${q.product}: $${q.price.toFixed(0)}`).join('\n')}</pre>
                 <button class="btn btn-sm btn-primary" onclick="qbCopyPricesOnly()" style="margin-top:8px">Copy Prices</button>
               </div>
               <div>
                 <div style="font-size:11px;color:var(--muted);margin-bottom:8px">Internal (full breakdown)</div>
-                <pre style="background:var(--bg);padding:12px;border-radius:4px;font-size:11px;max-height:200px;overflow:auto">${S.qb.quotes.filter(q=>q.price).map(q=>
+                <pre style="background:var(--bg);padding:12px;font-size:11px;max-height:200px;overflow:auto">${S.qb.quotes.filter(q=>q.price).map(q=>
                   `${q.product}: ${q.mill} $${q.fob?.toFixed(0)||'?'} + $${q.freight?.toFixed(0)||'?'} frt = $${q.landed?.toFixed(0)||'?'} + $${q.margin?.toFixed(0)||'?'} = $${q.price.toFixed(0)}`
                 ).join('\n')}</pre>
                 <button class="btn btn-sm btn-default" onclick="qbCopyForExcel()" style="margin-top:8px">Copy for Excel</button>

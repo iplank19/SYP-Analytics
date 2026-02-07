@@ -131,8 +131,6 @@ async function cloudSync(action='push',opts={}){
   if(!supabase)return{success:false,error:'Supabase not configured'};
 
   const userId=LS('supabaseUserId','')||'default';
-  console.log('Cloud sync:',action,'user:',userId,'trader:',S.trader,'url:',supabase.url);
-  
   try{
     if(action==='push'){
       // First pull existing data to preserve other traders' quote data
@@ -148,7 +146,7 @@ async function cloudSync(action='push',opts={}){
           existingTraderQuotes=pullRows[0].data.traderQuotes||{};
           existingPasswords=pullRows[0].data.traderPasswords||{};
         }
-      }catch(e){console.log('Could not pull existing:',e)}
+      }catch(e){}
       
       // Update current trader's quote data
       existingTraderQuotes[S.trader]={
@@ -210,7 +208,6 @@ async function cloudSync(action='push',opts={}){
         updated_at:new Date().toISOString()
       };
       
-      console.log('Checking for existing record...');
       const res=await fetch(`${supabase.url}/rest/v1/syp_data?user_id=eq.${userId}`,{
         method:'GET',
         headers:{
@@ -226,12 +223,9 @@ async function cloudSync(action='push',opts={}){
       }
       
       const existing=await res.json();
-      console.log('Existing records:',existing.length);
-      
       let saveRes;
       if(existing&&existing.length>0){
         // Update existing record
-        console.log('Updating existing record...');
         saveRes=await fetch(`${supabase.url}/rest/v1/syp_data?user_id=eq.${userId}`,{
           method:'PATCH',
           headers:{
@@ -244,7 +238,6 @@ async function cloudSync(action='push',opts={}){
         });
       }else{
         // Insert new record
-        console.log('Inserting new record...');
         saveRes=await fetch(`${supabase.url}/rest/v1/syp_data`,{
           method:'POST',
           headers:{
@@ -263,7 +256,6 @@ async function cloudSync(action='push',opts={}){
         return{success:false,error:`Save failed: ${saveRes.status} ${errText}`};
       }
       
-      console.log('Push successful!');
       return{success:true,action:'pushed'};
     }else if(action==='pull'){
       _isPulling=true;
@@ -487,7 +479,6 @@ async function syncRLToMillIntel(){
         });
         if(res.ok){
           const r=await res.json();
-          console.log(`Mill Intel RL sync: ${r.created} entries pushed`);
         }
         resolve();
       }catch(e){
@@ -519,7 +510,6 @@ async function syncMillQuotesToMillIntel(){
         source:'syp_analytics'
       })))
     });
-    if(res.ok)console.log('Mill Intel quote sync complete');
   }catch(e){
     console.debug('Mill Intel quote sync skip:',e.message);
   }

@@ -114,7 +114,7 @@ function showAllAchievements(){
             <div style="font-size:11px;color:var(--muted);margin-bottom:8px">Achievement definitions:</div>
             <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px">
               ${ACHIEVEMENTS.map(a=>`
-                <div style="padding:8px;background:var(--panel-alt);border-radius:4px;display:flex;align-items:center;gap:8px">
+                <div style="padding:8px;background:var(--panel-alt);display:flex;align-items:center;gap:8px">
                   <span style="font-size:20px">${a.icon}</span>
                   <div>
                     <div style="font-size:11px;font-weight:600">${a.name}</div>
@@ -313,17 +313,16 @@ async function init(){
         // cloudSync('pull') already updated S.* and saved to IndexedDB — no need to reload
         migrateTraderNames();
         if(!localStorage.getItem('syp_entityMigration_v1')){migrateEntityNames();localStorage.setItem('syp_entityMigration_v1','1')}
-        console.log('Cloud sync: pulled latest data');
       }
     }catch(e){
-      console.log('Cloud sync failed:',e);
+      console.debug('Cloud sync failed:',e);
     }
   }
   
   // Update trader display in sidebar (read-only, shows who's logged in)
   const traderSelect=document.getElementById('trader-select');
   if(traderSelect){
-    traderSelect.outerHTML=`<div style="padding:8px 12px;background:var(--card);border:1px solid ${traderColor(S.trader)};border-radius:4px;font-weight:600;color:${traderColor(S.trader)};text-align:center">${S.trader==='Admin'?'🔑 Admin':S.trader}</div>`;
+    traderSelect.outerHTML=`<div style="padding:8px 12px;background:var(--card);border:1px solid ${traderColor(S.trader)};font-weight:600;color:${traderColor(S.trader)};text-align:center">${S.trader==='Admin'?'🔑 Admin':S.trader}</div>`;
   }
   
   document.getElementById('f-date').onchange=e=>{S.filters.date=e.target.value;render()};
@@ -348,42 +347,42 @@ async function init(){
 
 function showLoginScreen(){
   document.querySelector('.ai-toggle').style.display='none';
-  document.getElementById('app').innerHTML=`
-    <div style="display:flex;align-items:center;justify-content:center;height:100vh;background:var(--bg)">
-      <div style="background:var(--panel);border:1px solid var(--border);padding:40px;width:320px;text-align:center">
-        <div style="background:linear-gradient(135deg,var(--accent),#3a5eb8);padding:12px;font-weight:700;font-size:16px;color:var(--bg);margin-bottom:24px">SYP ANALYTICS</div>
-        <div style="color:var(--muted);font-size:11px;margin-bottom:20px">Buckeye Pacific</div>
-        <select id="login-trader" style="width:100%;padding:12px;margin-bottom:12px;text-align:center;font-size:14px">
-          ${ALL_LOGINS.map(t=>`<option value="${t}"${t==='Admin'?' style="font-weight:bold;color:#e8734a"':''}>${t==='Admin'?'🔑 Admin':t}</option>`).join('')}
-        </select>
-        <input type="password" id="login-password" placeholder="Enter your password" style="width:100%;padding:12px;margin-bottom:16px;text-align:center" onkeydown="if(event.key==='Enter')doLogin()">
-        <button class="btn btn-primary" style="width:100%" onclick="doLogin()">Login</button>
-        <div id="login-error" style="color:var(--negative);font-size:11px;margin-top:12px"></div>
-        <div style="margin-top:20px;border-top:1px solid var(--border);padding-top:16px">
-          <div style="color:var(--muted);font-size:10px;margin-bottom:8px">First time? Set your password:</div>
-          <input type="password" id="new-password" placeholder="New password" style="width:100%;padding:8px;margin-bottom:8px;text-align:center;font-size:12px">
-          <button class="btn btn-default btn-sm" style="width:100%" onclick="setupTraderPassword()">Set Password</button>
-        </div>
-        <div style="margin-top:20px;border-top:1px solid var(--border);padding-top:16px">
-          <button class="btn btn-default" style="width:100%;padding:10px;font-size:12px" onclick="showMatrixLogin()">📊 Matrix Login</button>
-          <div style="color:var(--muted);font-size:9px;margin-top:4px">View pricing matrix only</div>
-        </div>
+  const app=document.getElementById('app');
+  app.style.cssText='display:flex;align-items:center;justify-content:center;height:100vh;background:var(--bg)';
+  app.innerHTML=`
+    <div style="background:var(--panel);border:1px solid var(--border);padding:40px;width:320px;text-align:center">
+      <div style="background:linear-gradient(135deg,var(--accent),#3a5eb8);padding:12px;font-weight:700;font-size:16px;color:var(--bg);margin-bottom:24px">SYP ANALYTICS</div>
+      <div style="color:var(--muted);font-size:11px;margin-bottom:20px">Buckeye Pacific</div>
+      <select id="login-trader" style="width:100%;padding:12px;margin-bottom:12px;text-align:center;font-size:14px">
+        ${ALL_LOGINS.map(t=>`<option value="${t}"${t==='Admin'?' style="font-weight:bold;color:#e8734a"':''}>${t==='Admin'?'🔑 Admin':t}</option>`).join('')}
+      </select>
+      <input type="password" id="login-password" placeholder="Enter your password" style="width:100%;padding:12px;margin-bottom:16px;text-align:center" onkeydown="if(event.key==='Enter')doLogin()">
+      <button class="btn btn-primary" style="width:100%" onclick="doLogin()">Login</button>
+      <div id="login-error" style="color:var(--negative);font-size:11px;margin-top:12px"></div>
+      <div style="margin-top:20px;border-top:1px solid var(--border);padding-top:16px">
+        <div style="color:var(--muted);font-size:10px;margin-bottom:8px">First time? Set your password:</div>
+        <input type="password" id="new-password" placeholder="New password" style="width:100%;padding:8px;margin-bottom:8px;text-align:center;font-size:12px">
+        <button class="btn btn-default btn-sm" style="width:100%" onclick="setupTraderPassword()">Set Password</button>
+      </div>
+      <div style="margin-top:20px;border-top:1px solid var(--border);padding-top:16px">
+        <button class="btn btn-default" style="width:100%;padding:10px;font-size:12px" onclick="showMatrixLogin()">📊 Matrix Login</button>
+        <div style="color:var(--muted);font-size:9px;margin-top:4px">View pricing matrix only</div>
       </div>
     </div>`;
   setTimeout(()=>document.getElementById('login-password')?.focus(),100);
 }
 
 function showMatrixLogin(){
-  document.getElementById('app').innerHTML=`
-    <div style="display:flex;align-items:center;justify-content:center;height:100vh;background:var(--bg)">
-      <div style="background:var(--panel);border:1px solid var(--border);padding:40px;width:320px;text-align:center">
-        <div style="background:linear-gradient(135deg,var(--accent),#3a5eb8);padding:12px;font-weight:700;font-size:16px;color:var(--bg);margin-bottom:24px">PRICING MATRIX</div>
+  const app=document.getElementById('app');
+  app.style.cssText='display:flex;align-items:center;justify-content:center;height:100vh;background:var(--bg)';
+  app.innerHTML=`
+    <div style="background:var(--panel);border:1px solid var(--border);padding:40px;width:320px;text-align:center">
+      <div style="background:linear-gradient(135deg,var(--accent),#3a5eb8);padding:12px;font-weight:700;font-size:16px;color:var(--bg);margin-bottom:24px">PRICING MATRIX</div>
         <div style="color:var(--muted);font-size:11px;margin-bottom:20px">Enter PIN to view mill pricing</div>
         <input type="password" id="matrix-pin" placeholder="Enter PIN" style="width:100%;padding:12px;margin-bottom:16px;text-align:center;font-size:18px;letter-spacing:8px" maxlength="10" onkeydown="if(event.key==='Enter')doMatrixLogin()">
         <button class="btn btn-primary" style="width:100%" onclick="doMatrixLogin()">View Matrix</button>
         <div id="matrix-login-error" style="color:var(--negative);font-size:11px;margin-top:12px"></div>
         <button class="btn btn-default btn-sm" style="margin-top:16px" onclick="showLoginScreen()">← Back to Login</button>
-      </div>
     </div>`;
   setTimeout(()=>document.getElementById('matrix-pin')?.focus(),100);
 }

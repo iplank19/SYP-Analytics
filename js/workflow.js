@@ -157,7 +157,7 @@ const getPendingCount = () => {
 // Render a status badge
 const renderStatusBadge = (status) => {
   const meta = STATUS_META[status] || STATUS_META.draft
-  return `<span class="status-badge" style="display:inline-block;padding:2px 8px;border-radius:3px;font-size:10px;font-weight:600;text-transform:uppercase;color:${meta.color};background:${meta.bg};border:1px solid ${meta.color}">${escapeHtml(meta.label)}</span>`
+  return `<span class="status-badge" style="display:inline-block;padding:2px 8px;font-size:10px;font-weight:600;text-transform:uppercase;color:${meta.color};background:${meta.bg};border:1px solid ${meta.color}">${escapeHtml(meta.label)}</span>`
 }
 
 // Render workflow action buttons for a trade

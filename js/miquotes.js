@@ -262,7 +262,7 @@ async function _miRenderSmartQuotesInto(c) {
       ...(hasHistory ? [`<button class="btn ${_miActiveTemplate === 'History' ? 'btn-primary' : 'btn-default'}" style="padding:2px 8px;font-size:10px;min-width:0" data-template="History" onclick="miApplyTemplate('History')">History</button>`] : []),
       ...customNames.map(name => {
         const active = name === _miActiveTemplate;
-        return `<span style="display:inline-flex;gap:1px"><button class="btn ${active ? 'btn-primary' : 'btn-default'}" style="padding:2px 8px;font-size:10px;min-width:0" data-template="${name}" onclick="miApplyTemplate('${name}')">${name}</button><button class="btn btn-default" style="padding:2px 4px;font-size:8px;min-width:0;color:var(--muted)" onclick="miDeleteTemplate('${name}')" title="Delete template">&times;</button></span>`;
+        return `<span style="display:inline-flex;gap:1px"><button class="btn ${active ? 'btn-primary' : 'btn-default'}" style="padding:2px 8px;font-size:10px;min-width:0" data-template="${name}" onclick="miApplyTemplate('${name}')">${name}</button><button class="btn btn-default" style="padding:2px 4px;font-size:8px;min-width:0;color:var(--muted)" data-name="${escapeHtml(name)}" onclick="miDeleteTemplate(this.dataset.name)" title="Delete template">&times;</button></span>`;
       }),
       `<button class="btn btn-default" style="padding:2px 8px;font-size:10px;min-width:0;color:var(--positive)" onclick="miSaveTemplate()" title="Save current selection as template">+ Save</button>`
     ].join('');
@@ -484,11 +484,9 @@ async function miBuildSmartQuote() {
 
     // --- STEP 2: Bulk lookup missing lanes (same as build side) ---
     if (neededLanes.length > 0) {
-      console.log(`Sourcing: Looking up ${neededLanes.length} missing lane(s)...`);
       if (typeof lookupMileageWithAPI === 'function') {
         const failed = await lookupMileageWithAPI(neededLanes);
         if (failed.length > 0) {
-          console.log(`${failed.length} lane(s) failed lookup — freight will be unavailable for those`);
         }
       }
     }
@@ -716,10 +714,10 @@ function miRenderQuoteResults() {
 
   el.innerHTML = (hasResults ? `
     <div style="margin-bottom:12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-      <div style="display:flex;align-items:center;gap:8px;flex:1;min-width:200px;background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:8px 12px">
+      <div style="display:flex;align-items:center;gap:8px;flex:1;min-width:200px;background:var(--panel);border:1px solid var(--border);padding:8px 12px">
         <label style="font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--muted);white-space:nowrap">Profit $/M</label>
         <input type="range" min="0" max="100" step="5" value="${profitAdder}" oninput="miSetProfitAdder(this.value)" style="flex:1;accent-color:var(--accent)">
-        <input type="number" min="0" max="999" step="1" value="${profitAdder}" onchange="miSetProfitAdder(this.value)" style="width:56px;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:4px;padding:4px 6px;text-align:center;font-size:13px;font-weight:600">
+        <input type="number" min="0" max="999" step="1" value="${profitAdder}" onchange="miSetProfitAdder(this.value)" style="width:56px;background:var(--bg);border:1px solid var(--border);color:var(--text);padding:4px 6px;text-align:center;font-size:13px;font-weight:600">
       </div>
       ${isMatrixMode ? '' : '<button class="btn btn-success" onclick="miSendToQuoteEngine()" style="flex:0 0 auto">SEND TO QUOTE ENGINE</button>'}
       <button class="btn btn-default" onclick="miCopyQuoteResults()" style="flex:0 0 auto"><span style="margin-right:4px">📋</span> COPY${profitAdder ? ' (+$' + profitAdder + '/M)' : ''}</button>
@@ -748,12 +746,12 @@ function miRenderQuoteResults() {
           const basePrice = r.best.landedCost != null ? r.best.landedCost : r.best.fobPrice
           const withProfit = basePrice + profitAdder
           return isMatrixMode ? `<tr style="border-bottom:1px solid var(--border)">
-          <td style="padding:4px 6px;font-weight:600;color:var(--accent)">${r.label}${r.best.date && miAgeLabel(r.best.date) !== 'Today' ? `<span style="font-size:9px;padding:1px 5px;border-radius:3px;margin-left:6px;background:${miAgeBadgeBg(r.best.date)};color:${miAgeBadgeColor(r.best.date)}">${miAgeLabel(r.best.date)}</span>` : ''}</td>
+          <td style="padding:4px 6px;font-weight:600;color:var(--accent)">${r.label}${r.best.date && miAgeLabel(r.best.date) !== 'Today' ? `<span style="font-size:9px;padding:1px 5px;margin-left:6px;background:${miAgeBadgeBg(r.best.date)};color:${miAgeBadgeColor(r.best.date)}">${miAgeLabel(r.best.date)}</span>` : ''}</td>
           <td style="padding:4px 6px;text-align:right;font-weight:600;color:var(--positive)" class="mono">${fmt(withProfit)}${profitAdder ? `<span style="font-size:9px;color:var(--muted);margin-left:4px">(+${profitAdder})</span>` : ''}</td>
           <td style="padding:4px 6px;text-align:center" class="mono">${r.best.tls || 1} TL</td>
           <td style="padding:4px 6px;text-align:right;color:var(--muted)">${r.best.shipWindow || 'Prompt'}</td>
         </tr>` : `<tr style="border-bottom:1px solid var(--border)">
-          <td style="padding:4px 6px;font-weight:600;color:var(--accent)">${r.label}${r.best.date && miAgeLabel(r.best.date) !== 'Today' ? `<span style="font-size:9px;padding:1px 5px;border-radius:3px;margin-left:6px;background:${miAgeBadgeBg(r.best.date)};color:${miAgeBadgeColor(r.best.date)}">${miAgeLabel(r.best.date)}</span>` : ''}</td>
+          <td style="padding:4px 6px;font-weight:600;color:var(--accent)">${r.label}${r.best.date && miAgeLabel(r.best.date) !== 'Today' ? `<span style="font-size:9px;padding:1px 5px;margin-left:6px;background:${miAgeBadgeBg(r.best.date)};color:${miAgeBadgeColor(r.best.date)}">${miAgeLabel(r.best.date)}</span>` : ''}</td>
           <td style="padding:4px 6px">${r.best.mill}</td>
           <td style="padding:4px 6px;text-align:right" class="mono">${fmt(r.best.fobPrice)}</td>
           <td style="padding:4px 6px;text-align:right" class="mono">${r.best.freightPerMBF != null ? fmt(r.best.freightPerMBF) : '—'}</td>

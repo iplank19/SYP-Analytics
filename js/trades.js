@@ -396,7 +396,7 @@ function showMillModal(m=null){
   document.getElementById('modal').innerHTML=`<div class="modal-overlay" onclick="closeModal()"><div class="modal" onclick="event.stopPropagation()">
     <div class="modal-header"><span class="modal-title positive">${mill?'EDIT':'NEW'} MILL</span><button class="modal-close" onclick="closeModal()">×</button></div>
     <div class="modal-body">
-      ${S.trader==='Admin'?`<div style="margin-bottom:16px;padding:12px;background:rgba(232,115,74,0.1);border:1px solid #e8734a;border-radius:4px">
+      ${S.trader==='Admin'?`<div style="margin-bottom:16px;padding:12px;background:rgba(232,115,74,0.1);border:1px solid #e8734a">
         <div class="form-group" style="margin:0"><label class="form-label" style="color:#e8734a;font-weight:600">🔑 Assign to Trader</label>
         <select id="m-trader" style="width:200px">${TRADERS.map(t=>`<option value="${t}" ${(mill?.trader||'Ian P')===t?'selected':''}>${t}</option>`).join('')}</select></div>
       </div>`:''}
@@ -755,26 +755,26 @@ function calcMillDirectHedge(){
   const el=document.getElementById('calc-results');
   if(!el)return;
   el.innerHTML=`
-    <div style="padding:12px;background:var(--panel-alt);border-radius:6px;border:1px solid var(--border)">
+    <div style="padding:12px;background:var(--panel-alt);border:1px solid var(--border)">
       <div style="font-size:10px;text-transform:uppercase;color:var(--muted);margin-bottom:4px">Locked Basis</div>
       <div style="font-size:18px;font-weight:700;color:${lockedBasis>=0?'var(--positive)':'var(--negative)'}">$${lockedBasis}/MBF</div>
       <div style="font-size:10px;color:var(--muted)">Sell - Buy</div>
     </div>
-    <div style="padding:12px;background:var(--panel-alt);border-radius:6px;border:1px solid var(--border)">
+    <div style="padding:12px;background:var(--panel-alt);border:1px solid var(--border)">
       <div style="font-size:10px;text-transform:uppercase;color:var(--muted);margin-bottom:4px">Net Margin</div>
       <div style="font-size:18px;font-weight:700;color:${netMargin>=0?'var(--positive)':'var(--negative)'}">$${netMargin}/MBF</div>
       <div style="font-size:10px;color:var(--muted)">Basis - Freight - Commission</div>
     </div>
-    <div style="padding:12px;background:var(--panel-alt);border-radius:6px;border:1px solid var(--border)">
+    <div style="padding:12px;background:var(--panel-alt);border:1px solid var(--border)">
       <div style="font-size:10px;text-transform:uppercase;color:var(--muted);margin-bottom:4px">Total P&L</div>
       <div style="font-size:18px;font-weight:700;color:${totalPL>=0?'var(--positive)':'var(--negative)'}">$${totalPL.toLocaleString()}</div>
       <div style="font-size:10px;color:var(--muted)">${volume} MBF (${contracts.toFixed(1)} contracts)</div>
     </div>
-    <div style="padding:12px;background:var(--panel-alt);border-radius:6px;border:1px solid var(--border)">
+    <div style="padding:12px;background:var(--panel-alt);border:1px solid var(--border)">
       <div style="font-size:10px;text-transform:uppercase;color:var(--muted);margin-bottom:4px">$/Contract</div>
       <div style="font-size:18px;font-weight:700;color:${perContract>=0?'var(--positive)':'var(--negative)'}">$${perContract.toLocaleString()}</div>
     </div>
-    <div style="padding:12px;background:var(--panel-alt);border-radius:6px;border:1px solid var(--border)">
+    <div style="padding:12px;background:var(--panel-alt);border:1px solid var(--border)">
       <div style="font-size:10px;text-transform:uppercase;color:var(--muted);margin-bottom:4px">vs Avg Basis</div>
       <div style="font-size:18px;font-weight:700;color:${vsAvg!==null?(vsAvg>=0?'var(--positive)':'var(--negative)'):'var(--muted)'}">${vsAvg!==null?(vsAvg>=0?'+':'')+vsAvg:'—'}</div>
       <div style="font-size:10px;color:var(--muted)">${rollingAvg!==null?'Avg: $'+Math.round(rollingAvg):'No data'}</div>
@@ -804,22 +804,22 @@ function calcBasisTarget(){
   if(!el)return;
   el.innerHTML=`
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px">
-      <div style="padding:12px;background:var(--panel-alt);border-radius:6px;border:1px solid var(--border)">
+      <div style="padding:12px;background:var(--panel-alt);border:1px solid var(--border)">
         <div style="font-size:10px;text-transform:uppercase;color:var(--muted);margin-bottom:4px">Basis Move</div>
         <div style="font-size:18px;font-weight:700;color:${basisMove>=0?'var(--positive)':'var(--negative)'}">$${basisMove}/MBF</div>
         <div style="font-size:10px;color:var(--muted)">${direction==='long'?'Target - Entry':'Entry - Target'}</div>
       </div>
-      <div style="padding:12px;background:var(--panel-alt);border-radius:6px;border:1px solid var(--border)">
+      <div style="padding:12px;background:var(--panel-alt);border:1px solid var(--border)">
         <div style="font-size:10px;text-transform:uppercase;color:var(--muted);margin-bottom:4px">P&L per MBF</div>
         <div style="font-size:18px;font-weight:700;color:${plPerMBF>=0?'var(--positive)':'var(--negative)'}">$${plPerMBF.toFixed(2)}</div>
         <div style="font-size:10px;color:var(--muted)">Move - $${commission} commission</div>
       </div>
-      <div style="padding:12px;background:var(--panel-alt);border-radius:6px;border:1px solid var(--border)">
+      <div style="padding:12px;background:var(--panel-alt);border:1px solid var(--border)">
         <div style="font-size:10px;text-transform:uppercase;color:var(--muted);margin-bottom:4px">Total P&L</div>
         <div style="font-size:18px;font-weight:700;color:${totalPL>=0?'var(--positive)':'var(--negative)'}">$${totalPL.toLocaleString()}</div>
         <div style="font-size:10px;color:var(--muted)">${volume} MBF</div>
       </div>
-      <div style="padding:12px;background:var(--panel-alt);border-radius:6px;border:1px solid var(--border)">
+      <div style="padding:12px;background:var(--panel-alt);border:1px solid var(--border)">
         <div style="font-size:10px;text-transform:uppercase;color:var(--muted);margin-bottom:4px">Z-Score at Target</div>
         <div style="font-size:18px;font-weight:700;color:${zAtTarget!==null?(Math.abs(zAtTarget)>=1.5?'var(--negative)':'var(--positive)'):'var(--muted)'}">${zAtTarget!==null?zAtTarget.toFixed(2):'—'}</div>
         <div style="font-size:10px;color:var(--muted)">${zAtTarget!==null?(zAtTarget<=p.zScoreSellThreshold?'SELL ZONE':zAtTarget>=p.zScoreBuyThreshold?'BUY ZONE':'NEUTRAL'):''}</div>
@@ -1061,7 +1061,7 @@ function showSmartMatchModal(sellId){
             <div class="match-card" style="background:var(--panel);border:1px solid ${s.score>=80?'var(--positive)':s.score>=60?'var(--warn)':'var(--border)'};padding:12px;margin-bottom:8px;border-radius:var(--radius)">
               <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
                 <div style="display:flex;align-items:center;gap:8px">
-                  <span class="match-rank" style="background:${i===0?'var(--positive)':'var(--panel-alt)'};color:${i===0?'#000':'var(--text)'};padding:2px 8px;border-radius:2px;font-weight:700;font-size:10px">#${i+1}</span>
+                  <span class="match-rank" style="background:${i===0?'var(--positive)':'var(--panel-alt)'};color:${i===0?'#000':'var(--text)'};padding:2px 8px;font-weight:700;font-size:10px">#${i+1}</span>
                   <span style="font-weight:600">${escapeHtml(s.buy.mill||'Unknown Mill')}</span>
                   <span class="badge badge-${s.score>=80?'success':s.score>=60?'warn':'info'}">${s.score}% MATCH</span>
                 </div>
