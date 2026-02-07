@@ -70,7 +70,7 @@ python app.py
 │   ├── data.js            # Cloud sync, IndexedDB, parallel IDB reads/writes
 │   ├── utils.js           # Math/utility helpers, freight calculations
 │   │
-│   ├── views.js           # Main view rendering (~2,940 lines)
+│   ├── views.js           # Main view rendering (~2,760 lines)
 │   ├── modals.js          # Modal dialogs & forms (buy/sell)
 │   ├── charts.js          # Chart.js visualizations
 │   │
@@ -112,6 +112,26 @@ python app.py
 - **No framework/bundler**: Vanilla JS modules loaded via `<script>` tags, global namespace
 - **Event handling**: Inline `onclick` handlers dispatching state changes
 - **Backend API**: Flask REST routes for CRM, mileage/geocoding, futures, file parsing, Mill Intel
+
+## Navigation Structure
+
+Sidebar has 7 flat items (no collapsible groups). `NAV_GROUPS` is `null`. Each parent view uses sub-tab bars (`_subTabBar()` helper) to switch content.
+
+| Sidebar Item | Sub-tabs | State Var | Default |
+|---|---|---|---|
+| **Dashboard** | Overview \| Leaderboard | `S.dashTab` | `overview` |
+| **Trading** | Blotter \| P&L | `S.tradingTab` | `blotter` |
+| **Quotes** | Source \| Build | `S.quoteTab` | `build` |
+| **Mill Intel** | Intake \| Prices | `S.miTab` | `intake` |
+| **Analytics** | Briefing \| vs Market \| Risk \| RL Data | `S.analyticsTab` | `briefing` |
+| **CRM** | Prospects \| Customers \| Mills | `S.crmTab` | `prospects` |
+| **Settings** | *(none)* | — | — |
+
+Sub-tab state vars are persisted via `LS()`/`SS()` (localStorage).
+
+### Backward Compatibility
+
+Old view IDs (e.g. `blotter`, `insights`, `risk`) are mapped to new parent+sub-tab via `_VIEW_REDIRECTS` in `views.js`. The `_resolveView()` function handles redirection in both `go()` (navigation) and `render()` (cold-boot from cloud state). Keyboard shortcuts and AI navigate tool use `go()` which applies redirects automatically.
 
 ## Data Flow & Sync Architecture
 
