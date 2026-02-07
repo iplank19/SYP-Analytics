@@ -695,16 +695,10 @@ function normalizeMillQuotes(){
   if(changed)save('millQuotes',S.millQuotes)
 }
 
-const NAV=[{id:'dashboard',icon:'📊',label:'Dashboard'},{id:'leaderboard',icon:'🏆',label:'Leaderboard'},{id:'insights',icon:'🎯',label:'Daily Briefing'},{id:'blotter',icon:'📋',label:'Trade Blotter'},{id:'pnl-calendar',icon:'📅',label:'P&L Calendar'},{id:'benchmark',icon:'🎯',label:'vs Market'},{id:'risk',icon:'⚠️',label:'Risk'},{id:'quotes',icon:'💰',label:'Quote Engine'},{id:'mi-intake',icon:'📥',label:'Mill Intake'},{id:'mi-prices',icon:'📊',label:'All Prices'},{id:'products',icon:'📦',label:'By Product'},{id:'crm',icon:'🏢',label:'CRM'},{id:'rldata',icon:'📈',label:'RL Data'},{id:'settings',icon:'⚙️',label:'Settings'}];
+const NAV=[{id:'dashboard',icon:'📊',label:'Dashboard'},{id:'trading',icon:'📋',label:'Trading'},{id:'quotes',icon:'💰',label:'Quotes'},{id:'millintel',icon:'📥',label:'Mill Intel'},{id:'analytics',icon:'📈',label:'Analytics'},{id:'crm',icon:'🏢',label:'CRM'},{id:'settings',icon:'⚙️',label:'Settings'}];
 
-// Nav groups for collapsible sidebar
-const NAV_GROUPS=[
-  {label:'Trading',items:['dashboard','leaderboard','blotter','pnl-calendar','quotes']},
-  {label:'Mill Intel',items:['mi-intake','mi-prices']},
-  {label:'Relationships',items:['crm','products']},
-  {label:'Analytics',items:['insights','benchmark','risk','rldata']},
-  {label:'System',items:['settings']}
-];
+// Nav groups removed — sidebar is now a flat list
+const NAV_GROUPS=null;
 
 const LS=(k,d)=>{try{const v=localStorage.getItem('syp_'+k);return v?JSON.parse(v):d}catch{return d}};
 const SS=(k,v)=>{try{localStorage.setItem('syp_'+k,JSON.stringify(v))}catch(e){console.warn('localStorage write failed for key "'+k+'":', e.message);S._localStorageFull=true}};
@@ -753,6 +747,11 @@ let S={
   achievements:LS('achievements',[]),
   crmViewMode:LS('crmViewMode','table'),
   sidebarCollapsed:LS('sidebarCollapsed',false),
+  // Sub-tab state for consolidated navigation
+  dashTab:LS('dashTab','overview'),
+  tradingTab:LS('tradingTab','blotter'),
+  miTab:LS('miTab','intake'),
+  analyticsTab:LS('analyticsTab','briefing'),
   // Futures
   futuresContracts:LS('futuresContracts',[]),
   frontHistory:LS('frontHistory',[]),

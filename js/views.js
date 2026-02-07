@@ -1,22 +1,27 @@
 // SYP Analytics - Views & Render
 function renderNav(){
-  const navMap={};
-  NAV.forEach(n=>navMap[n.id]=n);
-  document.getElementById('nav').innerHTML=NAV_GROUPS.map(g=>{
-    const items=g.items.map(id=>navMap[id]).filter(Boolean);
-    return `<div class="nav-group"><div class="nav-group-label">${g.label}</div>${items.map(n=>`<button class="nav-item ${S.view===n.id?'active':''}" onclick="go('${n.id}')"${S.view===n.id?' aria-current="page"':''}><span>${n.icon}</span><span class="nav-label">${n.label}</span></button>`).join('')}</div>`;
-  }).join('');
+  document.getElementById('nav').innerHTML=NAV.map(n=>`<button class="nav-item ${S.view===n.id?'active':''}" onclick="go('${n.id}')"${S.view===n.id?' aria-current="page"':''}><span>${n.icon}</span><span class="nav-label">${n.label}</span></button>`).join('');
 }
 
 function renderBreadcrumbs(){
   const bc=document.getElementById('breadcrumbs');
   if(!bc)return;
   const navItem=NAV.find(n=>n.id===S.view);
-  const group=NAV_GROUPS.find(g=>g.items.includes(S.view));
-  if(!navItem||!group){bc.innerHTML='';return}
-  let crumb=`<span>${group.label}</span> <span>›</span> <span class="bc-current">${navItem.label}</span>`;
-  if(S.view==='crm'&&S.crmTab){
-    crumb+=` <span>›</span> <span class="bc-current">${S.crmTab.charAt(0).toUpperCase()+S.crmTab.slice(1)}</span>`;
+  if(!navItem){bc.innerHTML='';return}
+  const subTabMap={
+    dashboard:{stateKey:'dashTab',tabs:{overview:'Overview',leaderboard:'Leaderboard'}},
+    trading:{stateKey:'tradingTab',tabs:{blotter:'Blotter',pnl:'P&L'}},
+    quotes:{stateKey:'quoteTab',tabs:{build:'Build',source:'Source'}},
+    millintel:{stateKey:'miTab',tabs:{intake:'Intake',prices:'Prices'}},
+    analytics:{stateKey:'analyticsTab',tabs:{briefing:'Briefing',benchmark:'vs Market',risk:'Risk',rldata:'RL Data'}},
+    crm:{stateKey:'crmTab',tabs:{prospects:'Prospects',customers:'Customers',mills:'Mills'}}
+  };
+  let crumb=`<span class="bc-current">${navItem.label}</span>`;
+  const sub=subTabMap[S.view];
+  if(sub){
+    const tabVal=S[sub.stateKey];
+    const tabLabel=sub.tabs[tabVal];
+    if(tabLabel)crumb+=` <span>›</span> <span class="bc-current">${tabLabel}</span>`;
   }
   bc.innerHTML=crumb;
 }
@@ -40,9 +45,36 @@ function renderSkeleton(){
   </div>`;
 }
 
+// Backward-compat redirect map: old view IDs → {parent, stateKey, tab}
+const _VIEW_REDIRECTS={
+  'blotter':{parent:'trading',stateKey:'tradingTab',tab:'blotter'},
+  'pnl-calendar':{parent:'trading',stateKey:'tradingTab',tab:'pnl'},
+  'leaderboard':{parent:'dashboard',stateKey:'dashTab',tab:'leaderboard'},
+  'insights':{parent:'analytics',stateKey:'analyticsTab',tab:'briefing'},
+  'benchmark':{parent:'analytics',stateKey:'analyticsTab',tab:'benchmark'},
+  'risk':{parent:'analytics',stateKey:'analyticsTab',tab:'risk'},
+  'rldata':{parent:'analytics',stateKey:'analyticsTab',tab:'rldata'},
+  'charts':{parent:'analytics',stateKey:'analyticsTab',tab:'rldata'},
+  'mi-intake':{parent:'millintel',stateKey:'miTab',tab:'intake'},
+  'mi-prices':{parent:'millintel',stateKey:'miTab',tab:'prices'},
+  'mi-quotes':{parent:'quotes',stateKey:'quoteTab',tab:'source'},
+  'mill-pricing':{parent:'millintel',stateKey:'miTab',tab:'intake'},
+  'products':{parent:'dashboard',stateKey:null,tab:null}
+};
+
+function _resolveView(v){
+  const redir=_VIEW_REDIRECTS[v];
+  if(redir){
+    if(redir.stateKey){S[redir.stateKey]=redir.tab;SS(redir.stateKey,redir.tab);}
+    return redir.parent;
+  }
+  return v;
+}
+
 function go(v){
   // Clear any pending blotter search timeout
   if(window._blotterSearchTimeout){clearTimeout(window._blotterSearchTimeout);window._blotterSearchTimeout=null;}
+  v=_resolveView(v);
   const content=document.getElementById('content');
   if(content){content.classList.add('fading');content.innerHTML=renderSkeleton();}
   setTimeout(()=>{
@@ -299,20 +331,31 @@ function dashDragEnd(e){
   _draggedSection=null;
 }
 
+function _subTabBar(stateKey,tabs,activeTab){
+  return `<div style="display:flex;gap:6px;margin-bottom:16px;flex-wrap:wrap">${tabs.map(t=>`<button class="btn ${activeTab===t.id?'btn-primary':'btn-default'} btn-sm" onclick="S.${stateKey}='${t.id}';SS('${stateKey}','${t.id}');render()">${t.label}</button>`).join('')}</div>`;
+}
+
 function render(){
+  // Cold-boot redirect: old S.view values from cloud state
+  const _resolved=_resolveView(S.view);
+  if(_resolved!==S.view){S.view=_resolved;}
   renderNav();renderMkt();renderBreadcrumbs();
   updateMobileNav();
-  const _needsAnalytics=S.view==='dashboard'||S.view==='benchmark'||S.view==='products';
+  const _needsAnalytics=(S.view==='dashboard'&&(!S.dashTab||S.dashTab==='overview'))||(S.view==='analytics'&&(!S.analyticsTab||S.analyticsTab==='briefing'||S.analyticsTab==='benchmark'));
   const a=_needsAnalytics?analytics():null;
   const nav=NAV.find(n=>n.id===S.view);
   document.getElementById('title').textContent=(nav?.icon||'')+' '+(nav?.label||'');
   const c=document.getElementById('content');
 
   if(S.view==='dashboard'){
-    if(!a.buys.length&&!a.sells.length){
-      c.innerHTML=`<div class="panel"><div class="panel-body" style="padding:80px;text-align:center"><h2 style="margin-bottom:12px;color:var(--text)">Welcome, ${escapeHtml(S.trader)}!</h2><p style="margin-bottom:24px">${S.trader==='Admin'?'No department trades yet. Traders can add trades from their accounts.':'Start by adding your trades or importing Random Lengths data.'}</p><div style="display:flex;gap:12px;justify-content:center"><button class="btn btn-success" onclick="showBuyModal()">+ Add Buy</button><button class="btn btn-primary" onclick="showSellModal()">+ Add Sell</button><button class="btn btn-warn" onclick="go('rldata')">Import RL Data</button></div></div></div>`;
+    const _dashTab=S.dashTab||'overview';
+    const _dashTabBar=_subTabBar('dashTab',[{id:'overview',label:'Overview'},{id:'leaderboard',label:'Leaderboard'}],_dashTab);
+    if(_dashTab==='overview'&&a&&!a.buys.length&&!a.sells.length){
+      c.innerHTML=_dashTabBar+`<div class="panel"><div class="panel-body" style="padding:80px;text-align:center"><h2 style="margin-bottom:12px;color:var(--text)">Welcome, ${escapeHtml(S.trader)}!</h2><p style="margin-bottom:24px">${S.trader==='Admin'?'No department trades yet. Traders can add trades from their accounts.':'Start by adding your trades or importing Random Lengths data.'}</p><div style="display:flex;gap:12px;justify-content:center"><button class="btn btn-success" onclick="showBuyModal()">+ Add Buy</button><button class="btn btn-primary" onclick="showSellModal()">+ Add Sell</button><button class="btn btn-warn" onclick="go('rldata')">Import RL Data</button></div></div></div>`;
       return;
     }
+    if(_dashTab!=='leaderboard'){
+    // --- Dashboard overview sub-tab ---
     // --- Dashboard data prep ---
     const weeklyPerf=calcWeeklyPerformance(S.buys,S.sells);
     const currWk=weeklyPerf[weeklyPerf.length-1]||{buyVol:0,sellVol:0,profit:0};
@@ -481,9 +524,9 @@ function render(){
     // Add any missing sections
     _defaultOrder.forEach(id=>{if(!_order.includes(id)&&_sections[id])_order.push(id);});
 
-    c.innerHTML=_order.map(id=>'<div class="dash-section" data-section="'+id+'" draggable="true" ondragstart="dashDragStart(event)" ondragover="dashDragOver(event)" ondrop="dashDrop(event)" ondragend="dashDragEnd(event)"><span class="dash-drag-handle" title="Drag to reorder">&#8942;&#8942;</span>'+_sections[id]+'</div>').join('')+'<div style="margin-top:16px;text-align:right"><button class="btn btn-info" onclick="exportPDF()">Export PDF</button></div>';
-  }
-  else if(S.view==='leaderboard'){
+    c.innerHTML=_dashTabBar+_order.map(id=>'<div class="dash-section" data-section="'+id+'" draggable="true" ondragstart="dashDragStart(event)" ondragover="dashDragOver(event)" ondrop="dashDrop(event)" ondragend="dashDragEnd(event)"><span class="dash-drag-handle" title="Drag to reorder">&#8942;&#8942;</span>'+_sections[id]+'</div>').join('')+'<div style="margin-top:16px;text-align:right"><button class="btn btn-info" onclick="exportPDF()">Export PDF</button></div>';
+    }
+    else {
     // Enhanced Department Leaderboard with time periods, achievements, goals
     const period=S.leaderboardPeriod||'30d';
     const r=getLeaderboardRange(period);
@@ -524,7 +567,7 @@ function render(){
     // Period labels
     const periodLabels={today:'Today',week:'This Week',month:'This Month',quarter:'This Quarter',ytd:'Year to Date','7d':'Last 7 Days','30d':'Last 30 Days','90d':'Last 90 Days',all:'All Time'};
 
-    c.innerHTML=`
+    c.innerHTML=_dashTabBar+`
       <!-- Time Period Tabs -->
       <div style="display:flex;gap:4px;margin-bottom:16px;flex-wrap:wrap">
         ${['today','week','month','quarter','ytd','30d','90d','all'].map(p=>`
@@ -743,8 +786,11 @@ function render(){
           `:'<div class="empty-state">No achievements earned yet. Keep trading!</div>'}
         </div>
       </div>`;
-  }
-  else if(S.view==='insights'){
+    } // end leaderboard sub-tab
+  } // end dashboard
+  else if(S.view==='analytics'&&(!S.analyticsTab||S.analyticsTab==='briefing')){
+    const _aTabBar=_subTabBar('analyticsTab',[{id:'briefing',label:'Briefing'},{id:'benchmark',label:'vs Market'},{id:'risk',label:'Risk'},{id:'rldata',label:'RL Data'}],S.analyticsTab||'briefing');
+    {
     // Daily Briefing View
     const latestRL=S.rl.length?S.rl[S.rl.length-1]:null;
     const prevRL=S.rl.length>1?S.rl[S.rl.length-2]:null;
@@ -784,7 +830,7 @@ function render(){
     const pendingSells=S.sells.filter(s=>!s.delivered).slice(0,5);
     const pendingBuys=S.buys.filter(b=>!b.shipped).slice(0,5);
     
-    c.innerHTML=`
+    c.innerHTML=_aTabBar+`
       <div class="grid-2" style="margin-bottom:16px">
         <div class="card">
           <div class="card-header">
@@ -965,12 +1011,10 @@ function render(){
           </div>
         </div>
       </div>`;
+    }
   }
-  else if(S.view==='charts'){
-    // Redirect old charts view to rldata
-    S.view='rldata';S.rlTab='charts';render();return;
-  }
-  else if(S.view==='blotter'){
+  else if(S.view==='trading'&&(!S.tradingTab||S.tradingTab==='blotter')){
+    const _tTabBar=_subTabBar('tradingTab',[{id:'blotter',label:'Blotter'},{id:'pnl',label:'P&L'}],S.tradingTab||'blotter');
     // Blotter includes cancelled orders (shown grayed out) unlike analytics
     const r=getRange(),inR=d=>new Date(d)>=r.start&&new Date(d)<=r.end;
     const mP=p=>S.filters.prod==='all'||p===S.filters.prod;
@@ -1086,7 +1130,7 @@ function render(){
     // Trade status helper
     const tradeStatus=t=>{if(t.status==='cancelled')return'cancelled';if(t.delivered||t.shipped)return t.delivered?'delivered':'shipped';return t.linkedPO||t.orderNum?'approved':'pending'}
 
-    c.innerHTML=`
+    c.innerHTML=_tTabBar+`
       <div class="panel" style="margin-bottom:12px"><div class="panel-header" style="border-left:3px solid ${traderColor(S.trader)}">
         <div><strong>${S.trader==='Admin'?'All Traders':escapeHtml(S.trader)+"'s Trade Blotter"}</strong> <span style="color:var(--muted)"> -- ${filteredBuys.length} buys, ${filteredSells.length} sells</span></div>
         <div style="display:flex;align-items:center;gap:8px">
@@ -1141,7 +1185,8 @@ function render(){
         <div class="panel-footer"><span>Total Volume: <strong>${fmtN(sellTotalVol)} MBF</strong></span><span>Total P&L: <strong class="${sellTotalProfit>=0?'positive':'negative'}">${fmt(Math.round(sellTotalProfit))}</strong></span><span>Avg Margin: <strong class="${avgMarginAll>=0?'positive':'negative'}">${fmt(Math.round(avgMarginAll))}/MBF</strong></span><span>${filteredSells.length} trades</span></div>
       </div>`;
   }
-  else if(S.view==='benchmark'){
+  else if(S.view==='analytics'&&S.analyticsTab==='benchmark'){
+    const _aTabBar=_subTabBar('analyticsTab',[{id:'briefing',label:'Briefing'},{id:'benchmark',label:'vs Market'},{id:'risk',label:'Risk'},{id:'rldata',label:'RL Data'}],'benchmark');
     // Filter out MSR/2400 from market comparison (they're premiums)
     const standardBench=a.bench.filter(b=>!b.isMSR);
     const msrBench=a.bench.filter(b=>b.isMSR);
@@ -1190,7 +1235,7 @@ function render(){
     const benchSortIcon=col=>benchSort.col===col?(benchSort.dir==='asc'?'▲':'▼'):'';
     const benchSortClick=col=>`onclick="toggleBenchSort('${col}')" style="cursor:pointer"`;
 
-    c.innerHTML=`
+    c.innerHTML=_aTabBar+`
       <div class="kpi-grid">
         <div class="kpi"><div class="kpi-label">AVG vs MARKET</div><div><span class="kpi-value ${a.avgVsRL<=0?'positive':'negative'}">${a.avgVsRL<=0?'▼':'▲'} ${fmt(Math.abs(a.avgVsRL))}</span><span class="kpi-sub">/MBF</span></div></div>
         <div class="kpi"><div class="kpi-label">TOTAL IMPACT</div><div><span class="kpi-value ${totalImpact<=0?'positive':'negative'}">${totalImpact<=0?'':'+'} ${fmt(Math.abs(Math.round(totalImpact)))}</span><span class="kpi-sub">${totalImpact<=0?'saved':'over'}</span></div></div>
@@ -1323,7 +1368,8 @@ function render(){
         <div style="padding:12px;color:var(--muted);font-size:10px;border-top:1px solid var(--border)">MSR/2400 prices shown as premium over #1 base price. These do not affect market comparison metrics.</div>
       </div>`:''}`
   }
-  else if(S.view==='risk'){
+  else if(S.view==='analytics'&&S.analyticsTab==='risk'){
+    const _aTabBar=_subTabBar('analyticsTab',[{id:'briefing',label:'Briefing'},{id:'benchmark',label:'vs Market'},{id:'risk',label:'Risk'},{id:'rldata',label:'RL Data'}],'risk');
     // Risk analytics shows DEPARTMENT-WIDE data for all traders to see overall exposure
     const deptBuys=S.buys;
     const deptSells=S.sells;
@@ -1376,7 +1422,7 @@ function render(){
     const defaultLimit=500
     const getLimit=prod=>posLimits[prod]||defaultLimit
 
-    c.innerHTML=`
+    c.innerHTML=_aTabBar+`
       <div class="kpi-row">
         <div class="kpi-card">
           <div class="kpi-label">Net Position</div>
@@ -1461,10 +1507,9 @@ function render(){
       </div>
       `:''}`
   }
-  else if(S.view==='quotes'||S.view==='mi-quotes'){
+  else if(S.view==='quotes'){
     // Quote Engine View — with SOURCE / BUILD tabs
-    const _qeTab=S.view==='mi-quotes'?'source':(S.quoteTab||'build');
-    if(S.view==='mi-quotes'){S.view='quotes';S.quoteTab='source';}
+    const _qeTab=S.quoteTab||'build';
 
     // SOURCE tab: render Smart Quotes inline
     if(_qeTab==='source'){
@@ -1694,249 +1739,6 @@ function render(){
 
     // Initialize matrix headers after render
     setTimeout(()=>qeUpdateMatrixHeaders(),0);
-  }
-  else if(S.view==='products'){
-    // Calculate comprehensive product analytics
-    const buyByOrder={};
-    S.buys.forEach(b=>{
-      const ord=String(b.orderNum||b.po||'').trim();
-      if(ord)buyByOrder[ord]=b;
-    });
-
-    const latestRL=S.rl.length?S.rl[S.rl.length-1]:null;
-
-    const prodData={};
-    // Process buys
-    a.buys.forEach(b=>{
-      const prod=b.product||'Unknown';
-      if(!prodData[prod])prodData[prod]={product:prod,bVol:0,sVol:0,bVal:0,sVal:0,marginVol:0,marginVal:0,profit:0,trades:0,buys:[],sells:[]};
-      prodData[prod].bVol+=b.volume||0;
-      prodData[prod].bVal+=(b.price||0)*(b.volume||0);
-      prodData[prod].trades++;
-      prodData[prod].buys.push(b);
-    });
-
-    // Process sells and calculate margins
-    a.sells.forEach(s=>{
-      const prod=s.product||'Unknown';
-      if(!prodData[prod])prodData[prod]={product:prod,bVol:0,sVol:0,bVal:0,sVal:0,marginVol:0,marginVal:0,profit:0,trades:0,buys:[],sells:[]};
-
-      const ord=String(s.orderNum||s.linkedPO||s.oc||'').trim();
-      const buy=ord?buyByOrder[ord]:null;
-      const sellFrtPerMBF=s.volume>0?(s.freight||0)/s.volume:0;
-      const fob=(s.price||0)-sellFrtPerMBF;
-
-      prodData[prod].sVol+=s.volume||0;
-      prodData[prod].sVal+=fob*(s.volume||0);
-      prodData[prod].trades++;
-      prodData[prod].sells.push(s);
-
-      if(buy){
-        const buyCost=buy.price||0;
-        const margin=fob-buyCost;
-        prodData[prod].marginVol+=s.volume||0;
-        prodData[prod].marginVal+=margin*(s.volume||0);
-        prodData[prod].profit+=margin*(s.volume||0);
-      }
-    });
-
-    // Calculate derived metrics
-    const products=Object.values(prodData).map(p=>({
-      ...p,
-      avgBuy:p.bVol>0?p.bVal/p.bVol:0,
-      avgSell:p.sVol>0?p.sVal/p.sVol:0,
-      avgMargin:p.marginVol>0?p.marginVal/p.marginVol:null,
-      position:p.bVol-p.sVol,
-      rlPrice:latestRL?(latestRL.west?.[p.product]||latestRL.central?.[p.product]||latestRL.east?.[p.product]):null
-    }));
-
-    // Find best/worst
-    const withMargin=products.filter(p=>p.avgMargin!==null);
-    const bestProduct=withMargin.length?withMargin.reduce((best,p)=>p.avgMargin>best.avgMargin?p:best):null;
-    const worstProduct=withMargin.length?withMargin.reduce((worst,p)=>p.avgMargin<worst.avgMargin?p:worst):null;
-    const totalProfit=products.reduce((s,p)=>s+p.profit,0);
-    const totalVolume=products.reduce((s,p)=>s+p.bVol+p.sVol,0);
-
-    // Product filter
-    const prodFilter=S.prodFilter||{};
-    let filteredProducts=products;
-    if(prodFilter.showLong)filteredProducts=filteredProducts.filter(p=>p.position>0);
-    if(prodFilter.showShort)filteredProducts=filteredProducts.filter(p=>p.position<0);
-    if(prodFilter.showProfit)filteredProducts=filteredProducts.filter(p=>p.profit>0);
-    if(prodFilter.showLoss)filteredProducts=filteredProducts.filter(p=>p.profit<0);
-
-    // Sorting
-    const prodSort=S.prodSort||{col:'profit',dir:'desc'};
-    filteredProducts=[...filteredProducts].sort((x,y)=>{
-      let av=x[prodSort.col],bv=y[prodSort.col];
-      if(av===null)av=-Infinity;
-      if(bv===null)bv=-Infinity;
-      return prodSort.dir==='asc'?(av>bv?1:-1):(av<bv?1:-1);
-    });
-
-    const prodSortIcon=col=>prodSort.col===col?(prodSort.dir==='asc'?'▲':'▼'):'';
-    const prodSortClick=col=>`onclick="toggleProdSort('${col}')" style="cursor:pointer"`;
-
-    // Selected product for detail view
-    const selectedProd=S.selectedProduct||null;
-    const selectedData=selectedProd?prodData[selectedProd]:null;
-
-    c.innerHTML=`
-      <div class="kpi-grid">
-        <div class="kpi"><div class="kpi-label">TOTAL PROFIT</div><div><span class="kpi-value ${totalProfit>=0?'positive':'negative'}">${fmt(Math.round(totalProfit))}</span></div></div>
-        <div class="kpi"><div class="kpi-label">BEST PRODUCT</div><div><span class="kpi-value positive" style="font-size:14px">${escapeHtml(bestProduct?.product)||'—'}</span><span class="kpi-sub">${bestProduct?fmt(Math.round(bestProduct.avgMargin))+'/MBF':''}</span></div></div>
-        <div class="kpi"><div class="kpi-label">WORST PRODUCT</div><div><span class="kpi-value negative" style="font-size:14px">${escapeHtml(worstProduct?.product)||'—'}</span><span class="kpi-sub">${worstProduct?fmt(Math.round(worstProduct.avgMargin))+'/MBF':''}</span></div></div>
-        <div class="kpi"><div class="kpi-label">PRODUCTS TRADED</div><div><span class="kpi-value">${products.length}</span><span class="kpi-sub">${fmtN(totalVolume)} MBF</span></div></div>
-      </div>
-
-      <!-- Margin Bar Chart -->
-      <div class="card" style="margin-bottom:16px">
-        <div class="card-header"><span class="card-title">MARGIN BY PRODUCT</span></div>
-        <div class="card-body">
-          ${withMargin.length?`
-          <div style="display:flex;flex-direction:column;gap:8px">
-            ${withMargin.sort((a,b)=>b.avgMargin-a.avgMargin).slice(0,10).map(p=>{
-              const maxMargin=Math.max(...withMargin.map(x=>Math.abs(x.avgMargin)))||1;
-              const w=Math.abs(p.avgMargin)/maxMargin*100;
-              const isPos=p.avgMargin>=0;
-              return`<div style="display:flex;align-items:center;gap:8px">
-                <div style="width:80px;font-size:11px;font-weight:500;text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escapeHtml(p.product)}">${escapeHtml(p.product)}</div>
-                <div style="flex:1;height:20px;background:var(--panel-alt);overflow:hidden;display:flex;align-items:center;${isPos?'':'justify-content:flex-end'}">
-                  <div style="width:${w}%;height:100%;background:${isPos?'var(--positive)':'var(--negative)'}"></div>
-                </div>
-                <div style="width:60px;font-size:11px;font-weight:600;color:${isPos?'var(--positive)':'var(--negative)'}">${isPos?'+':''}${fmt(Math.round(p.avgMargin))}</div>
-              </div>`;
-            }).join('')}
-          </div>
-          `:'<div class="empty-state">No matched trades yet</div>'}
-        </div>
-      </div>
-
-      <!-- Filters -->
-      <div class="card" style="margin-bottom:16px;padding:12px">
-        <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center">
-          <span style="color:var(--muted);font-size:11px">FILTERS:</span>
-          <label style="font-size:11px;color:var(--warn)"><input type="checkbox" ${prodFilter.showLong?'checked':''} onchange="setProdFilter('showLong',this.checked)"> Long only</label>
-          <label style="font-size:11px;color:var(--info)"><input type="checkbox" ${prodFilter.showShort?'checked':''} onchange="setProdFilter('showShort',this.checked)"> Short only</label>
-          <label style="font-size:11px;color:var(--positive)"><input type="checkbox" ${prodFilter.showProfit?'checked':''} onchange="setProdFilter('showProfit',this.checked)"> Profitable only</label>
-          <label style="font-size:11px;color:var(--negative)"><input type="checkbox" ${prodFilter.showLoss?'checked':''} onchange="setProdFilter('showLoss',this.checked)"> Losing only</label>
-          <button class="btn btn-default btn-sm" onclick="S.prodFilter={};render()">Clear</button>
-        </div>
-      </div>
-
-      <div class="card">
-        <div class="card-header"><span class="card-title">PERFORMANCE BY PRODUCT</span><span style="color:var(--muted);font-size:10px">${filteredProducts.length} products</span></div>
-        <div style="overflow-x:auto"><table><thead><tr>
-          <th ${prodSortClick('product')}>Product ${prodSortIcon('product')}</th>
-          <th class="right" ${prodSortClick('bVol')}>Buy Vol ${prodSortIcon('bVol')}</th>
-          <th class="right" ${prodSortClick('sVol')}>Sell Vol ${prodSortIcon('sVol')}</th>
-          <th class="right" ${prodSortClick('position')}>Position ${prodSortIcon('position')}</th>
-          <th class="right" ${prodSortClick('avgBuy')}>Avg Buy ${prodSortIcon('avgBuy')}</th>
-          <th class="right" ${prodSortClick('avgSell')}>Avg Sell ${prodSortIcon('avgSell')}</th>
-          <th class="right">RL Mkt</th>
-          <th class="right" ${prodSortClick('avgMargin')}>Margin ${prodSortIcon('avgMargin')}</th>
-          <th class="right" ${prodSortClick('profit')}>Profit ${prodSortIcon('profit')}</th>
-          <th></th>
-        </tr></thead><tbody>
-          ${filteredProducts.length?filteredProducts.map(p=>`<tr style="${selectedProd===p.product?'background:var(--panel-alt)':''}">
-            <td class="bold">${escapeHtml(p.product)}</td>
-            <td class="right">${fmtN(p.bVol)} MBF</td>
-            <td class="right">${fmtN(p.sVol)} MBF</td>
-            <td class="right ${p.position>0?'warn':p.position<0?'negative':''} bold">${p.position>0?'+':''}${fmtN(p.position)} MBF</td>
-            <td class="right">${p.bVol?fmt(Math.round(p.avgBuy)):'—'}</td>
-            <td class="right">${p.sVol?fmt(Math.round(p.avgSell)):'—'}</td>
-            <td class="right" style="color:var(--accent)">${p.rlPrice?fmt(p.rlPrice):'—'}</td>
-            <td class="right ${p.avgMargin===null?'':p.avgMargin>=0?'positive':'negative'} bold">${p.avgMargin!==null?fmt(Math.round(p.avgMargin)):'—'}</td>
-            <td class="right ${p.profit>=0?'positive':'negative'} bold">${fmt(Math.round(p.profit))}</td>
-            <td><button class="btn btn-default btn-sm" onclick="showProductDetail('${p.product.replace(/'/g,"\\'")}')">View</button></td>
-          </tr>`).join(''):'<tr><td colspan="10" class="empty-state">No products match filters</td></tr>'}
-        </tbody></table></div>
-      </div>
-
-      <!-- Product Detail Panel -->
-      ${selectedData?`
-      <div class="card" style="margin-top:16px;border-color:var(--accent)">
-        <div class="card-header" style="background:var(--accent);color:var(--bg)">
-          <span style="font-weight:700">${escapeHtml(selectedProd)} — Detail View</span>
-          <button onclick="S.selectedProduct=null;render()" style="background:transparent;border:none;color:var(--bg);cursor:pointer;font-size:16px">×</button>
-        </div>
-        <div class="card-body">
-          <div class="grid-2" style="margin-bottom:16px">
-            <div>
-              <h4 style="color:var(--positive);margin-bottom:8px;font-size:12px">BUYS (${selectedData.buys.length})</h4>
-              <div style="max-height:200px;overflow-y:auto">
-                <table style="font-size:10px"><thead><tr><th>Date</th><th>Mill</th><th class="right">Price</th><th class="right">Vol</th></tr></thead><tbody>
-                  ${selectedData.buys.length?selectedData.buys.map(b=>`<tr><td>${fmtD(b.date)}</td><td>${escapeHtml(b.mill)||'—'}</td><td class="right">${fmt(b.price)}</td><td class="right">${fmtN(b.volume)}</td></tr>`).join(''):'<tr><td colspan="4" class="empty-state">No buys</td></tr>'}
-                </tbody></table>
-              </div>
-            </div>
-            <div>
-              <h4 style="color:var(--accent);margin-bottom:8px;font-size:12px">SELLS (${selectedData.sells.length})</h4>
-              <div style="max-height:200px;overflow-y:auto">
-                <table style="font-size:10px"><thead><tr><th>Date</th><th>Customer</th><th class="right">Price</th><th class="right">Vol</th></tr></thead><tbody>
-                  ${selectedData.sells.length?selectedData.sells.map(s=>`<tr><td>${fmtD(s.date)}</td><td>${escapeHtml(s.customer)||'—'}</td><td class="right">${fmt(s.price)}</td><td class="right">${fmtN(s.volume)}</td></tr>`).join(''):'<tr><td colspan="4" class="empty-state">No sells</td></tr>'}
-                </tbody></table>
-              </div>
-            </div>
-          </div>
-
-          <!-- Price History Chart -->
-          ${(()=>{
-            const allTrades=[
-              ...selectedData.buys.map(b=>({date:b.date,price:b.price,type:'buy'})),
-              ...selectedData.sells.map(s=>({date:s.date,price:s.price,type:'sell'}))
-            ].sort((a,b)=>new Date(a.date)-new Date(b.date));
-            if(allTrades.length<2)return'<div style="color:var(--muted);font-size:11px">Not enough trades for price chart</div>';
-            const prices=allTrades.map(t=>t.price);
-            const minP=Math.min(...prices)-10;
-            const maxP=Math.max(...prices)+10;
-            const range=maxP-minP||1;
-            return`
-            <h4 style="color:var(--muted);margin-bottom:8px;font-size:12px">PRICE HISTORY</h4>
-            <div style="display:flex;gap:2px;align-items:flex-end;height:80px;padding:8px 0;border:1px solid var(--border);background:var(--bg)">
-              ${allTrades.slice(-20).map(t=>{
-                const h=((t.price-minP)/range)*60+10;
-                const color=t.type==='buy'?'var(--positive)':'var(--accent)';
-                return`<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%">
-                  <div style="width:80%;background:${color};height:${h}px" title="${t.type}: $${t.price} on ${t.date}"></div>
-                </div>`;
-              }).join('')}
-            </div>
-            <div style="display:flex;justify-content:space-between;font-size:9px;color:var(--muted);margin-top:4px">
-              <span>${allTrades[0]?.date||''}</span>
-              <span>
-                <span style="color:var(--positive)">● Buy</span> &nbsp;
-                <span style="color:var(--accent)">● Sell</span>
-              </span>
-              <span>${allTrades[allTrades.length-1]?.date||''}</span>
-            </div>`;
-          })()}
-        </div>
-      </div>
-      `:''}
-
-      <!-- Region Breakdown -->
-      <div class="card" style="margin-top:16px">
-        <div class="card-header"><span class="card-title">PURCHASES BY PRODUCT & REGION</span></div>
-        <div class="card-body">
-          ${(()=>{
-            const byProdReg={};
-            a.buys.forEach(b=>{
-              const key=`${b.product}|${b.region||'west'}`;
-              if(!byProdReg[key])byProdReg[key]={product:b.product,region:b.region||'west',vol:0};
-              byProdReg[key].vol+=b.volume||0;
-            });
-            const list=Object.values(byProdReg).sort((a,b)=>b.vol-a.vol).slice(0,15);
-            if(!list.length)return'<div class="empty-state">No data</div>';
-            return`<table style="font-size:11px"><thead><tr><th>Product</th><th>Region</th><th class="right">Volume</th></tr></thead><tbody>
-              ${list.map(r=>{
-                const regColor=r.region==='west'?'accent':r.region==='central'?'warn':'info';
-                return`<tr><td class="bold">${escapeHtml(r.product)}</td><td style="color:var(--${regColor});text-transform:capitalize">${escapeHtml(r.region)}</td><td class="right">${fmtN(r.vol)} MBF</td></tr>`;
-              }).join('')}
-            </tbody></table>`;
-          })()}
-        </div>
-      </div>`;
   }
   else if(S.view==='crm'){
     // CRM with Prospects and Customers tabs
@@ -2285,7 +2087,8 @@ function render(){
       c.appendChild(fab);
     }
   }
-  else if(S.view==='rldata'){
+  else if(S.view==='analytics'&&S.analyticsTab==='rldata'){
+    const _aTabBar=_subTabBar('analyticsTab',[{id:'briefing',label:'Briefing'},{id:'benchmark',label:'vs Market'},{id:'risk',label:'Risk'},{id:'rldata',label:'RL Data'}],'rldata');
     // Combined RL Data & Charts View
     const latestRL=S.rl.length?S.rl[S.rl.length-1]:null;
     const prevRL=S.rl.length>1?S.rl[S.rl.length-2]:null;
@@ -2626,7 +2429,7 @@ function render(){
       detailHTML+=`</div></div>`;
     }
     
-    c.innerHTML=`
+    c.innerHTML=_aTabBar+`
       <div style="margin-bottom:16px;display:flex;gap:8px;justify-content:space-between;flex-wrap:wrap">
         <div style="display:flex;gap:8px;align-items:center">
           <span style="color:var(--muted);font-size:11px">DATES:</span>
@@ -2649,19 +2452,20 @@ function render(){
         ${!S.rlTab||S.rlTab==='charts'?chartsHTML:(S.rlTab==='analytics'?spreadsHTML:(S.rlTab==='compare'?compareHTML:detailHTML))}
       `}`;
   }
-  else if(S.view==='mill-pricing'){
-    renderMillPricing();
-  }
-  else if(S.view==='mi-intake'){
+  else if(S.view==='millintel'&&(!S.miTab||S.miTab==='intake')){
+    const _miTabBar=_subTabBar('miTab',[{id:'intake',label:'Intake'},{id:'prices',label:'Prices'}],S.miTab||'intake');
     renderMiIntake();
+    const _mc=document.getElementById('content');
+    if(_mc)_mc.innerHTML=_miTabBar+_mc.innerHTML;
   }
-  else if(S.view==='mi-prices'){
+  else if(S.view==='millintel'&&S.miTab==='prices'){
+    const _miTabBar=_subTabBar('miTab',[{id:'intake',label:'Intake'},{id:'prices',label:'Prices'}],'prices');
     renderMiAggregated();
+    const _mc=document.getElementById('content');
+    if(_mc)_mc.innerHTML=_miTabBar+_mc.innerHTML;
   }
-  else if(S.view==='mi-quotes'){
-    renderMiSmartQuotes();
-  }
-  else if(S.view==='pnl-calendar'){
+  else if(S.view==='trading'&&S.tradingTab==='pnl'){
+    const _tTabBar=_subTabBar('tradingTab',[{id:'blotter',label:'Blotter'},{id:'pnl',label:'P&L'}],'pnl');
     // P&L Attribution Enhancement
     const pnlPeriod=S.pnlPeriod||'mtd'
     const _pnlNow=new Date()
@@ -2709,7 +2513,7 @@ function render(){
     const periodLabels={today:'Today',wtd:'WTD',mtd:'MTD',qtd:'QTD',ytd:'YTD'}
 
     const calendarHTML=renderPnLCalendar()
-    c.innerHTML=`
+    c.innerHTML=_tTabBar+`
       <!-- Period Selector -->
       <div style="display:flex;gap:4px;margin-bottom:16px">
         ${['today','wtd','mtd','qtd','ytd'].map(p=>`<button class="btn ${pnlPeriod===p?'btn-primary':'btn-default'} btn-sm" onclick="S.pnlPeriod='${p}';SS('pnlPeriod','${p}');render()">${periodLabels[p]}</button>`).join('')}
@@ -2894,8 +2698,8 @@ function render(){
   }
   
   // Draw charts after DOM update
-  if(S.view==='rldata'&&(!S.rlTab||S.rlTab==='charts'))setTimeout(drawCharts,10);
-  if(S.view==='dashboard'){
+  if(S.view==='analytics'&&S.analyticsTab==='rldata'&&(!S.rlTab||S.rlTab==='charts'))setTimeout(drawCharts,10);
+  if(S.view==='dashboard'&&(!S.dashTab||S.dashTab==='overview')){
     setTimeout(renderDashboardCharts,10);
     // Draw KPI sparklines
     setTimeout(()=>{

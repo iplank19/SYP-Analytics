@@ -671,7 +671,7 @@ function closeMobileSidebar(){
 
 function updateMobileNav(){
   // Update active state on mobile nav
-  const views=['dashboard','insights','charts','quotes','blotter'];
+  const views=['dashboard','trading','quotes','analytics','millintel'];
   views.forEach(v=>{
     const el=document.getElementById('mnav-'+v);
     if(el){
@@ -773,11 +773,12 @@ function switchTab(tabName){
   const tabMap={
     'dashboard':'dashboard',
     'blotter':'blotter',
+    'trading':'trading',
     'quotes':'quotes',
     'risk':'risk',
     'crm':'crm',
-    'millintel':'mi-prices',
-    'analytics':'benchmark',
+    'millintel':'millintel',
+    'analytics':'analytics',
     'leaderboard':'leaderboard',
     'pnl':'pnl-calendar',
     'settings':'settings'

@@ -26,25 +26,25 @@
 <!-- Mobile Bottom Nav -->
 <div class="mobile-nav">
   <div class="mobile-nav-items">
-    <button class="mobile-nav-item" onclick="S.view='dashboard';closeMobileSidebar();render()" id="mnav-dashboard">
+    <button class="mobile-nav-item" onclick="go('dashboard')" id="mnav-dashboard">
       <span>&#128202;</span>
       <span>Home</span>
     </button>
-    <button class="mobile-nav-item" onclick="S.view='insights';closeMobileSidebar();render()" id="mnav-insights">
-      <span>&#127919;</span>
-      <span>Briefing</span>
+    <button class="mobile-nav-item" onclick="go('trading')" id="mnav-trading">
+      <span>&#128203;</span>
+      <span>Trading</span>
     </button>
-    <button class="mobile-nav-item" onclick="S.view='charts';closeMobileSidebar();render()" id="mnav-charts">
-      <span>&#128200;</span>
-      <span>Charts</span>
-    </button>
-    <button class="mobile-nav-item" onclick="S.view='quotes';closeMobileSidebar();render()" id="mnav-quotes">
+    <button class="mobile-nav-item" onclick="go('quotes')" id="mnav-quotes">
       <span>&#128176;</span>
       <span>Quotes</span>
     </button>
-    <button class="mobile-nav-item" onclick="S.view='blotter';closeMobileSidebar();render()" id="mnav-blotter">
-      <span>&#128203;</span>
-      <span>Trades</span>
+    <button class="mobile-nav-item" onclick="go('analytics')" id="mnav-analytics">
+      <span>&#128200;</span>
+      <span>Analytics</span>
+    </button>
+    <button class="mobile-nav-item" onclick="go('millintel')" id="mnav-millintel">
+      <span>&#128229;</span>
+      <span>Mill</span>
     </button>
   </div>
 </div>
@@ -123,32 +123,32 @@
 <div id="modal"></div>
 
 <!-- Scripts loaded in dependency order -->
-<script src="js/state.js?v=1770437280"></script>
-<script src="js/data.js?v=1770437280"></script>
-<script src="js/utils.js?v=1770437280"></script>
-<script src="js/analytics.js?v=1770437280"></script>
-<script src="js/pnl.js?v=1770437280"></script>
-<script src="js/risk.js?v=1770437280"></script>
-<script src="js/portfolio.js?v=1770437280"></script>
-<script src="js/signals.js?v=1770437280"></script>
-<script src="js/alerts.js?v=1770437280"></script>
-<script src="js/reports.js?v=1770437280"></script>
-<script src="js/charts.js?v=1770437280"></script>
-<script src="js/views.js?v=1770437280"></script>
-<script src="js/modals.js?v=1770437280"></script>
-<script src="js/quotes.js?v=1770437280"></script>
-<script src="js/millpricing.js?v=1770437280"></script>
-<script src="js/miutils.js?v=1770437280"></script>
-<script src="js/midata.js?v=1770437280"></script>
-<script src="js/miintake.js?v=1770437280"></script>
-<script src="js/miaggregated.js?v=1770437280"></script>
-<script src="js/miquotes.js?v=1770437280"></script>
-<script src="js/crm.js?v=1770437280"></script>
-<script src="js/trades.js?v=1770437280"></script>
-<script src="js/ai.js?v=1770437280"></script>
-<script src="js/audit.js?v=1770437280"></script>
-<script src="js/workflow.js?v=1770437280"></script>
-<script src="js/keyboard.js?v=1770437280"></script>
-<script src="js/app.js?v=1770437280"></script>
+<script src="js/state.js?v=1770474721"></script>
+<script src="js/data.js?v=1770474721"></script>
+<script src="js/utils.js?v=1770474721"></script>
+<script src="js/analytics.js?v=1770474721"></script>
+<script src="js/pnl.js?v=1770474721"></script>
+<script src="js/risk.js?v=1770474721"></script>
+<script src="js/portfolio.js?v=1770474721"></script>
+<script src="js/signals.js?v=1770474721"></script>
+<script src="js/alerts.js?v=1770474721"></script>
+<script src="js/reports.js?v=1770474721"></script>
+<script src="js/charts.js?v=1770474721"></script>
+<script src="js/views.js?v=1770474721"></script>
+<script src="js/modals.js?v=1770474721"></script>
+<script src="js/quotes.js?v=1770474721"></script>
+<script src="js/millpricing.js?v=1770474721"></script>
+<script src="js/miutils.js?v=1770474721"></script>
+<script src="js/midata.js?v=1770474721"></script>
+<script src="js/miintake.js?v=1770474721"></script>
+<script src="js/miaggregated.js?v=1770474721"></script>
+<script src="js/miquotes.js?v=1770474721"></script>
+<script src="js/crm.js?v=1770474721"></script>
+<script src="js/trades.js?v=1770474721"></script>
+<script src="js/ai.js?v=1770474721"></script>
+<script src="js/audit.js?v=1770474721"></script>
+<script src="js/workflow.js?v=1770474721"></script>
+<script src="js/keyboard.js?v=1770474721"></script>
+<script src="js/app.js?v=1770474721"></script>
 </body>
 </html>

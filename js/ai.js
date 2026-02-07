@@ -423,11 +423,10 @@ function executeAITool(name,params){
         return{success:true,message:'Freight settings updated',data:{freightBase:S.freightBase,shortHaulFloor:S.shortHaulFloor,stateRates:S.stateRates}};
       }
       case 'navigate':{
-        const validViews=['dashboard','leaderboard','insights','blotter','benchmark','risk','quotes','products','crm','rldata','settings'];
+        const validViews=['dashboard','trading','quotes','millintel','analytics','crm','settings','leaderboard','insights','blotter','benchmark','risk','rldata','pnl-calendar','mi-intake','mi-prices'];
         const view=params.view?.toLowerCase();
         if(!validViews.includes(view))return{success:false,message:`Invalid view. Valid views: ${validViews.join(', ')}`};
-        S.view=view;
-        render();
+        go(view);
         return{success:true,message:`Navigated to ${view}`};
       }
       case 'clear_chat':{
@@ -545,7 +544,7 @@ function executeAITool(name,params){
       }
       case 'generate_briefing':{
         if(typeof generateDailyBriefing==='function')generateDailyBriefing();
-        S.view='insights';render();
+        go('insights');
         return{success:true,message:'Generating daily briefing... Navigated to Daily Briefing view.'};
       }
       case 'add_mill_quote':{

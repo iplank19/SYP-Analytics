@@ -21,7 +21,7 @@ python app.py              # Dev server on http://localhost:5001
 
 Production: `gunicorn app:app --workers 2 --threads 4 --timeout 120` (Railway Procfile)
 
-No test suite exists.
+Tests: `npm test` (Jest, 191 tests across 9 suites) and `npm run test:py` (pytest).
 
 ## Environment Variables
 
