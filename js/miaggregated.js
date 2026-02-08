@@ -542,14 +542,15 @@ function miClearMatrixWipe() {
 }
 
 async function miDeleteMillQuotes(millName) {
-  if (!confirm(`Delete ALL quotes for "${millName}"?\n\nThis cannot be undone.`)) return;
-  try {
-    const res = await fetch(`/api/mi/quotes/by-mill?mill=${encodeURIComponent(millName)}`, {method: 'DELETE'});
-    if (!res.ok) throw new Error(`API error: ${res.status}`);
-    const data = await res.json();
-    showToast(`Deleted ${data.deleted} quotes for ${millName}`, 'positive');
-    renderMiAggregated();
-  } catch (e) {
-    showToast(`Failed to delete: ${e.message}`, 'negative');
-  }
+  showConfirm('Delete ALL quotes for "'+escapeHtml(millName)+'"?<br><br>This cannot be undone.',async()=>{
+    try {
+      const res = await fetch(`/api/mi/quotes/by-mill?mill=${encodeURIComponent(millName)}`, {method: 'DELETE'});
+      if (!res.ok) throw new Error(`API error: ${res.status}`);
+      const data = await res.json();
+      showToast(`Deleted ${data.deleted} quotes for ${millName}`, 'positive');
+      renderMiAggregated();
+    } catch (e) {
+      showToast(`Failed to delete: ${e.message}`, 'negative');
+    }
+  });
 }

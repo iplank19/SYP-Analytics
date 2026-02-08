@@ -330,6 +330,43 @@ function dashDragEnd(e){
   document.querySelectorAll('.dash-section.drag-over').forEach(el=>el.classList.remove('drag-over'));
   _draggedSection=null;
 }
+function showDrillDown(title,trades){
+  const rows=trades.map(t=>{
+    const type=t._type||'sell';
+    const pnl=t._pnl;
+    return'<tr><td>'+fmtD(t.date)+'</td><td class="'+(type==='buy'?'positive':'accent')+'">'+type.toUpperCase()+'</td><td class="bold">'+escapeHtml(t.product||'')+'</td><td>'+escapeHtml(t.length||'RL')+'</td><td>'+escapeHtml(type==='buy'?(t.mill||''):(t.customer||''))+'</td><td class="right">'+fmt(t.price||0)+'</td><td class="right">'+fmtN(t.volume||0)+'</td>'+(pnl!==undefined?'<td class="right '+(pnl>=0?'positive':'negative')+' bold">'+fmt(Math.round(pnl))+'</td>':'')+'</tr>';
+  }).join('');
+  document.getElementById('modal').innerHTML=
+    '<div class="modal-overlay" onclick="closeModal()"><div class="modal wide" onclick="event.stopPropagation()">'+
+    '<div class="modal-header"><span class="modal-title">'+escapeHtml(title)+'</span><button class="modal-close" onclick="closeModal()">x</button></div>'+
+    '<div class="modal-body" style="padding:0;overflow-x:auto;max-height:400px"><table class="data-table"><thead><tr><th>Date</th><th>Type</th><th>Product</th><th>Length</th><th>Mill/Customer</th><th class="right">Price</th><th class="right">Volume</th>'+(trades.some(t=>t._pnl!==undefined)?'<th class="right">P&L</th>':'')+'</tr></thead><tbody>'+
+    (rows||'<tr><td colspan="8" class="empty-state">No trades found</td></tr>')+
+    '</tbody></table></div></div></div>';
+}
+function drillDownWeek(startDate,endDate){
+  const s=new Date(startDate),e=new Date(endDate);
+  const buyByOrder={};
+  S.buys.forEach(b=>{const ord=normalizeOrderNum(b.orderNum||b.po);if(ord)buyByOrder[ord]=b});
+  const trades=[
+    ...S.buys.filter(b=>{const d=new Date(b.date);return d>=s&&d<=e}).map(b=>({...b,_type:'buy'})),
+    ...S.sells.filter(x=>{const d=new Date(x.date);return d>=s&&d<=e}).map(x=>{
+      const ord=normalizeOrderNum(x.orderNum||x.linkedPO||x.oc);
+      const buy=ord?buyByOrder[ord]:null;
+      const frtMBF=x.volume>0?(x.freight||0)/x.volume:0;
+      const pnl=buy?((x.price||0)-frtMBF-(buy.price||0))*(x.volume||0):0;
+      return{...x,_type:'sell',_pnl:pnl};
+    })
+  ].sort((a,b)=>new Date(b.date)-new Date(a.date));
+  showDrillDown('Week: '+fmtD(startDate)+' - '+fmtD(endDate),trades);
+}
+function toggleDashSection(sectionId){
+  if(!S.dashboardHidden)S.dashboardHidden=[];
+  const idx=S.dashboardHidden.indexOf(sectionId);
+  if(idx>=0)S.dashboardHidden.splice(idx,1);
+  else S.dashboardHidden.push(sectionId);
+  SS('dashboardHidden',S.dashboardHidden);
+  render();
+}
 
 function _subTabBar(stateKey,tabs,activeTab){
   return `<div style="display:flex;gap:6px;margin-bottom:16px;flex-wrap:wrap">${tabs.map(t=>`<button class="btn ${activeTab===t.id?'btn-primary':'btn-default'} btn-sm" onclick="S.${stateKey}='${t.id}';SS('${stateKey}','${t.id}');render()">${t.label}</button>`).join('')}</div>`;
@@ -436,15 +473,31 @@ function render(){
           ${S.rl.length?'<div style="height:160px"><canvas id="dashboard-price-chart"></canvas></div>':'<div class="empty-state">No RL data yet</div>'}
         </div></div>
         <div class="panel"><div class="panel-header">POSITION SUMMARY BY PRODUCT</div><div class="panel-body" style="padding:0">
-          <table class="data-table"><thead><tr><th>Product</th><th class="right">Buy Vol</th><th class="right">Sell Vol</th><th class="right">Net</th><th class="right">Margin</th></tr></thead><tbody>
-            ${topProducts.byVolume.slice(0,6).map(p=>`<tr>
+          ${(()=>{
+            const dps=S.dashPosSort||{col:'product',dir:'asc'};
+            const dsi=c=>dps.col===c?(dps.dir==='asc'?'▲':'▼'):'';
+            const dsc=c=>'onclick="toggleDashPosSort(\''+c+'\')" style="cursor:pointer"';
+            const rows=[...topProducts.byVolume.slice(0,6)];
+            rows.sort((a,b)=>{
+              let va,vb;
+              if(dps.col==='product'){va=a.product||'';vb=b.product||'';return dps.dir==='asc'?va.localeCompare(vb):vb.localeCompare(va)}
+              if(dps.col==='buyVol'){va=a.buyVol||a.volume||0;vb=b.buyVol||b.volume||0}
+              else if(dps.col==='sellVol'){va=a.sellVol||0;vb=b.sellVol||0}
+              else if(dps.col==='net'){va=(a.buyVol||a.volume||0)-(a.sellVol||0);vb=(b.buyVol||b.volume||0)-(b.sellVol||0)}
+              else if(dps.col==='margin'){va=a.margin||0;vb=b.margin||0}
+              else{va=0;vb=0}
+              return dps.dir==='asc'?va-vb:vb-va;
+            });
+            return`<table class="data-table"><thead><tr><th ${dsc('product')} class="sortable">Product ${dsi('product')}</th><th class="right sortable" ${dsc('buyVol')}>Buy Vol ${dsi('buyVol')}</th><th class="right sortable" ${dsc('sellVol')}>Sell Vol ${dsi('sellVol')}</th><th class="right sortable" ${dsc('net')}>Net ${dsi('net')}</th><th class="right sortable" ${dsc('margin')}>Margin ${dsi('margin')}</th></tr></thead><tbody>`+
+            (rows.map(p=>`<tr>
               <td class="bold">${escapeHtml(p.product||'')}</td>
               <td class="right">${fmtN(p.buyVol||p.volume||0)} MBF</td>
               <td class="right">${fmtN(p.sellVol||0)} MBF</td>
               <td class="right ${(p.buyVol||p.volume||0)-(p.sellVol||0)>0?'warn':'negative'}">${fmtN((p.buyVol||p.volume||0)-(p.sellVol||0))} MBF</td>
               <td class="right ${(p.margin||0)>=0?'positive':'negative'} bold">${p.margin!=null?fmt(Math.round(p.margin)):''}</td>
-            </tr>`).join('')||'<tr><td colspan="5" class="empty-state">No trades</td></tr>'}
-          </tbody></table>
+            </tr>`).join('')||'<tr><td colspan="5" class="empty-state">No trades</td></tr>')+
+            '</tbody></table>';
+          })()}
         </div></div>
       </div>`;
 
@@ -507,7 +560,10 @@ function render(){
     // Weekly performance + profitability
     _sections['advanced']=`
       <div class="panel" style="margin-top:20px"><div class="panel-header">WEEKLY PERFORMANCE (Last 8 Weeks)</div><div class="panel-body">
-        ${weeklyPerf.length?'<div style="display:flex;gap:4px;align-items:flex-end;height:140px;padding:10px 0;border-bottom:1px solid var(--border)">'+weeklyPerf.map(w=>{const maxVol=Math.max(...weeklyPerf.map(x=>x.buyVol+x.sellVol))||1;const buyH=Math.max(4,(w.buyVol/maxVol)*100);const sellH=Math.max(4,(w.sellVol/maxVol)*100);return'<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:2px"><div style="display:flex;gap:2px;align-items:flex-end;height:100px"><div style="width:14px;background:var(--positive);height:'+buyH+'px" title="Buy: '+fmtN(w.buyVol)+' MBF"></div><div style="width:14px;background:var(--accent);height:'+sellH+'px" title="Sell: '+fmtN(w.sellVol)+' MBF"></div></div><div style="font-size:8px;color:var(--muted);text-align:center">'+w.label+'</div><div style="font-size:9px;color:'+(w.profit>=0?'var(--positive)':'var(--negative)')+'">'+(w.profit>=0?'+':'')+Math.round(w.profit/1000)+'k</div></div>'}).join('')+'</div><div class="chart-legend" style="margin-top:8px"><div class="legend-item"><div style="width:10px;height:10px;background:var(--positive)"></div><span class="legend-text">Buys</span></div><div class="legend-item"><div style="width:10px;height:10px;background:var(--accent)"></div><span class="legend-text">Sells</span></div></div>':'<div class="empty-state">Not enough data for weekly trends</div>'}
+        ${weeklyPerf.length?(()=>{
+          const _now=new Date();
+          return'<div style="display:flex;gap:4px;align-items:flex-end;height:140px;padding:10px 0;border-bottom:1px solid var(--border)">'+weeklyPerf.map((w,i)=>{const maxVol=Math.max(...weeklyPerf.map(x=>x.buyVol+x.sellVol))||1;const buyH=Math.max(4,(w.buyVol/maxVol)*100);const sellH=Math.max(4,(w.sellVol/maxVol)*100);const weekIdx=7-i;const wEnd=new Date(_now);wEnd.setDate(wEnd.getDate()-weekIdx*7);const wStart=new Date(wEnd);wStart.setDate(wStart.getDate()-7);const ws=wStart.toISOString().split('T')[0];const we=wEnd.toISOString().split('T')[0];return'<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;cursor:pointer" onclick="drillDownWeek(\''+ws+'\',\''+we+'\')" title="Click to see trades"><div style="display:flex;gap:2px;align-items:flex-end;height:100px"><div style="width:14px;background:var(--positive);height:'+buyH+'px" title="Buy: '+fmtN(w.buyVol)+' MBF"></div><div style="width:14px;background:var(--accent);height:'+sellH+'px" title="Sell: '+fmtN(w.sellVol)+' MBF"></div></div><div style="font-size:8px;color:var(--muted);text-align:center">'+w.label+'</div><div style="font-size:9px;color:'+(w.profit>=0?'var(--positive)':'var(--negative)')+'">'+(w.profit>=0?'+':'')+Math.round(w.profit/1000)+'k</div></div>'}).join('')+'</div><div class="chart-legend" style="margin-top:8px"><div class="legend-item"><div style="width:10px;height:10px;background:var(--positive)"></div><span class="legend-text">Buys</span></div><div class="legend-item"><div style="width:10px;height:10px;background:var(--accent)"></div><span class="legend-text">Sells</span></div></div>';
+        })():'<div class="empty-state">Not enough data for weekly trends</div>'}
       </div></div>
       <div class="grid-2" style="margin-top:16px">
         <div class="panel"><div class="panel-header">MOST PROFITABLE PRODUCTS</div><div class="panel-body" style="padding:0"><table class="data-table"><thead><tr><th>Product</th><th class="right">Margin</th><th class="right">Volume</th><th class="right">Profit</th></tr></thead><tbody>
@@ -524,7 +580,16 @@ function render(){
     // Add any missing sections
     _defaultOrder.forEach(id=>{if(!_order.includes(id)&&_sections[id])_order.push(id);});
 
-    c.innerHTML=_dashTabBar+_order.map(id=>'<div class="dash-section" data-section="'+id+'" draggable="true" ondragstart="dashDragStart(event)" ondragover="dashDragOver(event)" ondrop="dashDrop(event)" ondragend="dashDragEnd(event)"><span class="dash-drag-handle" title="Drag to reorder">&#8942;&#8942;</span>'+_sections[id]+'</div>').join('')+'<div style="margin-top:16px;text-align:right"><button class="btn btn-info" onclick="exportPDF()">Export PDF</button></div>';
+    // Widget toggle bar
+    if(!S.dashboardHidden)S.dashboardHidden=[];
+    const _sectionLabels={kpis:'KPIs','spark-kpis':'Sparklines','charts-position':'Charts','activity-analytics':'Activity','market-movers':'Market','info-row':'Position','advanced':'Weekly'};
+    const _widgetBar='<div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:12px;align-items:center"><span style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;margin-right:4px">Widgets:</span>'+_defaultOrder.map(id=>{
+      const hidden=S.dashboardHidden.includes(id);
+      return'<button class="btn btn-sm '+(hidden?'btn-default':'btn-primary')+'" style="'+(hidden?'opacity:0.5':'')+'" onclick="toggleDashSection(\''+id+'\')">'+(_sectionLabels[id]||id)+'</button>';
+    }).join('')+'</div>';
+    const _visibleOrder=_order.filter(id=>!S.dashboardHidden.includes(id));
+
+    c.innerHTML=_dashTabBar+_widgetBar+_visibleOrder.map(id=>'<div class="dash-section" data-section="'+id+'" draggable="true" ondragstart="dashDragStart(event)" ondragover="dashDragOver(event)" ondrop="dashDrop(event)" ondragend="dashDragEnd(event)"><span class="dash-drag-handle" title="Drag to reorder">&#8942;&#8942;</span>'+_sections[id]+'</div>').join('')+'<div style="margin-top:16px;text-align:right"><button class="btn btn-info" onclick="exportPDF()">Export PDF</button></div>';
     }
     else {
     // Enhanced Department Leaderboard with time periods, achievements, goals
@@ -1973,12 +2038,25 @@ function render(){
         const creditUtil=creditLimit>0?exposure/creditLimit*100:0
         return{...cu,locs,trades,vol,avgMargin,creditLimit,exposure,creditUtil,tradeCount:trades.length}
       })
+      // Sort customers
+      const _cs=S.crmSort||{col:'name',dir:'asc'};
+      const _csI=c=>_cs.col===c?(_cs.dir==='asc'?'▲':'▼'):'';
+      const _csC=c=>'onclick="toggleCrmSort(\''+c+'\')" style="cursor:pointer"';
+      custData.sort((a,b)=>{
+        let va,vb;
+        if(_cs.col==='name'){va=a.name||'';vb=b.name||'';return _cs.dir==='asc'?va.localeCompare(vb):vb.localeCompare(va)}
+        if(_cs.col==='trades'){va=a.tradeCount;vb=b.tradeCount}
+        else if(_cs.col==='vol'){va=a.vol;vb=b.vol}
+        else if(_cs.col==='margin'){va=a.avgMargin;vb=b.avgMargin}
+        else{va=0;vb=0}
+        return _cs.dir==='asc'?va-vb:vb-va;
+      });
       // Selected customer for 360 detail
       const selCust=S.selectedCustomer?custData.find(c=>c.name===S.selectedCustomer):null
 
       contentHTML=`
         <div class="panel"><div class="panel-header"><span>${S.trader==='Admin'?'ALL CUSTOMERS':'MY CUSTOMERS'}</span><button class="btn btn-default btn-sm" onclick="showCustModal()">+ Add</button></div>
-          <div class="panel-body" style="padding:0;overflow-x:auto"><table class="data-table"><thead><tr>${S.trader==='Admin'?'<th>Trader</th>':''}<th>Customer</th><th>Locations</th><th class="right">Trades</th><th class="right">Volume</th><th class="right">Avg Margin</th><th>Credit Status</th><th></th></tr></thead><tbody>
+          <div class="panel-body" style="padding:0;overflow-x:auto"><table class="data-table"><thead><tr>${S.trader==='Admin'?'<th>Trader</th>':''}<th class="sortable" ${_csC('name')}>Customer ${_csI('name')}</th><th>Locations</th><th class="right sortable" ${_csC('trades')}>Trades ${_csI('trades')}</th><th class="right sortable" ${_csC('vol')}>Volume ${_csI('vol')}</th><th class="right sortable" ${_csC('margin')}>Avg Margin ${_csI('margin')}</th><th>Credit Status</th><th></th></tr></thead><tbody>
             ${custData.length?custData.map(cu=>{
               const creditColor=cu.creditUtil>90?'var(--negative)':cu.creditUtil>70?'var(--warn)':'var(--positive)'
               return`<tr style="${S.selectedCustomer===cu.name?'background:var(--panel-alt)':''}">${S.trader==='Admin'?`<td><span style="display:inline-block;width:18px;height:18px;border-radius:50%;background:${traderColor(cu.trader||'Ian P')};color:var(--bg);font-size:9px;font-weight:700;text-align:center;line-height:18px" title="${escapeHtml(cu.trader||'Ian P')}">${traderInitial(cu.trader||'Ian P')}</span></td>`:''}<td class="bold" style="cursor:pointer" onclick="S.selectedCustomer='${escapeHtml(cu.name||'')}';render()">${escapeHtml(cu.name||'')}</td><td style="font-size:10px">${cu.locs.length?escapeHtml(cu.locs.join(', ')):'--'}</td><td class="right">${cu.tradeCount}</td><td class="right">${fmtN(cu.vol)} MBF</td><td class="right ${cu.avgMargin>=0?'positive':'negative'} bold">${cu.vol>0?fmt(Math.round(cu.avgMargin)):''}</td><td><div class="limit-bar" style="width:100px;display:inline-block;vertical-align:middle"><div class="limit-fill" style="width:${Math.min(100,cu.creditUtil)}%;background:${creditColor}"></div></div> <span style="font-size:9px;color:${creditColor}">${Math.round(cu.creditUtil)}%</span></td><td style="white-space:nowrap"><button class="btn btn-default btn-sm" onclick="S.selectedCustomer='${escapeHtml(cu.name||'')}';render()">360</button> <button class="btn btn-default btn-sm" onclick="editCust('${escapeHtml(cu.name||'')}')">Edit</button> <button class="btn btn-default btn-sm" onclick="deleteCust('${escapeHtml(cu.name||'')}')" style="color:var(--negative)">x</button></td></tr>`
@@ -2052,21 +2130,36 @@ function render(){
           </tbody></table></div></div>`;
     }
     else if(crmTab==='mills'){
+      const _ms=S.crmSort||{col:'name',dir:'asc'};
+      const _msI=c=>_ms.col===c?(_ms.dir==='asc'?'▲':'▼'):'';
+      const _msC=c=>'onclick="toggleCrmSort(\''+c+'\')" style="cursor:pointer"';
+      // Enrich mills with trade data for sorting
+      const enrichedMills=mills.map(m=>{
+        const company=m.name;
+        const trades=S.trader==='Admin'?S.buys.filter(b=>extractMillCompany(b.mill)===company):S.buys.filter(b=>extractMillCompany(b.mill)===company&&(b.trader===S.trader||!b.trader));
+        const vol=trades.reduce((s,b)=>s+(b.volume||0),0);
+        return{...m,_trades:trades,_vol:vol,_tradeCount:trades.length};
+      });
+      enrichedMills.sort((a,b)=>{
+        let va,vb;
+        if(_ms.col==='name'){va=a.name||'';vb=b.name||'';return _ms.dir==='asc'?va.localeCompare(vb):vb.localeCompare(va)}
+        if(_ms.col==='trades'){va=a._tradeCount;vb=b._tradeCount}
+        else if(_ms.col==='vol'){va=a._vol;vb=b._vol}
+        else{va=0;vb=0}
+        return _ms.dir==='asc'?va-vb:vb-va;
+      });
       contentHTML=`
         <div class="card"><div class="card-header"><span class="card-title warn">${S.trader==='Admin'?'ALL MILLS':'MY MILLS'}</span><button class="btn btn-default btn-sm" onclick="showMillModal()">+ Add</button></div>
-          <div style="overflow-x:auto"><table><thead><tr>${S.trader==='Admin'?'<th>👤</th>':''}<th>Mill</th><th>Locations</th><th>Last Quoted</th><th>Trades</th><th>Volume</th><th></th></tr></thead><tbody>
-            ${mills.length?mills.map(m=>{
+          <div style="overflow-x:auto"><table><thead><tr>${S.trader==='Admin'?'<th>👤</th>':''}<th class="sortable" ${_msC('name')}>Mill ${_msI('name')}</th><th>Locations</th><th>Last Quoted</th><th class="right sortable" ${_msC('trades')}>Trades ${_msI('trades')}</th><th class="right sortable" ${_msC('vol')}>Volume ${_msI('vol')}</th><th></th></tr></thead><tbody>
+            ${enrichedMills.length?enrichedMills.map(m=>{
               const rawLocs=Array.isArray(m.locations)?m.locations:[];
               const locs=rawLocs.length?rawLocs.map(l=>typeof l==='string'?l:l.label||`${l.city}, ${l.state||''}`):[m.origin||m.location].filter(Boolean);
-              const company=m.name;
-              const trades=S.trader==='Admin'?S.buys.filter(b=>extractMillCompany(b.mill)===company):S.buys.filter(b=>extractMillCompany(b.mill)===company&&(b.trader===S.trader||!b.trader));
-              const vol=trades.reduce((s,b)=>s+(b.volume||0),0);
               const lq=m.last_quoted;
               const lqAge=lq?Math.floor((new Date()-new Date(lq))/(1000*60*60*24)):null;
               const lqColor=lqAge===null?'var(--muted)':lqAge<=3?'var(--positive)':lqAge<=7?'var(--warn,var(--accent))':'var(--negative)';
               const lqLabel=lq?(lqAge===0?'Today':lqAge===1?'Yesterday':lqAge+'d ago'):'Never';
               const lqTitle=lq?`${lq} (${m.quote_count||0} quotes)`:'No quotes on file';
-              return`<tr>${S.trader==='Admin'?`<td><span style="display:inline-block;width:18px;height:18px;border-radius:50%;background:${traderColor(m.trader||'Ian P')};color:var(--bg);font-size:9px;font-weight:700;text-align:center;line-height:18px" title="${escapeHtml(m.trader||'Ian P')}">${traderInitial(m.trader||'Ian P')}</span></td>`:''}<td class="bold">${escapeHtml(m.name||'')}</td><td style="font-size:10px">${locs.length?escapeHtml(locs.join(', ')):'—'}</td><td style="font-size:10px;color:${lqColor}" title="${escapeHtml(lqTitle)}">${lqLabel}</td><td class="right">${trades.length}</td><td class="right">${fmtN(vol)} MBF</td><td style="white-space:nowrap"><button class="btn btn-default btn-sm" onclick="editMill('${escapeHtml(m.name||'')}')">Edit</button> <button class="btn btn-default btn-sm" onclick="deleteMill('${escapeHtml(m.name||'')}')" style="color:var(--negative)">×</button></td></tr>`;
+              return`<tr>${S.trader==='Admin'?`<td><span style="display:inline-block;width:18px;height:18px;border-radius:50%;background:${traderColor(m.trader||'Ian P')};color:var(--bg);font-size:9px;font-weight:700;text-align:center;line-height:18px" title="${escapeHtml(m.trader||'Ian P')}">${traderInitial(m.trader||'Ian P')}</span></td>`:''}<td class="bold">${escapeHtml(m.name||'')}</td><td style="font-size:10px">${locs.length?escapeHtml(locs.join(', ')):'—'}</td><td style="font-size:10px;color:${lqColor}" title="${escapeHtml(lqTitle)}">${lqLabel}</td><td class="right">${m._tradeCount}</td><td class="right">${fmtN(m._vol)} MBF</td><td style="white-space:nowrap"><button class="btn btn-default btn-sm" onclick="editMill('${escapeHtml(m.name||'')}')">Edit</button> <button class="btn btn-default btn-sm" onclick="deleteMill('${escapeHtml(m.name||'')}')" style="color:var(--negative)">×</button></td></tr>`;
             }).join(''):`<tr><td colspan="${S.trader==='Admin'?7:6}" class="empty-state">No mills yet</td></tr>`}
           </tbody></table></div></div>`;
     }
@@ -2498,12 +2591,25 @@ function render(){
     // By trader
     const _byTrader={}
     _pnlTrades.forEach(t=>{const tr=t.trader||'Ian P';if(!_byTrader[tr])_byTrader[tr]={trader:tr,pnl:0,vol:0,count:0};_byTrader[tr].pnl+=t.tradePnl;_byTrader[tr].vol+=t.volume||0;_byTrader[tr].count++})
-    const _traderList=Object.values(_byTrader).sort((a,b)=>b.pnl-a.pnl)
+    const _pnlS=S.pnlSort||{col:'tradePnl',dir:'desc'};
+    const _pSortFn=(list,nameKey)=>{
+      return[...list].sort((a,b)=>{
+        let va,vb;
+        if(_pnlS.col===nameKey||_pnlS.col==='name'){va=a[nameKey]||'';vb=b[nameKey]||'';return _pnlS.dir==='asc'?va.localeCompare(vb):vb.localeCompare(va)}
+        if(_pnlS.col==='count'){va=a.count;vb=b.count}
+        else if(_pnlS.col==='vol'){va=a.vol;vb=b.vol}
+        else{va=a.pnl;vb=b.pnl}
+        return _pnlS.dir==='asc'?va-vb:vb-va;
+      });
+    };
+    const _pSI=c=>_pnlS.col===c?(_pnlS.dir==='asc'?'▲':'▼'):'';
+    const _pSC=c=>'onclick="togglePnlSort(\''+c+'\')" style="cursor:pointer"';
+    const _traderList=_pSortFn(Object.values(_byTrader),'trader')
 
     // By product
     const _byProduct={}
     _pnlTrades.forEach(t=>{const p=t.product||'Unknown';if(!_byProduct[p])_byProduct[p]={product:p,pnl:0,vol:0,count:0};_byProduct[p].pnl+=t.tradePnl;_byProduct[p].vol+=t.volume||0;_byProduct[p].count++})
-    const _productList=Object.values(_byProduct).sort((a,b)=>b.pnl-a.pnl)
+    const _productList=_pSortFn(Object.values(_byProduct),'product')
 
     // Top/bottom trades
     const _sortedTrades=[..._pnlTrades].filter(t=>t.buy).sort((a,b)=>b.tradePnl-a.tradePnl)
@@ -2530,12 +2636,12 @@ function render(){
       <!-- Attribution Tables -->
       <div class="grid-2" style="margin-bottom:20px">
         <div class="panel"><div class="panel-header">P&L BY TRADER</div><div class="panel-body" style="padding:0">
-          <table class="data-table"><thead><tr><th>Trader</th><th class="right">Trades</th><th class="right">Volume</th><th class="right">P&L</th></tr></thead><tbody>
+          <table class="data-table"><thead><tr><th class="sortable" ${_pSC('name')}>Trader ${_pSI('name')}</th><th class="right sortable" ${_pSC('count')}>Trades ${_pSI('count')}</th><th class="right sortable" ${_pSC('vol')}>Volume ${_pSI('vol')}</th><th class="right sortable" ${_pSC('tradePnl')}>P&L ${_pSI('tradePnl')}</th></tr></thead><tbody>
             ${_traderList.length?_traderList.map(t=>`<tr style="border-left:3px solid ${traderColor(t.trader)}"><td class="bold">${escapeHtml(t.trader)}</td><td class="right">${t.count}</td><td class="right">${fmtN(t.vol)} MBF</td><td class="right ${t.pnl>=0?'positive':'negative'} bold">${fmt(Math.round(t.pnl))}</td></tr>`).join(''):'<tr><td colspan="4" class="empty-state">No data</td></tr>'}
           </tbody></table>
         </div></div>
         <div class="panel"><div class="panel-header">P&L BY PRODUCT</div><div class="panel-body" style="padding:0">
-          <table class="data-table"><thead><tr><th>Product</th><th class="right">Trades</th><th class="right">Volume</th><th class="right">P&L</th></tr></thead><tbody>
+          <table class="data-table"><thead><tr><th class="sortable" ${_pSC('name')}>Product ${_pSI('name')}</th><th class="right sortable" ${_pSC('count')}>Trades ${_pSI('count')}</th><th class="right sortable" ${_pSC('vol')}>Volume ${_pSI('vol')}</th><th class="right sortable" ${_pSC('tradePnl')}>P&L ${_pSI('tradePnl')}</th></tr></thead><tbody>
             ${_productList.length?_productList.slice(0,8).map(p=>`<tr><td class="bold">${escapeHtml(p.product)}</td><td class="right">${p.count}</td><td class="right">${fmtN(p.vol)} MBF</td><td class="right ${p.pnl>=0?'positive':'negative'} bold">${fmt(Math.round(p.pnl))}</td></tr>`).join(''):'<tr><td colspan="4" class="empty-state">No data</td></tr>'}
           </tbody></table>
         </div></div>

@@ -74,27 +74,32 @@ async function loadCRMData(){
 async function loadCRMProspects(){return loadCRMData()}
 
 async function resetAllCRMData(){
-  if(!confirm('This will DELETE ALL CRM data (prospects, customers, mills) for ALL traders. This cannot be undone. Continue?'))return;
-  if(!confirm('Are you SURE? Type "RESET" in the next prompt to confirm.'))return;
-  const confirmation=prompt('Type RESET to confirm deletion of all CRM data:');
-  if(confirmation!=='RESET'){showToast('Cancelled','info');return;}
-  try{
-    const res=await fetch('/api/crm/wipe-all',{method:'POST'});
-    const result=await res.json();
-    showToast(result.message||'All CRM data wiped','positive');
-    S.crmProspects=[];S.customers=[];S.mills=[];
-    loadCRMData();
-  }catch(e){showToast('Error: '+e.message,'negative')}
+  showConfirm('This will DELETE ALL CRM data (prospects, customers, mills) for ALL traders. This cannot be undone. Continue?',()=>{
+    showConfirm('Are you SURE? Type "RESET" in the next prompt to confirm.',async()=>{
+      const confirmation=prompt('Type RESET to confirm deletion of all CRM data:');
+      if(confirmation!=='RESET'){showToast('Cancelled','info');return;}
+      try{
+        const res=await fetch('/api/crm/wipe-all',{method:'POST'});
+        if(!res.ok)throw new Error('Wipe failed: '+res.status);
+        const result=await res.json();
+        showToast(result.message||'All CRM data wiped','positive');
+        S.crmProspects=[];S.customers=[];S.mills=[];
+        loadCRMData();
+      }catch(e){showToast('Error: '+e.message,'negative')}
+    });
+  });
 }
 
 async function seedMockData(){
-  if(!confirm('This will replace all CRM data with test data. Continue?'))return;
-  try{
-    const res=await fetch('/api/crm/seed-mock',{method:'POST'});
-    const result=await res.json();
-    showToast(`Mock data loaded: ${result.prospects_created} prospects, ${result.touches_created} touches`,'positive');
-    loadCRMProspects();
-  }catch(e){showToast('Error seeding mock data: '+e.message,'negative')}
+  showConfirm('This will replace all CRM data with test data. Continue?',async()=>{
+    try{
+      const res=await fetch('/api/crm/seed-mock',{method:'POST'});
+      if(!res.ok)throw new Error('Seeding failed: '+res.status);
+      const result=await res.json();
+      showToast(`Mock data loaded: ${result.prospects_created} prospects, ${result.touches_created} touches`,'positive');
+      loadCRMProspects();
+    }catch(e){showToast('Error seeding mock data: '+e.message,'negative')}
+  });
 }
 
 function showProspectModal(p=null){
@@ -128,6 +133,11 @@ function showProspectModal(p=null){
 }
 
 async function saveProspect(id){
+  const _btn=document.querySelector('#modal .modal-footer .btn-success');
+  btnLoading(_btn);
+  try{return await _saveProspectInner(id)}finally{btnLoading(_btn,false)}
+}
+async function _saveProspectInner(id){
   const addressRaw = document.getElementById('p-address').value;
   const data={
     company_name:normalizeCustomerName(document.getElementById('p-company').value),
@@ -144,6 +154,7 @@ async function saveProspect(id){
   try{
     const url=id?'/api/crm/prospects/'+id:'/api/crm/prospects';
     const res=await fetch(url,{method:id?'PUT':'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
+    if(!res.ok){const err=await res.json().catch(()=>({}));throw new Error(err.error||'Server error '+res.status)}
     const result=await res.json();
     // Handle duplicate detection responses (only on create)
     if(!id&&result.existing){
@@ -161,16 +172,19 @@ async function saveProspect(id){
 }
 
 async function deleteProspect(id){
-  if(!confirm('Delete this prospect?'))return;
-  try{
-    await fetch('/api/crm/prospects/'+id,{method:'DELETE'});
-    closeModal();loadCRMProspects();
-  }catch(e){showToast('Error deleting prospect','negative')}
+  showConfirm('Delete this prospect?',async()=>{
+    try{
+      const res=await fetch('/api/crm/prospects/'+id,{method:'DELETE'});
+      if(!res.ok)throw new Error('Delete failed: '+res.status);
+      closeModal();loadCRMProspects();
+    }catch(e){showToast('Error deleting prospect','negative')}
+  });
 }
 
 async function viewProspect(id){
   try{
     const res=await fetch('/api/crm/prospects/'+id);
+    if(!res.ok)throw new Error('Failed to load prospect');
     const p=await res.json();
     _viewedProspect = p;
     document.getElementById('modal').innerHTML=`<div class="modal-overlay" onclick="closeModal()"><div class="modal wide" onclick="event.stopPropagation()">
@@ -275,64 +289,41 @@ async function saveTouch(prospectId){
     follow_up_date:document.getElementById('t-followup').value||null
   };
   try{
-    await fetch('/api/crm/touches',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
+    const res=await fetch('/api/crm/touches',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
+    if(!res.ok)throw new Error('Failed to save touch');
     closeModal();loadCRMProspects();
   }catch(e){showToast('Error saving touch','negative')}
 }
 
 async function convertProspect(id){
-  if(!confirm('Convert this prospect to a customer? They will be marked as converted.'))return;
-  try{
-    // Fetch full prospect data first
-    const prospectRes=await fetch('/api/crm/prospects/'+id);
-    const p=await prospectRes.json();
-    const normName=normalizeCustomerName(p.company_name);
-
-    // Check if customer already exists in SQLite before converting
-    const checkRes=await fetch('/api/crm/customers?name='+encodeURIComponent(normName));
-    const existingCusts=await checkRes.json();
-    const alreadyExists=Array.isArray(existingCusts)&&existingCusts.find(c=>c.name===normName);
-    if(alreadyExists){
-      if(!confirm(normName+' already exists as a customer. Convert prospect anyway (will link to existing customer)?'))return;
-    }
-
-    // Mark prospect as converted on the server
-    await fetch('/api/crm/prospects/'+id+'/convert',{method:'POST'});
-
-    // Build customer with all contact data from prospect
-    const custData={
-      name:normName,
-      contact:p.contact_name||'',
-      phone:p.phone||'',
-      email:p.email||'',
-      destination:p.address||'',
-      notes:[p.notes||'',p.source?'Source: '+p.source:''].filter(Boolean).join(' | '),
-      trader:p.trader||S.trader
-    };
-
-    // Create customer in SQLite immediately (endpoint deduplicates by name)
-    const custRes=await fetch('/api/crm/customers',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(custData)});
-    const savedCust=await custRes.json();
-
-    // Update in-memory customers list
-    if(!S.customers)S.customers=[];
-    if(!S.customers.find(c=>c.name===normName)){
-      S.customers.push({
-        id:savedCust.id,
-        name:normName,
-        contact:custData.contact,
-        phone:custData.phone,
-        email:custData.email,
-        destination:custData.destination,
-        notes:custData.notes,
-        trader:custData.trader,
-        convertedFromProspect:id
-      });
-      await saveAllLocal();
-    }
-    closeModal();loadCRMProspects();
-    showToast('Prospect converted! Added to Customers list.','positive');
-  }catch(e){showToast('Error converting prospect: '+e.message,'negative')}
+  showConfirm('Convert this prospect to a customer? They will be marked as converted.',async()=>{
+    try{
+      const prospectRes=await fetch('/api/crm/prospects/'+id);
+      const p=await prospectRes.json();
+      const normName=normalizeCustomerName(p.company_name);
+      const checkRes=await fetch('/api/crm/customers?name='+encodeURIComponent(normName));
+      const existingCusts=await checkRes.json();
+      const alreadyExists=Array.isArray(existingCusts)&&existingCusts.find(c=>c.name===normName);
+      async function doConvert(){
+        await fetch('/api/crm/prospects/'+id+'/convert',{method:'POST'});
+        const custData={name:normName,contact:p.contact_name||'',phone:p.phone||'',email:p.email||'',destination:p.address||'',notes:[p.notes||'',p.source?'Source: '+p.source:''].filter(Boolean).join(' | '),trader:p.trader||S.trader};
+        const custRes=await fetch('/api/crm/customers',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(custData)});
+        const savedCust=await custRes.json();
+        if(!S.customers)S.customers=[];
+        if(!S.customers.find(c=>c.name===normName)){
+          S.customers.push({id:savedCust.id,name:normName,contact:custData.contact,phone:custData.phone,email:custData.email,destination:custData.destination,notes:custData.notes,trader:custData.trader,convertedFromProspect:id});
+          await saveAllLocal();
+        }
+        closeModal();loadCRMProspects();
+        showToast('Prospect converted! Added to Customers list.','positive');
+      }
+      if(alreadyExists){
+        showConfirm(escapeHtml(normName)+' already exists as a customer. Convert prospect anyway (will link to existing customer)?',doConvert);
+      }else{
+        await doConvert();
+      }
+    }catch(e){showToast('Error converting prospect: '+e.message,'negative')}
+  });
 }
 
 // Rename customer in SQLite and sweep S.sells to update matching trade records

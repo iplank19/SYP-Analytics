@@ -17,13 +17,80 @@ function closeModalSafe(){
       return el.value&&el.value.trim()!=='';
     });
     if(hasData){
-      if(confirm('Close without saving?'))closeModal();
+      _showMiniConfirm('Close without saving?',()=>closeModal());return;
     }else{
       closeModal();
     }
   }else{
     closeModal();
   }
+}
+
+// Mini confirm bar inside existing modal (avoids overwriting #modal)
+function _showMiniConfirm(msg,onConfirm){
+  const existing=document.querySelector('#modal .mini-confirm-bar');
+  if(existing)existing.remove();
+  const modal=document.querySelector('#modal .modal');
+  if(!modal){onConfirm();return}
+  const bar=document.createElement('div');
+  bar.className='mini-confirm-bar';
+  bar.style.cssText='padding:10px 16px;background:rgba(243,139,168,0.1);border-top:1px solid var(--negative);display:flex;align-items:center;justify-content:space-between;gap:8px;animation:fadeIn 0.15s';
+  bar.innerHTML='<span style="font-size:11px;color:var(--negative);font-weight:500">'+escapeHtml(msg)+'</span><span style="display:flex;gap:6px"><button class="btn btn-default btn-sm mini-confirm-no">Cancel</button><button class="btn btn-danger btn-sm mini-confirm-yes">Confirm</button></span>';
+  modal.appendChild(bar);
+  bar.querySelector('.mini-confirm-no').onclick=()=>bar.remove();
+  bar.querySelector('.mini-confirm-yes').onclick=()=>{bar.remove();onConfirm()};
+  bar.querySelector('.mini-confirm-yes').focus();
+}
+
+// Inline form validation
+function validateField(inputId,rules){
+  const el=document.getElementById(inputId);
+  if(!el)return true;
+  const group=el.closest('.form-group');
+  if(!group)return true;
+  group.classList.remove('field-error','field-valid');
+  const existing=group.querySelector('.field-error-msg');
+  if(existing)existing.remove();
+  const val=el.value?.trim();
+  for(const rule of rules){
+    if(rule.required&&!val){
+      group.classList.add('field-error');
+      group.insertAdjacentHTML('beforeend','<div class="field-error-msg">Required</div>');
+      return false;
+    }
+    if(rule.min!==undefined&&val&&parseFloat(val)<rule.min){
+      group.classList.add('field-error');
+      group.insertAdjacentHTML('beforeend','<div class="field-error-msg">Min '+rule.min+'</div>');
+      return false;
+    }
+    if(rule.max!==undefined&&val&&parseFloat(val)>rule.max){
+      group.classList.add('field-error');
+      group.insertAdjacentHTML('beforeend','<div class="field-error-msg">Max '+rule.max+'</div>');
+      return false;
+    }
+  }
+  if(val)group.classList.add('field-valid');
+  return true;
+}
+
+function validateBuyForm(){
+  const priceEl=document.getElementById('m-price-std');
+  const priceId=priceEl&&priceEl.offsetParent!==null?'m-price-std':'m-price';
+  const results=[
+    validateField('m-product',[{required:true}]),
+    validateField(priceId,[{required:true,min:1}]),
+    validateField('m-volume',[{required:true,min:0.01}])
+  ];
+  return results.every(Boolean);
+}
+
+function validateSellForm(){
+  const results=[
+    validateField('m-cust',[{required:true}]),
+    validateField('m-product',[{required:true}]),
+    validateField('m-volume',[{required:true,min:0.01}])
+  ];
+  return results.every(Boolean);
 }
 
 // Global keyboard shortcuts
@@ -135,11 +202,11 @@ function showBuyModal(b=null){
         <div class="form-group"><label class="form-label">Mill</label><input type="text" id="m-mill" value="${escapeHtml(b?.mill||'')}" list="mill-list" placeholder="Type or select..." onchange="autoFillOrigin()"><datalist id="mill-list">${millList.map(m=>`<option value="${escapeHtml(m)}">`).join('')}</datalist></div>
         <div class="form-group"><label class="form-label">Origin (City, ST)</label><input type="text" id="m-origin" value="${escapeHtml(b?.origin||'')}" list="origin-list" placeholder="e.g. Warren, AR"><datalist id="origin-list">${origins.map(o=>`<option value="${escapeHtml(o)}">`).join('')}</datalist></div>
         <div class="form-group"><label class="form-label">Region</label><select id="m-region" onchange="toggleBuyOptions()">${REGIONS.map(r=>`<option value="${r}" ${b?.region===r?'selected':''}>${r.charAt(0).toUpperCase()+r.slice(1)}</option>`).join('')}</select></div>
-        <div class="form-group"><label class="form-label">Product</label><input type="text" id="m-product" value="${escapeHtml(b?.product||'')}" list="prod-list" placeholder="e.g. 2x4#2, 2x6 MSR" onchange="toggleBuyOptions();calcBuyVolume()"><datalist id="prod-list">${prodList.map(p=>`<option value="${escapeHtml(p)}">`).join('')}</datalist></div>
+        <div class="form-group"><label class="form-label">Product *</label><input type="text" id="m-product" value="${escapeHtml(b?.product||'')}" list="prod-list" placeholder="e.g. 2x4#2, 2x6 MSR" onchange="toggleBuyOptions();calcBuyVolume()" onblur="validateField('m-product',[{required:true}])"><datalist id="prod-list">${prodList.map(p=>`<option value="${escapeHtml(p)}">`).join('')}</datalist></div>
         <div class="form-group"><label class="form-label">Length</label><select id="m-length" onchange="toggleBuyOptions();calcBuyVolume()"><option value="">Select...</option><option value="8" ${b?.length==='8'?'selected':''}>8'</option><option value="10" ${b?.length==='10'?'selected':''}>10'</option><option value="12" ${b?.length==='12'?'selected':''}>12'</option><option value="14" ${b?.length==='14'?'selected':''}>14'</option><option value="16" ${b?.length==='16'?'selected':''}>16'</option><option value="18" ${b?.length==='18'?'selected':''}>18'</option><option value="20" ${b?.length==='20'?'selected':''}>20'</option><option value="RL" ${b?.length==='RL'?'selected':''}>RL (Random)</option></select></div>
         <div class="form-group"><label class="form-label">Units (Bunks)</label><input type="number" id="m-units" value="${b?.units||''}" placeholder="# of units" onchange="calcBuyVolume()" step="0.01"></div>
         <div class="form-group"><label class="form-label">Pcs/Unit (PPU)</label><input type="number" id="m-ppu" value="${b?.ppu||''}" placeholder="auto" onchange="calcBuyVolume()" step="1"><div id="ppu-display-buy" style="font-size:10px;color:var(--muted);margin-top:2px"></div></div>
-        <div class="form-group"><label class="form-label">Volume (MBF)</label><input type="number" id="m-volume" value="${b?.volume||''}" onchange="calcBuyUnits()" step="0.01"><div id="vol-hint-buy" style="font-size:10px;color:var(--info);margin-top:2px">← Auto-calcs from units</div></div>
+        <div class="form-group"><label class="form-label">Volume (MBF) *</label><input type="number" id="m-volume" value="${b?.volume||''}" onchange="calcBuyUnits()" onblur="validateField('m-volume',[{required:true,min:0.01}])" step="0.01"><div id="vol-hint-buy" style="font-size:10px;color:var(--info);margin-top:2px">← Auto-calcs from units</div></div>
       </div>
 
       <!-- SPLIT LOAD SECTION FOR BUY -->
@@ -1517,14 +1584,14 @@ function showSellModal(s=null){
           <datalist id="order-list-sell">${availBuys.map(b=>`<option value="${escapeHtml(b.ord||'')}">${escapeHtml(b.ord||'')} - ${escapeHtml(b.product||'')} ${escapeHtml(b.length||'RL')} from ${escapeHtml(b.mill||'')} | ${fmtN(b.avail)} MBF avail</option>`).join('')}</datalist>
         </div>
         <div class="form-group"><label class="form-label">Date</label><input type="date" id="m-date" value="${s?.date||today()}"></div>
-        <div class="form-group"><label class="form-label">Customer</label><input type="text" id="m-cust" value="${escapeHtml(s?.customer||'')}" list="cust-list" placeholder="Type or select..." onchange="autoFillDest()"><datalist id="cust-list">${custList.map(c=>`<option value="${escapeHtml(c)}">`).join('')}</datalist></div>
+        <div class="form-group"><label class="form-label">Customer *</label><input type="text" id="m-cust" value="${escapeHtml(s?.customer||'')}" list="cust-list" placeholder="Type or select..." onchange="autoFillDest()" onblur="validateField('m-cust',[{required:true}])"><datalist id="cust-list">${custList.map(c=>`<option value="${escapeHtml(c)}">`).join('')}</datalist></div>
         <div class="form-group"><label class="form-label">Destination (City, ST)</label><input type="text" id="m-dest" value="${escapeHtml(s?.destination||'')}" list="dest-list" placeholder="e.g. Cincinnati, OH" onchange="autoFillFreightFromLane()"><datalist id="dest-list">${dests.map(d=>`<option value="${escapeHtml(d)}">`).join('')}</datalist></div>
         <div class="form-group"><label class="form-label">Region</label><select id="m-region" onchange="toggleSellOptions()">${REGIONS.map(r=>`<option value="${r}" ${s?.region===r?'selected':''}>${r.charAt(0).toUpperCase()+r.slice(1)}</option>`).join('')}</select></div>
-        <div class="form-group"><label class="form-label">Product</label><input type="text" id="m-product" value="${escapeHtml(s?.product||'')}" list="prod-list" placeholder="e.g. 2x4#2, 2x6 MSR" onchange="toggleSellOptions();calcSellVolume()"><datalist id="prod-list">${prodList.map(p=>`<option value="${escapeHtml(p)}">`).join('')}</datalist></div>
+        <div class="form-group"><label class="form-label">Product *</label><input type="text" id="m-product" value="${escapeHtml(s?.product||'')}" list="prod-list" placeholder="e.g. 2x4#2, 2x6 MSR" onchange="toggleSellOptions();calcSellVolume()" onblur="validateField('m-product',[{required:true}])"><datalist id="prod-list">${prodList.map(p=>`<option value="${escapeHtml(p)}">`).join('')}</datalist></div>
         <div class="form-group"><label class="form-label">Length</label><select id="m-length" onchange="toggleSellOptions();calcSellVolume()"><option value="">Select...</option><option value="8" ${s?.length==='8'?'selected':''}>8'</option><option value="10" ${s?.length==='10'?'selected':''}>10'</option><option value="12" ${s?.length==='12'?'selected':''}>12'</option><option value="14" ${s?.length==='14'?'selected':''}>14'</option><option value="16" ${s?.length==='16'?'selected':''}>16'</option><option value="18" ${s?.length==='18'?'selected':''}>18'</option><option value="20" ${s?.length==='20'?'selected':''}>20'</option><option value="RL" ${s?.length==='RL'?'selected':''}>RL (Random)</option></select></div>
         <div class="form-group"><label class="form-label">Units (Bunks)</label><input type="number" id="m-units" value="${s?.units||''}" placeholder="# of units" onchange="calcSellVolume()" step="0.01"></div>
         <div class="form-group"><label class="form-label">Pcs/Unit (PPU)</label><input type="number" id="m-ppu" value="${s?.ppu||''}" placeholder="auto" onchange="calcSellVolume()" step="1"><div id="ppu-display-sell" style="font-size:10px;color:var(--muted);margin-top:2px"></div></div>
-        <div class="form-group"><label class="form-label">Volume (MBF)</label><input type="number" id="m-volume" value="${s?.volume||''}" onchange="calcSellUnits();updateSellCalc();calcFlatFreight()" step="0.01"><div id="vol-hint-sell" style="font-size:10px;color:var(--info);margin-top:2px">← Auto-calcs from units</div></div>
+        <div class="form-group"><label class="form-label">Volume (MBF) *</label><input type="number" id="m-volume" value="${s?.volume||''}" onchange="calcSellUnits();updateSellCalc();calcFlatFreight()" onblur="validateField('m-volume',[{required:true,min:0.01}])" step="0.01"><div id="vol-hint-sell" style="font-size:10px;color:var(--info);margin-top:2px">← Auto-calcs from units</div></div>
       </div>
 
       <!-- SPLIT LOAD SECTION -->

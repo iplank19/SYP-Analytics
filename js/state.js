@@ -1,4 +1,7 @@
 // SYP Analytics - State & Constants
+// Debug logging — set to true via console: _SYP_DEBUG=true
+let _SYP_DEBUG=false;
+const _dbg=(...args)=>{if(_SYP_DEBUG)console.debug('[SYP]',...args)};
 const PRODUCTS=['2x4#2','2x6#2','2x8#2','2x10#2','2x12#2','2x4#3','2x6#3','2x8#3'];
 
 // Full product list for Mill Intel quoting matrix (includes #1, MSR, #4)

@@ -135,6 +135,29 @@ select:focus-visible,input:focus-visible,textarea:focus-visible,button:focus-vis
 .btn:hover{filter:brightness(1.15);box-shadow:var(--glow-md)}
 .btn:active{transform:scale(0.98)}
 .btn:disabled{opacity:0.4;cursor:not-allowed;filter:none;box-shadow:none}
+/* ===== FORM VALIDATION ===== */
+.field-error input,.field-error select{border-color:var(--negative) !important;box-shadow:0 0 4px rgba(243,139,168,0.3)}
+.field-error .form-label{color:var(--negative)}
+.field-error-msg{font-size:9px;color:var(--negative);margin-top:2px;animation:fadeIn 0.15s}
+.field-valid input,.field-valid select{border-color:var(--positive) !important}
+
+.btn-loading{pointer-events:none;opacity:0.7}
+.btn-spinner{display:inline-block;width:10px;height:10px;border:2px solid currentColor;border-top-color:transparent;border-radius:50%;animation:spin 0.6s linear infinite;margin-right:4px;vertical-align:middle}
+
+/* ===== COMMAND PALETTE ===== */
+.cmd-palette-overlay{position:fixed;inset:0;z-index:10000;display:flex;align-items:flex-start;justify-content:center;padding-top:15vh;background:rgba(0,0,0,0.5);backdrop-filter:blur(2px)}
+.cmd-palette-box{background:var(--panel);border:1px solid var(--accent);width:500px;max-width:90vw;box-shadow:0 8px 32px rgba(0,0,0,0.5),0 0 20px rgba(137,180,250,0.15);overflow:hidden;border-radius:var(--radius);animation:fadeIn 0.1s}
+.cmd-search-input{width:100%;padding:14px 16px;background:var(--bg);border:none;border-bottom:1px solid var(--border);color:var(--text);font-size:14px;outline:none;font-family:inherit}
+.cmd-results{max-height:360px;overflow-y:auto}
+.cmd-result-item{display:flex;align-items:center;gap:10px;padding:10px 16px;cursor:pointer;border-bottom:1px solid var(--border)}
+.cmd-result-item:last-child{border-bottom:none}
+.cmd-result-item:hover,.cmd-result-item.cmd-active{background:rgba(137,180,250,0.1)}
+.cmd-icon{font-size:16px;width:24px;text-align:center;flex-shrink:0}
+.cmd-label{font-size:13px;font-weight:500}
+.cmd-label mark{background:rgba(137,180,250,0.3);color:var(--text);padding:0 1px;border-radius:2px}
+.cmd-sub{font-size:10px;color:var(--muted)}
+.cmd-meta{margin-left:auto;display:flex;align-items:center;gap:6px;flex-shrink:0}
+.cmd-type{font-size:9px;color:var(--muted);text-transform:uppercase;padding:2px 6px;background:var(--panel-alt);border-radius:2px}
 
 /* ===== CARDS ===== */
 .card{background:var(--panel);border:1px solid var(--border);margin-bottom:12px;border-radius:var(--radius);transition:border-color 0.15s ease,box-shadow 0.15s ease}

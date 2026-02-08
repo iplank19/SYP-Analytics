@@ -352,6 +352,21 @@ function traderInitial(t){
 }
 
 // Build sold-volume-per-order map. Pass a custom sells array to filter;
+// Button loading state helper
+function btnLoading(btn,loading=true){
+  if(!btn)return;
+  if(loading){
+    btn._origText=btn.textContent;
+    btn.disabled=true;
+    btn.classList.add('btn-loading');
+    btn.innerHTML='<span class="btn-spinner"></span>'+escapeHtml(btn._origText);
+  }else{
+    btn.disabled=false;
+    btn.classList.remove('btn-loading');
+    btn.textContent=btn._origText||btn.textContent;
+  }
+}
+
 // defaults to S.sells when called with no arguments.
 function buildOrderSold(sells){
   const orderSold={};

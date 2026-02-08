@@ -253,13 +253,15 @@ async function impData(e){
   r.readAsText(f);e.target.value='';
 }
 async function clearAll(){
-  if(!confirm('Delete ALL data?'))return;
-  if(!confirm('Really?'))return;
-  S.buys=[];S.sells=[];S.rl=[];S.customers=[];S.mills=[];S.aiMsgs=[];
-  S.lanes=[];S.quoteItems=[];S.quoteProfiles={default:{name:'Default',customers:[]}};
-  await saveAllLocal();
-  SS('aiMsgs',[]);
-  render();
+  showConfirm('Delete ALL data? This cannot be undone.',()=>{
+    showConfirm('Are you absolutely sure?',async()=>{
+      S.buys=[];S.sells=[];S.rl=[];S.customers=[];S.mills=[];S.aiMsgs=[];
+      S.lanes=[];S.quoteItems=[];S.quoteProfiles={default:{name:'Default',customers:[]}};
+      await saveAllLocal();
+      SS('aiMsgs',[]);
+      render();
+    });
+  });
 }
 
 // Status bar clock
@@ -315,7 +317,7 @@ async function init(){
         if(!localStorage.getItem('syp_entityMigration_v1')){migrateEntityNames();localStorage.setItem('syp_entityMigration_v1','1')}
       }
     }catch(e){
-      console.debug('Cloud sync failed:',e);
+      _dbg('Cloud sync failed:',e);
     }
   }
   
@@ -345,12 +347,257 @@ async function init(){
   }
 }
 
+function _hexToRgb(hex){
+  hex=hex.replace('#','');
+  if(hex.length===3)hex=hex[0]+hex[0]+hex[1]+hex[1]+hex[2]+hex[2];
+  const n=parseInt(hex,16);
+  return[(n>>16)&255,(n>>8)&255,n&255];
+}
+
+let _globeBurstCb=null;
+function _triggerGlobeBurst(cb){_globeBurstCb=cb||function(){location.reload()}}
+
+function _startLoginGlobe(){
+  const canvas=document.getElementById('login-globe');
+  if(!canvas)return;
+  const ctx=canvas.getContext('2d');
+  const dpr=window.devicePixelRatio||1;
+
+  function resize(){
+    canvas.width=canvas.clientWidth*dpr;
+    canvas.height=canvas.clientHeight*dpr;
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+  }
+  resize();
+  window.addEventListener('resize',resize);
+
+  // Read accent color from CSS
+  const accent=getComputedStyle(document.documentElement).getPropertyValue('--accent').trim();
+  const rgb=_hexToRgb(accent)||[99,140,255];
+
+  // Generate 120 points on sphere via Fibonacci spiral
+  const N=120;
+  const pts=[];
+  const phi=(1+Math.sqrt(5))/2;
+  for(let i=0;i<N;i++){
+    const y=1-(2*i/(N-1));
+    const r=Math.sqrt(1-y*y);
+    const theta=2*Math.PI*i/phi;
+    pts.push([Math.cos(theta)*r,y,Math.sin(theta)*r]);
+  }
+
+  // Pre-compute connections (nearby points)
+  const conns=[];
+  const thresh=0.6;
+  for(let i=0;i<N;i++){
+    for(let j=i+1;j<N;j++){
+      const dx=pts[i][0]-pts[j][0],dy=pts[i][1]-pts[j][1],dz=pts[i][2]-pts[j][2];
+      if(dx*dx+dy*dy+dz*dz<thresh*thresh)conns.push([i,j]);
+    }
+  }
+
+  // --- Effect 1: Traveling pulses ---
+  const pulses=[];
+  let pulseTimer=0;
+
+  // --- Effect 2: Mouse parallax ---
+  let mouseOffX=0,mouseOffY=0;
+  canvas.addEventListener('mousemove',function(e){
+    const rect=canvas.getBoundingClientRect();
+    mouseOffX=((e.clientX-rect.left)/rect.width-0.5)*2;
+    mouseOffY=((e.clientY-rect.top)/rect.height-0.5)*2;
+  });
+  canvas.addEventListener('mouseleave',function(){mouseOffX=0;mouseOffY=0});
+
+  // --- Effect 3: Pulsing nodes ---
+  const nodePulse=new Float32Array(N);
+  let nodePulseTimer=0;
+
+  // --- Effect 4: Floating labels ---
+  const labels=['SYP','#2','2x4','MSR','RL','FOB','MBF','Studs','KD','TL','#1','2x6'];
+  const labelNodes=labels.map(()=>Math.floor(Math.random()*N));
+  const labelPhase=labels.map(()=>Math.random()*Math.PI*2);
+
+  // --- Effect 5: Login burst ---
+  let burstMode=false,burstTime=0;
+  const burstVel=pts.map(([x,y,z])=>{
+    const mag=Math.sqrt(x*x+y*y+z*z)||1;
+    return[x/mag,y/mag,z/mag];
+  });
+  const burstPos=pts.map(p=>[p[0],p[1],p[2]]);
+
+  let angleY=0,angleX=0,last=0,raf;
+  const radius=Math.min(canvas.clientWidth,canvas.clientHeight)*0.5;
+  const cx=()=>canvas.clientWidth/2;
+  const cy=()=>canvas.clientHeight/2;
+
+  function frame(t){
+    const dt=last?((t-last)/1000):0.016;
+    last=t;
+
+    // --- Check for burst trigger ---
+    if(!burstMode&&_globeBurstCb){
+      burstMode=true;
+      burstTime=0;
+      for(let i=0;i<N;i++){burstPos[i]=[pts[i][0],pts[i][1],pts[i][2]]}
+    }
+
+    if(burstMode){
+      burstTime+=dt;
+      const fade=Math.max(0,1-burstTime/1.0);
+      // Advance burst positions outward
+      for(let i=0;i<N;i++){
+        burstPos[i][0]+=burstVel[i][0]*dt*3;
+        burstPos[i][1]+=burstVel[i][1]*dt*3;
+        burstPos[i][2]+=burstVel[i][2]*dt*3;
+      }
+      const cosY=Math.cos(angleY),sinY=Math.sin(angleY);
+      const cosX=Math.cos(angleX),sinX=Math.sin(angleX);
+      const proj=burstPos.map(([x,y,z])=>{
+        let rx=x*cosY-z*sinY,ry=y,rz=x*sinY+z*cosY;
+        let ry2=ry*cosX-rz*sinX,rz2=ry*sinX+rz*cosX;
+        const scale=1/(1-rz2*0.3);
+        return[cx()+rx*radius*scale,cy()+ry2*radius*scale,rz2];
+      });
+      ctx.clearRect(0,0,canvas.clientWidth,canvas.clientHeight);
+      // Draw fading connections
+      for(const[i,j]of conns){
+        const a=proj[i],b=proj[j];
+        const depth=Math.min(a[2],b[2]);
+        const alpha=(0.06+0.12*((depth+1)/2))*fade;
+        if(alpha<0.005)continue;
+        ctx.beginPath();
+        ctx.moveTo(a[0],a[1]);
+        ctx.lineTo(b[0],b[1]);
+        ctx.strokeStyle=`rgba(${rgb[0]},${rgb[1]},${rgb[2]},${alpha})`;
+        ctx.lineWidth=0.6;
+        ctx.stroke();
+      }
+      // Draw fading dots
+      for(const p of proj){
+        const alpha=(0.15+0.55*((p[2]+1)/2))*fade;
+        const sz=(1.2+1.2*((p[2]+1)/2));
+        if(alpha<0.005)continue;
+        ctx.beginPath();
+        ctx.arc(p[0],p[1],sz,0,Math.PI*2);
+        ctx.fillStyle=`rgba(${rgb[0]},${rgb[1]},${rgb[2]},${alpha})`;
+        ctx.fill();
+      }
+      if(burstTime>=1.0){
+        const cb=_globeBurstCb;
+        _globeBurstCb=null;
+        if(cb)cb();
+        return;
+      }
+      raf=requestAnimationFrame(frame);
+      return;
+    }
+
+    // --- Normal rotation with mouse parallax ---
+    angleY+=dt*0.15;
+    angleX=Math.sin(t*0.0003)*0.18;
+    const rotY=angleY+mouseOffX*0.002;
+    const rotX=angleX+mouseOffY*0.002;
+
+    const cosY=Math.cos(rotY),sinY=Math.sin(rotY);
+    const cosX=Math.cos(rotX),sinX=Math.sin(rotX);
+
+    // --- Update pulsing nodes ---
+    nodePulseTimer+=dt;
+    if(nodePulseTimer>0.8){
+      nodePulseTimer=0;
+      nodePulse[Math.floor(Math.random()*N)]=1;
+    }
+    for(let i=0;i<N;i++){
+      if(nodePulse[i]>0)nodePulse[i]=Math.max(0,nodePulse[i]-dt*1.5);
+    }
+
+    // --- Spawn traveling pulses ---
+    pulseTimer+=dt;
+    if(pulseTimer>0.4&&pulses.length<8){
+      pulseTimer=0;
+      pulses.push({conn:Math.floor(Math.random()*conns.length),pos:0,speed:0.8+Math.random()*0.6});
+    }
+    // Advance pulses
+    for(let i=pulses.length-1;i>=0;i--){
+      pulses[i].pos+=dt*pulses[i].speed;
+      if(pulses[i].pos>=1)pulses.splice(i,1);
+    }
+
+    // Project all points
+    const proj=pts.map(([x,y,z])=>{
+      let rx=x*cosY-z*sinY,ry=y,rz=x*sinY+z*cosY;
+      let ry2=ry*cosX-rz*sinX,rz2=ry*sinX+rz*cosX;
+      const scale=1/(1-rz2*0.3);
+      return[cx()+rx*radius*scale,cy()+ry2*radius*scale,rz2];
+    });
+
+    ctx.clearRect(0,0,canvas.clientWidth,canvas.clientHeight);
+
+    // Draw connections
+    for(const[i,j]of conns){
+      const a=proj[i],b=proj[j];
+      const depth=Math.min(a[2],b[2]);
+      const alpha=0.06+0.12*((depth+1)/2);
+      ctx.beginPath();
+      ctx.moveTo(a[0],a[1]);
+      ctx.lineTo(b[0],b[1]);
+      ctx.strokeStyle=`rgba(${rgb[0]},${rgb[1]},${rgb[2]},${alpha})`;
+      ctx.lineWidth=0.6;
+      ctx.stroke();
+    }
+
+    // Draw traveling pulses
+    for(const pulse of pulses){
+      const[i,j]=conns[pulse.conn];
+      const a=proj[i],b=proj[j];
+      const px=a[0]+(b[0]-a[0])*pulse.pos;
+      const py=a[1]+(b[1]-a[1])*pulse.pos;
+      const depth=a[2]+(b[2]-a[2])*pulse.pos;
+      const alpha=0.8*((depth+1)/2+0.3);
+      ctx.beginPath();
+      ctx.arc(px,py,2.5,0,Math.PI*2);
+      ctx.fillStyle=`rgba(${rgb[0]},${rgb[1]},${rgb[2]},${Math.min(alpha,0.8)})`;
+      ctx.fill();
+    }
+
+    // Draw dots with pulsing
+    for(let i=0;i<N;i++){
+      const p=proj[i];
+      const pulse=nodePulse[i];
+      const alpha=Math.min(1,0.15+0.55*((p[2]+1)/2)+pulse*0.4);
+      const sz=1.2+1.2*((p[2]+1)/2)+pulse*2;
+      ctx.beginPath();
+      ctx.arc(p[0],p[1],sz,0,Math.PI*2);
+      ctx.fillStyle=`rgba(${rgb[0]},${rgb[1]},${rgb[2]},${alpha})`;
+      ctx.fill();
+    }
+
+    // Draw floating labels
+    ctx.font='9px monospace';
+    ctx.textAlign='center';
+    for(let i=0;i<labels.length;i++){
+      const p=proj[labelNodes[i]];
+      const depth=(p[2]+1)/2;
+      const alpha=0.12+depth*0.15;
+      const yOff=Math.sin(t*0.001+labelPhase[i])*4;
+      ctx.fillStyle=`rgba(${rgb[0]},${rgb[1]},${rgb[2]},${alpha})`;
+      ctx.fillText(labels[i],p[0],p[1]-8+yOff);
+    }
+
+    raf=requestAnimationFrame(frame);
+  }
+  raf=requestAnimationFrame(frame);
+}
+
 function showLoginScreen(){
   document.querySelector('.ai-toggle').style.display='none';
+  const sb=document.querySelector('.status-bar');if(sb)sb.style.display='none';
   const app=document.getElementById('app');
-  app.style.cssText='display:flex;align-items:center;justify-content:center;height:100vh;background:var(--bg)';
+  app.style.cssText='display:flex;align-items:center;justify-content:center;height:100vh;background:var(--bg);position:relative;overflow:hidden';
   app.innerHTML=`
-    <div style="background:var(--panel);border:1px solid var(--border);padding:40px;width:320px;text-align:center">
+    <canvas id="login-globe" style="position:absolute;top:0;left:0;width:100%;height:100%;z-index:0"></canvas>
+    <div style="background:color-mix(in srgb,var(--panel) 92%,transparent);backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);border:1px solid var(--border);padding:40px;width:320px;text-align:center;position:relative;z-index:1">
       <div style="background:linear-gradient(135deg,var(--accent),#3a5eb8);padding:12px;font-weight:700;font-size:16px;color:var(--bg);margin-bottom:24px">SYP ANALYTICS</div>
       <div style="color:var(--muted);font-size:11px;margin-bottom:20px">Buckeye Pacific</div>
       <select id="login-trader" style="width:100%;padding:12px;margin-bottom:12px;text-align:center;font-size:14px">
@@ -369,14 +616,16 @@ function showLoginScreen(){
         <div style="color:var(--muted);font-size:9px;margin-top:4px">View pricing matrix only</div>
       </div>
     </div>`;
+  _startLoginGlobe();
   setTimeout(()=>document.getElementById('login-password')?.focus(),100);
 }
 
 function showMatrixLogin(){
   const app=document.getElementById('app');
-  app.style.cssText='display:flex;align-items:center;justify-content:center;height:100vh;background:var(--bg)';
+  app.style.cssText='display:flex;align-items:center;justify-content:center;height:100vh;background:var(--bg);position:relative;overflow:hidden';
   app.innerHTML=`
-    <div style="background:var(--panel);border:1px solid var(--border);padding:40px;width:320px;text-align:center">
+    <canvas id="login-globe" style="position:absolute;top:0;left:0;width:100%;height:100%;z-index:0"></canvas>
+    <div style="background:color-mix(in srgb,var(--panel) 92%,transparent);backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);border:1px solid var(--border);padding:40px;width:320px;text-align:center;position:relative;z-index:1">
       <div style="background:linear-gradient(135deg,var(--accent),#3a5eb8);padding:12px;font-weight:700;font-size:16px;color:var(--bg);margin-bottom:24px">PRICING MATRIX</div>
         <div style="color:var(--muted);font-size:11px;margin-bottom:20px">Enter PIN to view mill pricing</div>
         <input type="password" id="matrix-pin" placeholder="Enter PIN" style="width:100%;padding:12px;margin-bottom:16px;text-align:center;font-size:18px;letter-spacing:8px" maxlength="10" onkeydown="if(event.key==='Enter')doMatrixLogin()">
@@ -384,6 +633,7 @@ function showMatrixLogin(){
         <div id="matrix-login-error" style="color:var(--negative);font-size:11px;margin-top:12px"></div>
         <button class="btn btn-default btn-sm" style="margin-top:16px" onclick="showLoginScreen()">← Back to Login</button>
     </div>`;
+  _startLoginGlobe();
   setTimeout(()=>document.getElementById('matrix-pin')?.focus(),100);
 }
 
@@ -401,7 +651,7 @@ async function doMatrixLogin(){
     const data=await res.json();
     if(data.ok){
       sessionStorage.setItem('syp_matrix_only','true');
-      launchMatrixMode();
+      _triggerGlobeBurst(()=>launchMatrixMode());
     }else{
       errEl.textContent='Invalid PIN';
     }
@@ -533,7 +783,7 @@ async function doLogin(){
       passwords={...passwords,...cloudPwds};
       localStorage.setItem('traderPasswords',JSON.stringify(passwords));
     }
-  }catch(e){console.log('Could not fetch cloud passwords:',e)}
+  }catch(e){_dbg('Could not fetch cloud passwords:',e)}
 
   const stored=passwords[trader]||'';
 
@@ -567,13 +817,13 @@ async function doLogin(){
             body:JSON.stringify({data:pullRows[0].data})
           })
         }
-      }catch(e){console.log('Legacy hash migration sync failed:',e)}
+      }catch(e){_dbg('Legacy hash migration sync failed:',e)}
     }
     S.trader=trader;
     SS('trader',trader);
     sessionStorage.setItem('syp_logged_in','true');
     sessionStorage.setItem('syp_trader',trader);
-    location.reload();
+    _triggerGlobeBurst();
   }else{
     errEl.textContent='Incorrect password for '+trader;
   }
@@ -627,7 +877,7 @@ async function setupTraderPassword(){
 
     errEl.innerHTML=`<span style="color:var(--positive)">Password set for ${escapeHtml(trader)}! Now login above.</span>`;
   }catch(e){
-    console.log('Cloud sync failed:',e);
+    _dbg('Cloud sync failed:',e);
     errEl.innerHTML=`<span style="color:var(--positive)">Password set locally for ${escapeHtml(trader)}.</span>`;
   }
 
@@ -671,7 +921,7 @@ function closeMobileSidebar(){
 
 function updateMobileNav(){
   // Update active state on mobile nav
-  const views=['dashboard','trading','quotes','analytics','millintel'];
+  const views=['dashboard','trading','quotes','analytics','millintel','crm'];
   views.forEach(v=>{
     const el=document.getElementById('mnav-'+v);
     if(el){
@@ -680,16 +930,18 @@ function updateMobileNav(){
   });
 }
 
-function showToast(msg,type='info'){
+function showToast(msg,type='info',durationMs){
   let c=document.getElementById('toast-container');
   if(!c){c=document.createElement('div');c.id='toast-container';c.className='toast-container';document.body.appendChild(c)}
   const icons={positive:'✓',warn:'⚠',negative:'✗',info:'ℹ'};
+  const durations={positive:2000,info:3000,warn:4000,negative:5000};
+  const dur=durationMs||durations[type]||3000;
   const t=document.createElement('div');
   t.className='toast toast-'+type;
   t.innerHTML='<span class="toast-icon">'+(icons[type]||icons.info)+'</span><span class="toast-msg">'+escapeHtml(String(msg))+'</span><button class="toast-close" onclick="this.parentElement.remove()">×</button>';
   c.appendChild(t);
   requestAnimationFrame(()=>t.classList.add('toast-visible'));
-  setTimeout(()=>{t.classList.remove('toast-visible');setTimeout(()=>t.remove(),300)},3000);
+  setTimeout(()=>{t.classList.remove('toast-visible');setTimeout(()=>t.remove(),300)},dur);
 }
 
 // Toggle sidebar collapse

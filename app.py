@@ -130,6 +130,29 @@ def db_execute_with_retry(conn, sql, params=(), max_retries=3):
             else:
                 raise
 
+def validate_number(val, field_name, min_val=None, max_val=None, allow_none=True):
+    """Validate and coerce a numeric value. Returns (value, error_msg)."""
+    if val is None or val == '':
+        return (None, None) if allow_none else (None, f'{field_name} is required')
+    try:
+        num = float(val)
+    except (ValueError, TypeError):
+        return None, f'{field_name} must be a number'
+    if math.isnan(num) or math.isinf(num):
+        return None, f'{field_name} must be a finite number'
+    if min_val is not None and num < min_val:
+        return None, f'{field_name} must be >= {min_val}'
+    if max_val is not None and num > max_val:
+        return None, f'{field_name} must be <= {max_val}'
+    return num, None
+
+def require_json():
+    """Get JSON body or return 400."""
+    data = request.get_json()
+    if data is None:
+        return None, (jsonify({'error': 'Request body must be JSON'}), 400)
+    return data, None
+
 def init_crm_db():
     conn = get_crm_db()
     conn.executescript('''
@@ -974,8 +997,12 @@ def seed_mi_from_supabase():
             crm_conn.close()
 
         print("Cloud seed complete!")
+    except requests.exceptions.Timeout:
+        print("Cloud seed TIMEOUT — Supabase did not respond within 15s")
+    except requests.exceptions.ConnectionError:
+        print("Cloud seed CONNECTION ERROR — cannot reach Supabase")
     except Exception as e:
-        print(f"Cloud seed error: {e}")
+        print(f"Cloud seed error: {type(e).__name__}: {e}")
 
 def mi_extract_state(location):
     if not location:
@@ -1144,7 +1171,7 @@ def get_distance(origin_coords, dest_coords):
 # Single mileage lookup
 @app.route('/api/mileage', methods=['POST'])
 def mileage_lookup():
-    data = request.get_json()
+    data = request.get_json() or {}
     origin = data.get('origin', '')
     dest = data.get('dest', '')
     
@@ -1175,11 +1202,13 @@ def mileage_lookup():
 # Bulk mileage lookup
 @app.route('/api/mileage/bulk', methods=['POST'])
 def mileage_bulk():
-    data = request.get_json()
+    data = request.get_json() or {}
     lanes = data.get('lanes', [])
 
     if not lanes:
         return jsonify({'error': 'No lanes provided'}), 400
+    if len(lanes) > 50:
+        return jsonify({'error': 'Maximum 50 lanes per request'}), 400
 
     results = []
     # Pre-geocode shared destination (all lanes in a quote typically share the same dest)
@@ -1305,9 +1334,12 @@ def get_prospect(id):
 
 def create_prospect():
     try:
-        data = request.get_json()
+        data = request.get_json() or {}
+        company_name = (data.get('company_name') or '').strip()
+        if not company_name:
+            return jsonify({'error': 'company_name is required'}), 400
         conn = get_crm_db()
-        normalized_name = normalize_customer_name(data.get('company_name'))
+        normalized_name = normalize_customer_name(company_name)
 
         # Duplicate detection: check if prospect with same name already exists
         existing_prospect = conn.execute(
@@ -1367,7 +1399,7 @@ def create_prospect():
 
 def update_prospect(id):
     try:
-        data = request.get_json()
+        data = request.get_json() or {}
         conn = get_crm_db()
         # Only update fields that are present in the request (partial update support)
         # SECURITY: field names come from the hardcoded allowlist below, never from user input
@@ -1851,8 +1883,11 @@ def list_customers():
 
 def create_customer():
     try:
-        data = request.get_json()
-        normalized_name = normalize_customer_name(data.get('name'))
+        data = request.get_json() or {}
+        name = (data.get('name') or '').strip()
+        if not name:
+            return jsonify({'error': 'name is required'}), 400
+        normalized_name = normalize_customer_name(name)
         conn = get_crm_db()
         # Check if customer already exists with this normalized name
         existing = conn.execute('SELECT * FROM customers WHERE name = ?', (normalized_name,)).fetchone()
@@ -1888,7 +1923,7 @@ def create_customer():
 
 def update_customer(id):
     try:
-        data = request.get_json()
+        data = request.get_json() or {}
         conn = get_crm_db()
         # Only update fields that are present in the request (partial update support)
         # SECURITY: field names come from the hardcoded allowlist below, never from user input
@@ -1981,8 +2016,10 @@ def list_mills():
 
 def create_mill():
     try:
-        data = request.get_json()
-        name = data.get('name', '').strip()
+        data = request.get_json() or {}
+        name = (data.get('name') or '').strip()
+        if not name:
+            return jsonify({'error': 'name is required'}), 400
         # Use extract_company_name to canonicalize
         company = extract_company_name(name) if name else name
         conn = get_crm_db()
@@ -2028,7 +2065,7 @@ def create_mill():
 
 def update_mill(id):
     try:
-        data = request.get_json()
+        data = request.get_json() or {}
         conn = get_crm_db()
         # Only update fields that are present in the request (partial update support)
         # SECURITY: field names come from the hardcoded allowlist below, never from user input
@@ -2407,6 +2444,52 @@ def parse_pdf():
 def health():
     return jsonify({'status': 'ok', 'cache_size': len(geo_cache)})
 
+@app.route('/health/mi')
+def health_mi():
+    """Mill Intel health check — verifies SQLite has data and reports counts."""
+    try:
+        mi_conn = get_mi_db()
+        quote_count = mi_conn.execute("SELECT COUNT(*) FROM mill_quotes").fetchone()[0]
+        mill_count = mi_conn.execute("SELECT COUNT(*) FROM mills").fetchone()[0]
+        latest_row = mi_conn.execute("SELECT MAX(date) as latest FROM mill_quotes").fetchone()
+        latest_date = latest_row['latest'] if latest_row else None
+        mi_conn.close()
+
+        crm_conn = get_crm_db()
+        crm_mill_count = crm_conn.execute("SELECT COUNT(*) FROM mills").fetchone()[0]
+        crm_cust_count = crm_conn.execute("SELECT COUNT(*) FROM customers").fetchone()[0]
+        crm_conn.close()
+
+        status = 'ok' if quote_count > 0 else 'empty'
+        return jsonify({
+            'status': status,
+            'mi_quotes': quote_count,
+            'mi_mills': mill_count,
+            'latest_quote_date': latest_date,
+            'crm_mills': crm_mill_count,
+            'crm_customers': crm_cust_count
+        })
+    except Exception as e:
+        return jsonify({'status': 'error', 'error': str(e)}), 500
+
+@app.route('/api/mi/reseed', methods=['POST'])
+def mi_reseed():
+    """Manually trigger MI re-seed from Supabase cloud data."""
+    try:
+        # Clear existing quotes to force re-seed
+        mi_conn = get_mi_db()
+        mi_conn.execute("DELETE FROM mill_quotes")
+        mi_conn.commit()
+        mi_conn.close()
+        seed_mi_from_supabase()
+        # Report results
+        mi_conn = get_mi_db()
+        new_count = mi_conn.execute("SELECT COUNT(*) FROM mill_quotes").fetchone()[0]
+        mi_conn.close()
+        return jsonify({'status': 'ok', 'quotes_seeded': new_count})
+    except Exception as e:
+        return jsonify({'status': 'error', 'error': str(e)}), 500
+
 # ==================== AUTH ENDPOINTS ====================
 
 @app.route('/api/auth/login', methods=['POST'])
@@ -2760,6 +2843,8 @@ def mi_list_quotes():
 
 def mi_submit_quotes():
     data = request.get_json()
+    if data is None:
+        return jsonify({'error': 'Request body must be JSON'}), 400
     quotes = data if isinstance(data, list) else [data]
     conn = get_mi_db()
     created = []
@@ -2845,7 +2930,9 @@ def mi_submit_quotes():
                ship_window, notes, date, trader, source, raw_text)
                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (mill_id, mill_name, product, price_val,
-             q.get('length', 'RL'), float(q.get('volume', 0)), int(q.get('tls', 0)),
+             q.get('length', 'RL'),
+             max(0, float(q.get('volume', 0) or 0)),
+             max(0, int(float(q.get('tls', 0) or 0))),
              q.get('shipWindow', q.get('ship_window', '')) or 'Prompt', q.get('notes', ''),
              q.get('date', today_date),  # Preserve original date for syncs, default to today
              q.get('trader', 'Unknown'), q.get('source', 'manual'), q.get('raw_text', ''))

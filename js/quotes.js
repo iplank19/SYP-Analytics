@@ -316,12 +316,12 @@ function applyProfitAdder(){
 }
 
 function clearQuoteItems(){
-  if(confirm('Clear all quote items?')){
+  showConfirm('Clear all quote items?',()=>{
     S.quoteItems=[];
     save('quoteItems',S.quoteItems);
     saveCurrentProfileSelections();
     render();
-  }
+  });
 }
 
 function loadFromInventory(){
@@ -1650,15 +1650,13 @@ function deleteCurrentProfile(){
     return;
   }
   
-  if(!confirm(`Delete profile "${S.quoteProfiles[profileId]?.name}"?`))return;
-  
-  delete S.quoteProfiles[profileId];
-  save('quoteProfiles',S.quoteProfiles);
-  
-  S.quoteProfile='default';
-  save('quoteProfile','default');
-  
-  switchQuoteProfile('default');
+  showConfirm('Delete profile "'+escapeHtml(S.quoteProfiles[profileId]?.name||'')+'"?',()=>{
+    delete S.quoteProfiles[profileId];
+    save('quoteProfiles',S.quoteProfiles);
+    S.quoteProfile='default';
+    save('quoteProfile','default');
+    switchQuoteProfile('default');
+  });
 }
 
 function saveCurrentProfileSelections(){

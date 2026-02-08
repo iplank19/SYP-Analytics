@@ -146,7 +146,20 @@ function renderDashboardCharts(){
       {label:'Central',data:sliced.map(r=>(r.central&&r.central['2x4#2'])||null),borderColor:'#f9e2af',backgroundColor:hexToGradient('#f9e2af',canvasCtx,h),tension:0.3,fill:true,pointRadius:3,borderWidth:2},
       {label:'East',data:sliced.map(r=>(r.east&&r.east['2x4#2'])||null),borderColor:'#89dceb',backgroundColor:hexToGradient('#89dceb',canvasCtx,h),tension:0.3,fill:true,pointRadius:3,borderWidth:2}
     ]},
-    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{color:'#a0a0b8',font:{size:11,family:'Inter'}}},tooltip:{mode:'index',intersect:false,backgroundColor:'#2a2a3c',titleColor:'#f5f5f7',bodyColor:'#f5f5f7',borderColor:'#3e3e56',borderWidth:1}},scales:{x:{ticks:{color:'#a0a0b8',font:{size:10}},grid:{color:'rgba(62,62,86,0.8)'}},y:{ticks:{color:'#a0a0b8',font:{size:10},callback:v=>'$'+v},grid:{color:'rgba(62,62,86,0.8)'}}}}
+    options:{responsive:true,maintainAspectRatio:false,onClick:(evt,elements)=>{
+      if(!elements.length)return;
+      const idx=elements[0].index;
+      const rlDate=sliced[idx]?.date;
+      if(!rlDate)return;
+      const d=new Date(rlDate);
+      const start=new Date(d);start.setDate(start.getDate()-3);
+      const end=new Date(d);end.setDate(end.getDate()+3);
+      const trades=[
+        ...S.buys.filter(b=>{const bd=new Date(b.date);return bd>=start&&bd<=end}).map(b=>({...b,_type:'buy'})),
+        ...S.sells.filter(s=>{const sd=new Date(s.date);return sd>=start&&sd<=end}).map(s=>({...s,_type:'sell'}))
+      ].sort((a,b)=>new Date(b.date)-new Date(a.date));
+      if(typeof showDrillDown==='function')showDrillDown('Trades near '+fmtD(rlDate),trades);
+    },plugins:{legend:{labels:{color:'#a0a0b8',font:{size:11,family:'Inter'}}},tooltip:{mode:'index',intersect:false,backgroundColor:'#2a2a3c',titleColor:'#f5f5f7',bodyColor:'#f5f5f7',borderColor:'#3e3e56',borderWidth:1}},scales:{x:{ticks:{color:'#a0a0b8',font:{size:10}},grid:{color:'rgba(62,62,86,0.8)'}},y:{ticks:{color:'#a0a0b8',font:{size:10},callback:v=>'$'+v},grid:{color:'rgba(62,62,86,0.8)'}}}}
   });
 }
 

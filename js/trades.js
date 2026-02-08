@@ -1,5 +1,10 @@
 // SYP Analytics - Trade CRUD & Blotter Functions
 async function saveBuy(id){
+  const _btn=document.querySelector('#modal .modal-footer .btn-success');
+  btnLoading(_btn);
+  try{return await _saveBuyInner(id)}finally{btnLoading(_btn,false)}
+}
+async function _saveBuyInner(id){
   const product=document.getElementById('m-product').value;
   const isMSR=product.toUpperCase().includes('MSR')||product.toUpperCase().includes('2400');
   const lengthVal=document.getElementById('m-length').value;
@@ -151,7 +156,7 @@ async function saveBuy(id){
     tally:tally
   };
   
-  if(!b.product||!b.price||!b.volume){showToast('Fill required fields (product, price, volume)','warn');return}
+  if(!validateBuyForm()){showToast('Please fix highlighted fields','warn');return}
   // Warn on duplicate order number (different buy) - with fuzzy matching
   if(b.orderNum){
     const normalizedNew=normalizeOrderNum(b.orderNum);
@@ -181,6 +186,11 @@ async function saveBuy(id){
 }
 
 async function saveSell(id){
+  const _btn=document.querySelector('#modal .modal-footer .btn-success');
+  btnLoading(_btn);
+  try{return await _saveSellInner(id)}finally{btnLoading(_btn,false)}
+}
+async function _saveSellInner(id){
   const customer=normalizeCustomerName(document.getElementById('m-cust').value);
   const destination=document.getElementById('m-dest').value;
 
@@ -315,7 +325,7 @@ async function saveSell(id){
     tally:tally
   };
   
-  if(!s.product||!s.price||!s.volume){showToast('Fill required fields (product, price, volume)','warn');return}
+  if(!validateSellForm()){showToast('Please fix highlighted fields','warn');return}
   // Warn on duplicate order number (different sell) - with fuzzy matching
   if(s.orderNum){
     const normalizedNew=normalizeOrderNum(s.orderNum);
@@ -354,6 +364,11 @@ async function saveRL(){
 }
 
 async function saveCust(oldName){
+  const _btn=document.querySelector('#modal .modal-footer .btn-success');
+  btnLoading(_btn);
+  try{return await _saveCustInner(oldName)}finally{btnLoading(_btn,false)}
+}
+async function _saveCustInner(oldName){
   const locations=[...document.querySelectorAll('.cust-loc')].map(el=>el.value.trim()).filter(Boolean);
   const assignedTrader=S.trader==='Admin'?(document.getElementById('m-trader')?.value||'Ian P'):S.trader;
   const c={name:normalizeCustomerName(document.getElementById('m-name').value),contact:document.getElementById('m-contact')?.value||'',phone:document.getElementById('m-phone')?.value||'',email:document.getElementById('m-email')?.value||'',locations:locations,destination:locations[0]||'',notes:document.getElementById('m-terms')?.value||'',trader:assignedTrader};
@@ -426,6 +441,11 @@ function addMillLocation(){
 }
 
 async function saveMill(oldName){
+  const _btn=document.querySelector('#modal .modal-footer .btn-success');
+  btnLoading(_btn);
+  try{return await _saveMillInner(oldName)}finally{btnLoading(_btn,false)}
+}
+async function _saveMillInner(oldName){
   const locStrings=[...document.querySelectorAll('.mill-loc')].map(el=>el.value.trim()).filter(Boolean);
   const millName=normalizeMillCompany(document.getElementById('m-name').value);
   const locations=locStrings.map(l=>{
@@ -476,37 +496,39 @@ function editCust(name){
 }
 
 async function deleteCust(name){
-  if(!confirm(`Delete customer "${name}"? This won't delete their trades.`))return;
-  try{
-    const c=S.customers.find(x=>x.name===name);
-    if(c&&typeof logCRMAction==='function')logCRMAction('delete','customer',c)
-    if(c?.id)await fetch('/api/crm/customers/'+c.id,{method:'DELETE'});
-    S.customers=S.customers.filter(x=>x.name!==name);
-    await saveAllLocal();
-    showToast('Customer deleted','positive');
-    loadCRMData();
-  }catch(e){showToast('Error deleting customer: '+e.message,'negative')}
+  showConfirm(`Delete customer "${escapeHtml(name)}"? This won't delete their trades.`,async()=>{
+    try{
+      const c=S.customers.find(x=>x.name===name);
+      if(c&&typeof logCRMAction==='function')logCRMAction('delete','customer',c)
+      if(c?.id){const res=await fetch('/api/crm/customers/'+c.id,{method:'DELETE'});if(!res.ok)throw new Error('Server error '+res.status)}
+      S.customers=S.customers.filter(x=>x.name!==name);
+      await saveAllLocal();
+      showToast('Customer deleted','positive');
+      loadCRMData();
+    }catch(e){showToast('Error deleting customer: '+e.message,'negative')}
+  });
 }
 
 async function deleteMill(name){
-  if(!confirm(`Delete mill "${name}"? This won't delete their trades.`))return;
-  try{
-    const m=S.mills.find(x=>x.name===name);
-    if(m&&typeof logCRMAction==='function')logCRMAction('delete','mill',m)
-    if(m?.id)await fetch('/api/crm/mills/'+m.id,{method:'DELETE'});
-    S.mills=S.mills.filter(x=>x.name!==name);
-    await saveAllLocal();
-    showToast('Mill deleted','positive');
-    loadCRMData();
-  }catch(e){showToast('Error deleting mill: '+e.message,'negative')}
+  showConfirm(`Delete mill "${escapeHtml(name)}"? This won't delete their trades.`,async()=>{
+    try{
+      const m=S.mills.find(x=>x.name===name);
+      if(m&&typeof logCRMAction==='function')logCRMAction('delete','mill',m)
+      if(m?.id){const res=await fetch('/api/crm/mills/'+m.id,{method:'DELETE'});if(!res.ok)throw new Error('Server error '+res.status)}
+      S.mills=S.mills.filter(x=>x.name!==name);
+      await saveAllLocal();
+      showToast('Mill deleted','positive');
+      loadCRMData();
+    }catch(e){showToast('Error deleting mill: '+e.message,'negative')}
+  });
 }
 
 function editBuy(id){showBuyModal(S.buys.find(b=>b.id===id))}
 function editSell(id){showSellModal(S.sells.find(s=>s.id===id))}
 function dupBuy(id){const b=S.buys.find(x=>x.id===id);if(b)showBuyModal({...b,id:null,date:today()})}
 function dupSell(id){const s=S.sells.find(x=>x.id===id);if(s)showSellModal({...s,id:null,date:today()})}
-async function delBuy(id){if(!confirm('Delete?'))return;const t=S.buys.find(b=>b.id===id);if(t&&typeof logTradeDeleted==='function')logTradeDeleted('buy',t);S.buys=S.buys.filter(b=>b.id!==id);await saveAllLocal();render()}
-async function delSell(id){if(!confirm('Delete?'))return;const t=S.sells.find(s=>s.id===id);if(t&&typeof logTradeDeleted==='function')logTradeDeleted('sell',t);S.sells=S.sells.filter(s=>s.id!==id);await saveAllLocal();render()}
+async function delBuy(id){showConfirm('Delete this buy trade?',async()=>{const t=S.buys.find(b=>b.id===id);if(t&&typeof logTradeDeleted==='function')logTradeDeleted('buy',t);S.buys=S.buys.filter(b=>b.id!==id);await saveAllLocal();render()})}
+async function delSell(id){showConfirm('Delete this sell trade?',async()=>{const t=S.sells.find(s=>s.id===id);if(t&&typeof logTradeDeleted==='function')logTradeDeleted('sell',t);S.sells=S.sells.filter(s=>s.id!==id);await saveAllLocal();render()})}
 async function cancelBuy(id){
   const b=S.buys.find(x=>x.id===id);
   if(!b)return;
@@ -521,7 +543,7 @@ async function cancelSell(id){
   else{s.status='cancelled';showToast('Sell cancelled','warn')}
   await saveAllLocal();render();
 }
-async function delRL(d){if(!confirm('Delete?'))return;S.rl=S.rl.filter(r=>r.date!==d);await saveAllLocal();render()}
+async function delRL(d){showConfirm('Delete this RL data?',async()=>{S.rl=S.rl.filter(r=>r.date!==d);await saveAllLocal();render()})}
 
 // Blotter sorting and filtering
 function setBlotterFilter(key,val){
@@ -603,6 +625,24 @@ function toggleSort(col){
     S.blotterSort.col=col;
     S.blotterSort.dir='desc';
   }
+  render();
+}
+function togglePnlSort(col){
+  if(!S.pnlSort)S.pnlSort={col:'tradePnl',dir:'desc'};
+  if(S.pnlSort.col===col){S.pnlSort.dir=S.pnlSort.dir==='asc'?'desc':'asc'}
+  else{S.pnlSort={col,dir:'desc'}}
+  render();
+}
+function toggleCrmSort(col){
+  if(!S.crmSort)S.crmSort={col:'name',dir:'asc'};
+  if(S.crmSort.col===col){S.crmSort.dir=S.crmSort.dir==='asc'?'desc':'asc'}
+  else{S.crmSort={col,dir:'asc'}}
+  render();
+}
+function toggleDashPosSort(col){
+  if(!S.dashPosSort)S.dashPosSort={col:'product',dir:'asc'};
+  if(S.dashPosSort.col===col){S.dashPosSort.dir=S.dashPosSort.dir==='asc'?'desc':'asc'}
+  else{S.dashPosSort={col,dir:'desc'}}
   render();
 }
 
@@ -697,6 +737,7 @@ async function fetchLiveFutures(){
   if(statusEl)statusEl.innerHTML='<span style="color:var(--muted)">Fetching live quotes...</span>';
   try{
     const r=await fetch('/api/futures/quotes');
+    if(!r.ok)throw new Error('Futures API error: '+r.status);
     const data=await r.json();
     if(!data||!data.contracts||!data.contracts.length){
       if(statusEl)statusEl.innerHTML='<span style="color:var(--negative)">No live data available</span>';

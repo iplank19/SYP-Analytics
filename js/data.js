@@ -80,7 +80,7 @@ async function loadSupabaseConfig(){
         return
       }
     }
-  }catch(e){console.debug('Backend config not available:',e.message)}
+  }catch(e){_dbg('Backend config not available:',e.message)}
   // Fall back to user-configured values from localStorage
   if(SUPABASE_URL&&SUPABASE_KEY){
     _supabaseConfigLoaded=true
@@ -165,7 +165,7 @@ async function cloudSync(action='push',opts={}){
       try{
         const pRes=await fetch('/api/crm/prospects')
         if(pRes.ok)prospectBackup=await pRes.json()
-      }catch(e){console.debug('Prospect backup fetch skipped:',e.message)}
+      }catch(e){_dbg('Prospect backup fetch skipped:',e.message)}
 
       // Upload local data to cloud
       const data={
@@ -483,7 +483,7 @@ async function syncRLToMillIntel(){
         resolve();
       }catch(e){
         // Mill Intel may not be running — that's OK
-        console.debug('Mill Intel not reachable:',e.message);
+        _dbg('Mill Intel not reachable:',e.message);
         resolve();
       }
     },3000);
@@ -511,7 +511,7 @@ async function syncMillQuotesToMillIntel(){
       })))
     });
   }catch(e){
-    console.debug('Mill Intel quote sync skip:',e.message);
+    _dbg('Mill Intel quote sync skip:',e.message);
   }
 }
 
@@ -574,6 +574,7 @@ async function syncCustomersToServer(customers){
   try{
     // Check against ALL server customers (no trader filter) to prevent cross-trader dupes
     const res=await fetch('/api/crm/customers');
+    if(!res.ok)throw new Error('Failed to fetch customers: '+res.status);
     const existing=await res.json();
     const existingNames=new Set(existing.map(c=>c.name));
     // Insert any customers not already in SQLite
@@ -599,6 +600,7 @@ async function syncMillsToServer(mills){
   try{
     // Check against ALL server mills (no trader filter) to prevent cross-trader dupes
     const res=await fetch('/api/crm/mills');
+    if(!res.ok)throw new Error('Failed to fetch mills: '+res.status);
     const existing=await res.json();
     const existingNames=new Set(existing.map(m=>m.name));
     for(const m of mills){
