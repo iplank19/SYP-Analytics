@@ -2440,6 +2440,14 @@ def parse_pdf():
         return jsonify({'error': f'Failed to parse PDF: {str(e)}'}), 400
 
 # Health check for Railway
+@app.route('/api/po/seed')
+def po_seed():
+    """Serve pre-parsed PO history seed data from po-seed.json."""
+    seed_path = os.path.join(os.path.dirname(__file__), 'po-seed.json')
+    if os.path.exists(seed_path):
+        return send_from_directory(os.path.dirname(__file__), 'po-seed.json', mimetype='application/json')
+    return jsonify([])
+
 @app.route('/health')
 def health():
     return jsonify({'status': 'ok', 'cache_size': len(geo_cache)})

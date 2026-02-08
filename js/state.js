@@ -698,7 +698,7 @@ function normalizeMillQuotes(){
   if(changed)save('millQuotes',S.millQuotes)
 }
 
-const NAV=[{id:'dashboard',icon:'📊',label:'Dashboard'},{id:'trading',icon:'📋',label:'Trading'},{id:'quotes',icon:'💰',label:'Quotes'},{id:'millintel',icon:'📥',label:'Mill Intel'},{id:'analytics',icon:'📈',label:'Analytics'},{id:'crm',icon:'🏢',label:'CRM'},{id:'settings',icon:'⚙️',label:'Settings'}];
+const NAV=[{id:'dashboard',icon:'📊',label:'Dashboard'},{id:'trading',icon:'📋',label:'Trading'},{id:'quotes',icon:'💰',label:'Quotes'},{id:'millintel',icon:'📥',label:'Mill Intel'},{id:'analytics',icon:'📈',label:'Analytics'},{id:'poanalysis',icon:'📦',label:'PO Analysis'},{id:'crm',icon:'🏢',label:'CRM'},{id:'settings',icon:'⚙️',label:'Settings'}];
 
 // Nav groups removed — sidebar is now a flat list
 const NAV_GROUPS=null;
@@ -785,7 +785,11 @@ let S={
   miFilterDays:7,
   miQuoteCustomer:'',
   miQuoteItems:[],
-  quoteTemplates:LS('quoteTemplates',[])
+  quoteTemplates:LS('quoteTemplates',[]),
+  // PO Analysis
+  poHistory:LS('poHistory',[]),
+  poTab:LS('poTab','trends'),
+  poFilters:LS('poFilters',{})
 };
 
 // Migrate bad model IDs

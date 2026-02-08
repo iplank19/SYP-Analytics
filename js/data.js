@@ -203,6 +203,8 @@ async function cloudSync(action='push',opts={}){
         // Reports
         reportSchedules:S.reportSchedules||[],
         reportHistory:S.reportHistory||[],
+        // PO Analysis
+        poHistory:S.poHistory||[],
         // Prospect backup (SQLite → cloud safety net)
         prospectBackup,
         updated_at:new Date().toISOString()
@@ -321,6 +323,8 @@ async function cloudSync(action='push',opts={}){
         // Reports
         if(d.reportSchedules){S.reportSchedules=d.reportSchedules;SS('reportSchedules',S.reportSchedules)}
         if(d.reportHistory){S.reportHistory=d.reportHistory;SS('reportHistory',S.reportHistory)}
+        // PO Analysis
+        if(d.poHistory){S.poHistory=d.poHistory;SS('poHistory',S.poHistory)}
         // Save cloud data locally (skip cloud push — we just pulled, don't push back)
         _isPulling=true; // keeps the debounced push from firing
         await saveAllLocal();
@@ -370,7 +374,8 @@ async function saveAllLocal(){
     dbSet('millQuotes',S.millQuotes),dbSet('riskLimits',S.riskLimits||{}),
     dbSet('signalConfig',S.signalConfig||null),dbSet('signalHistory',S.signalHistory||[]),
     dbSet('alertConfig',S.alertConfig||null),dbSet('alertHistory',S.alertHistory||[]),
-    dbSet('reportSchedules',S.reportSchedules||[]),dbSet('reportHistory',S.reportHistory||[])
+    dbSet('reportSchedules',S.reportSchedules||[]),dbSet('reportHistory',S.reportHistory||[]),
+    dbSet('poHistory',S.poHistory||[])
   ])
   // localStorage (backup for small data)
   SS('buys',S.buys)
@@ -525,7 +530,8 @@ async function loadAllLocal(){
          marketBlurb,shortHaulFloor,freightBase,
          futuresContracts,futuresParams,millQuotes,
          riskLimits,signalConfig,signalHistory,
-         alertConfig,alertHistory,reportSchedules,reportHistory
+         alertConfig,alertHistory,reportSchedules,reportHistory,
+         poHistory
   ]=await Promise.all([
     dbGet('buys',LS('buys',[])),
     dbGet('sells',LS('sells',[])),
@@ -551,7 +557,8 @@ async function loadAllLocal(){
     dbGet('alertConfig',LS('alertConfig',null)),
     dbGet('alertHistory',LS('alertHistory',[])),
     dbGet('reportSchedules',LS('reportSchedules',[])),
-    dbGet('reportHistory',LS('reportHistory',[]))
+    dbGet('reportHistory',LS('reportHistory',[])),
+    dbGet('poHistory',LS('poHistory',[]))
   ]);
   S.buys=buys;S.sells=sells;S.rl=rl;S.customers=customers;S.mills=mills;
   S.nextId=nextId;S.flatRate=flatRate;S.lanes=lanes;
@@ -565,6 +572,7 @@ async function loadAllLocal(){
   S.signalConfig=signalConfig;S.signalHistory=signalHistory;
   S.alertConfig=alertConfig;S.alertHistory=alertHistory;
   S.reportSchedules=reportSchedules;S.reportHistory=reportHistory;
+  S.poHistory=poHistory;
 }
 
 // Sync pulled customers/mills into SQLite so loadCRMData finds them
@@ -621,7 +629,7 @@ async function syncMillsToServer(mills){
 
 // Enhanced save function that saves to IndexedDB
 // Keys in ALWAYS_SYNC will trigger cloud sync regardless of autoSync setting
-const ALWAYS_SYNC_KEYS = ['lanes', 'buys', 'sells', 'customers', 'mills', 'freightBase', 'stateRates'];
+const ALWAYS_SYNC_KEYS = ['lanes', 'buys', 'sells', 'customers', 'mills', 'freightBase', 'stateRates', 'poHistory'];
 
 async function save(key,value){
   S[key]=value;

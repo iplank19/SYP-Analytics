@@ -14,6 +14,7 @@ function renderBreadcrumbs(){
     quotes:{stateKey:'quoteTab',tabs:{build:'Build',source:'Source'}},
     millintel:{stateKey:'miTab',tabs:{intake:'Intake',prices:'Prices'}},
     analytics:{stateKey:'analyticsTab',tabs:{briefing:'Briefing',benchmark:'vs Market',risk:'Risk',rldata:'RL Data'}},
+    poanalysis:{stateKey:'poTab',tabs:{trends:'Trends',data:'Data'}},
     crm:{stateKey:'crmTab',tabs:{prospects:'Prospects',customers:'Customers',mills:'Mills'}}
   };
   let crumb=`<span class="bc-current">${navItem.label}</span>`;
@@ -32,6 +33,28 @@ function renderMkt(){
   document.getElementById('mkt-c').textContent=rl?.central?.['2x4#2']?fmt(rl.central['2x4#2']):'—';
   document.getElementById('mkt-e').textContent=rl?.east?.['2x4#2']?fmt(rl.east['2x4#2']):'—';
   document.getElementById('mkt-d').textContent=rl?.date||'';
+}
+
+function _renderStaleRLBanner(){
+  if(S._rlBannerDismissed)return '';
+  const _now=Date.now();
+  let msg='',showDismiss=false;
+  if(!S.rl||!S.rl.length){
+    msg='No Random Lengths data uploaded yet — prices and analytics need RL data.';
+  }else{
+    const latest=S.rl[S.rl.length-1];
+    const age=Math.floor((_now-new Date(latest.date).getTime())/86400000);
+    if(age>7){
+      msg=`Random Lengths data is ${age} days old (${latest.date}) — update for accurate pricing.`;
+      showDismiss=true;
+    }else return '';
+  }
+  return `<div style="display:flex;align-items:center;gap:12px;padding:10px 16px;margin-bottom:12px;border-radius:var(--radius);border:1px solid rgba(243,139,168,0.25);background:rgba(240,136,62,0.08)">
+    <span style="font-size:18px;flex-shrink:0">⚠️</span>
+    <span style="flex:1;color:#f0883e;font-size:13px;font-weight:500">${msg}</span>
+    <button class="btn btn-sm btn-primary" onclick="showParseModal()" style="white-space:nowrap">Upload RL PDF</button>
+    ${showDismiss?'<button class="btn btn-sm btn-default" onclick="S._rlBannerDismissed=true;render()" style="white-space:nowrap">Dismiss</button>':''}
+  </div>`;
 }
 
 function renderSkeleton(){
@@ -134,7 +157,7 @@ function renderAIPanel(){
     msgs.innerHTML='<div class="empty-state" style="font-size:10px;padding:20px">Ask me anything about your trading data.<br><br>Examples:<br>• "How am I doing vs market?"<br>• "Which customers are most profitable?"<br>• "What\'s my margin by product?"</div>';
     return;
   }
-  msgs.innerHTML=S.aiMsgs.map(m=>`<div class="ai-msg ${m.role}">${m.role==='user'?escapeHtml(m.content):renderMarkdown(m.content)}</div>`).join('');
+  msgs.innerHTML=S.aiMsgs.filter(m=>!m.hidden).map(m=>`<div class="ai-msg ${m.role}">${m.role==='user'?escapeHtml(m.content):renderMarkdown(m.content)}</div>`).join('');
   msgs.scrollTop=msgs.scrollHeight;
 }
 
@@ -425,6 +448,9 @@ function render(){
     // --- Build dashboard sections ---
     const _sections={};
 
+    // Stale RL Banner
+    _sections['stale-rl']=_renderStaleRLBanner();
+
     // KPI Cards Row
     _sections['kpis']=`
       <div class="kpi-row">
@@ -589,7 +615,7 @@ function render(){
     }).join('')+'</div>';
     const _visibleOrder=_order.filter(id=>!S.dashboardHidden.includes(id));
 
-    c.innerHTML=_dashTabBar+_widgetBar+_visibleOrder.map(id=>'<div class="dash-section" data-section="'+id+'" draggable="true" ondragstart="dashDragStart(event)" ondragover="dashDragOver(event)" ondrop="dashDrop(event)" ondragend="dashDragEnd(event)"><span class="dash-drag-handle" title="Drag to reorder">&#8942;&#8942;</span>'+_sections[id]+'</div>').join('')+'<div style="margin-top:16px;text-align:right"><button class="btn btn-info" onclick="exportPDF()">Export PDF</button></div>';
+    c.innerHTML=_dashTabBar+_sections['stale-rl']+_widgetBar+_visibleOrder.map(id=>'<div class="dash-section" data-section="'+id+'" draggable="true" ondragstart="dashDragStart(event)" ondragover="dashDragOver(event)" ondrop="dashDrop(event)" ondragend="dashDragEnd(event)"><span class="dash-drag-handle" title="Drag to reorder">&#8942;&#8942;</span>'+_sections[id]+'</div>').join('')+'<div style="margin-top:16px;text-align:right"><button class="btn btn-info" onclick="exportPDF()">Export PDF</button></div>';
     }
     else {
     // Enhanced Department Leaderboard with time periods, achievements, goals
@@ -2676,6 +2702,10 @@ function render(){
       }
       renderPnLBarChart(labels,data);
     },10);
+  }
+  else if(S.view==='poanalysis'){
+    renderPOAnalysis();
+    setTimeout(renderPOCharts,10);
   }
   else if(S.view==='settings'){
     const sbUrl=LS('supabaseUrl','')||(typeof DEFAULT_SUPABASE_URL!=='undefined'?DEFAULT_SUPABASE_URL:'');

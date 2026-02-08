@@ -57,6 +57,7 @@ const AI_TOOLS=[
   {name:'generate_briefing',desc:'Generate daily trading briefing',params:[]},
   // Mill Pricing
   {name:'add_mill_quote',desc:'Add a mill pricing quote',params:['mill','product','price','length','volume','tls','shipWindow','notes']},
+  {name:'parse_mill_prices',desc:'Parse a pasted mill price list (multiple quotes) and save all quotes to Mill Intel. Use when user pastes a price sheet or list of mill prices.',params:['text']},
   {name:'get_mill_prices',desc:'Get current mill prices for a product or all products',params:['product','mill']},
   {name:'get_best_mill_price',desc:'Get the cheapest mill offer for a product',params:['product']},
   // Utility
@@ -95,7 +96,7 @@ const AI_TOOLS=[
   {name:'get_spread_analysis',desc:'Get spread analysis',params:[]}
 ];
 
-function executeAITool(name,params){
+async function executeAITool(name,params){
   try{
     switch(name){
       case 'create_buy':{
@@ -557,6 +558,22 @@ function executeAITool(name,params){
         }
         return{success:true,message:`Added mill quote: ${mq.mill} ${mq.product} @ $${mq.price}`};
       }
+      case 'parse_mill_prices':{
+        if(!params.text)return{success:false,message:'text parameter required — paste the mill price list'};
+        if(!S.apiKey)return{success:false,message:'Claude API key not set — go to Settings first'};
+        const parsed=await miAiParseMillPriceList(params.text);
+        if(!parsed||!parsed.length)return{success:false,message:'AI could not parse any quotes from the provided text'};
+        for(const q of parsed){
+          q.mill=miNormalizeMillName(q.mill);
+          if(q.mill){const dc=miInferMillCity(q.mill);if(dc)q.city=dc;else if(!q.city)q.city='';}
+          if(!q.length)q.length='RL';
+          q.source='ai-chat';
+        }
+        await miSubmitQuotes(parsed);
+        const mills=[...new Set(parsed.map(q=>q.mill).filter(Boolean))];
+        const summary=parsed.slice(0,8).map(q=>`${q.mill} ${q.product} ${q.length}: $${q.price}`).join('\n');
+        return{success:true,message:`Saved ${parsed.length} quotes from ${mills.length} mill(s):\n${summary}${parsed.length>8?'\n...'+(parsed.length-8)+' more':''}`};
+      }
       case 'get_mill_prices':{
         const latest=typeof getLatestMillQuotes==='function'?getLatestMillQuotes({product:params.product||undefined,mill:params.mill||undefined}):[];
         if(!latest.length)return{success:true,message:'No mill quotes in database',data:[]};
@@ -863,7 +880,7 @@ When analyzing data, use the analytical tools (get_matched_trades, analyze_margi
 }
 
 async function runAIWithTools(systemCtx,userMsg,depth=0){
-  if(depth>5){S.aiMsgs.push({role:'assistant',content:'I\'ve reached the maximum number of tool calls for this request. Here\'s what I\'ve done so far.'});SS('aiMsgs',S.aiMsgs);render();return}
+  if(depth>10){S.aiMsgs.push({role:'assistant',content:'I\'ve reached the maximum number of tool calls for this request. Here\'s what I\'ve done so far.'});SS('aiMsgs',S.aiMsgs);render();return}
 
   const messages=S.aiMsgs.slice(-12).map(m=>({role:m.role,content:m.content}));
 
@@ -960,22 +977,23 @@ async function runAIWithTools(systemCtx,userMsg,depth=0){
       // Execute tools
       const results=[];
       for(const tc of toolCalls){
-        const result=executeAITool(tc.tool,tc.params||{});
+        const result=await executeAITool(tc.tool,tc.params||{});
         results.push({tool:tc.tool,result});
       }
 
-      // Clean tool blocks from the streamed reply
+      // Clean tool blocks from the streamed reply — hide if only mechanics remain
       let cleanReply=reply.replace(/```tool[\s\S]*?```/g,'').trim();
       S.aiMsgs[streamIdx].content=cleanReply;
+      if(!cleanReply)S.aiMsgs[streamIdx].hidden=true;
 
-      // Show tool results
+      // Show tool results (hidden from chat display, kept for AI context)
       const toolResultsText=results.map(r=>`${r.result.success?'✅':'❌'} ${r.tool}: ${r.result.message||JSON.stringify(r.result.data).slice(0,300)}`).join('\n');
-      S.aiMsgs.push({role:'assistant',content:toolResultsText});
+      S.aiMsgs.push({role:'assistant',content:toolResultsText,hidden:true});
       render();
       SS('aiMsgs',S.aiMsgs);
 
       // Feed results back for multi-turn reasoning
-      S.aiMsgs.push({role:'user',content:'[SYSTEM] Tool execution results:\n'+JSON.stringify(results.map(r=>({tool:r.tool,...r.result})))});
+      S.aiMsgs.push({role:'user',content:'[SYSTEM] Tool execution results:\n'+JSON.stringify(results.map(r=>({tool:r.tool,...r.result}))),hidden:true});
       await runAIWithTools(systemCtx,null,depth+1);
       return;
     }

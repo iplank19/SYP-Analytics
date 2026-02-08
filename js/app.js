@@ -341,6 +341,9 @@ async function init(){
   render();
   updateNotificationBadge();
 
+  // Seed PO history from server if empty (fire-and-forget)
+  if(typeof seedPOHistory==='function')seedPOHistory().catch(e=>console.warn('PO seed:',e));
+
   // Show sync status
   if(sbUrl&&sbKey){
     showToast('☁️ Logged in as '+S.trader,'info');
