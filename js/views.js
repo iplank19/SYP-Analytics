@@ -1038,17 +1038,17 @@ function render(){
           </div>
           ${wowHTML}
           <div class="card" style="margin-bottom:16px"><div class="card-header"><span class="card-title accent">LENGTH SPREADS (vs 16')</span></div>
-            <div style="overflow-x:auto;max-height:350px"><table><thead><tr><th>Product</th><th>Length</th><th class="right">16' Base</th><th class="right">Price</th><th class="right">Spread</th><th class="right">Avg</th><th class="right">Min</th><th class="right">Max</th><th class="right">%ile</th></tr></thead><tbody>
-            ${lsRows.length?lsRows.map(s=>`<tr><td>${s.product}</td><td>${s.length}'</td><td class="right" style="color:var(--muted)">${fmt(s.base)}</td><td class="right">${fmt(s.price)}</td><td class="right ${s.spread>=0?'positive':'negative'} bold">${s.spread>=0?'+':''}${fmt(s.spread)}</td><td class="right" style="color:var(--muted)">${fmt(s.avg)}</td><td class="right" style="color:var(--muted)">${fmt(s.min)}</td><td class="right" style="color:var(--muted)">${fmt(s.max)}</td><td class="right ${pctColor(s.pct)} bold">${s.pct}%</td></tr>`).join(''):'<tr><td colspan="9" class="empty-state">No specified length data available</td></tr>'}
+            <div style="overflow-x:auto;max-height:350px"><table><thead><tr><th>Product</th><th>Length</th><th class="right">16' Base</th><th class="right">Price</th><th class="right">Spread</th><th class="right">Avg</th><th class="right">Min</th><th class="right">Max</th><th class="right">%ile</th><th class="right" style="color:var(--muted)">n</th></tr></thead><tbody>
+            ${lsRows.length?lsRows.map(s=>`<tr><td>${s.product}</td><td>${s.length}'</td><td class="right" style="color:var(--muted)">${fmt(s.base)}</td><td class="right">${fmt(s.price)}</td><td class="right ${s.spread>=0?'positive':'negative'} bold">${s.spread>=0?'+':''}${fmt(s.spread)}</td><td class="right" style="color:var(--muted)">${fmt(s.avg)}</td><td class="right" style="color:var(--muted)">${fmt(s.min)}</td><td class="right" style="color:var(--muted)">${fmt(s.max)}</td><td class="right ${pctColor(s.pct)} bold">${s.pct}%</td><td class="right" style="color:var(--muted);font-size:9px">${s.n||''}</td></tr>`).join(''):'<tr><td colspan="10" class="empty-state">No specified length data available</td></tr>'}
             </tbody></table></div></div>
           <div class="grid-2">
             <div class="card"><div class="card-header"><span class="card-title warn">DIMENSION SPREADS (vs 2x4)</span></div>
-              <div style="overflow-x:auto;max-height:350px"><table><thead><tr><th>Length</th><th>Dim</th><th class="right">2x4 Base</th><th class="right">Price</th><th class="right">Spread</th><th class="right">Avg</th><th class="right">%ile</th></tr></thead><tbody>
-              ${dsRows.length?dsRows.map(s=>`<tr><td>${s.length==='RL'?'RL':s.length+"'"}</td><td class="bold">${s.dim}</td><td class="right" style="color:var(--muted)">${fmt(s.base)}</td><td class="right">${fmt(s.price)}</td><td class="right ${s.spread>=0?'positive':'negative'} bold">${s.spread>=0?'+':''}${fmt(s.spread)}</td><td class="right" style="color:var(--muted)">${fmt(s.avg)}</td><td class="right ${pctColor(s.pct)} bold">${s.pct}%</td></tr>`).join(''):'<tr><td colspan="7" class="empty-state">No data</td></tr>'}
+              <div style="overflow-x:auto;max-height:350px"><table><thead><tr><th>Length</th><th>Dim</th><th class="right">2x4 Base</th><th class="right">Price</th><th class="right">Spread</th><th class="right">Avg</th><th class="right">%ile</th><th class="right" style="color:var(--muted)">n</th></tr></thead><tbody>
+              ${dsRows.length?dsRows.map(s=>`<tr><td>${s.length==='RL'?'RL':s.length+"'"}</td><td class="bold">${s.dim}</td><td class="right" style="color:var(--muted)">${fmt(s.base)}</td><td class="right">${fmt(s.price)}</td><td class="right ${s.spread>=0?'positive':'negative'} bold">${s.spread>=0?'+':''}${fmt(s.spread)}</td><td class="right" style="color:var(--muted)">${fmt(s.avg)}</td><td class="right ${pctColor(s.pct)} bold">${s.pct}%</td><td class="right" style="color:var(--muted);font-size:9px">${s.n||''}</td></tr>`).join(''):'<tr><td colspan="8" class="empty-state">No data</td></tr>'}
               </tbody></table></div></div>
             <div class="card"><div class="card-header"><span class="card-title">GRADE SPREADS (#1 vs #2)</span></div>
-              <div style="overflow-x:auto;max-height:350px"><table><thead><tr><th>Dim</th><th>Len</th><th class="right">#1</th><th class="right">#2</th><th class="right">Premium</th><th class="right">Avg</th><th class="right">%ile</th></tr></thead><tbody>
-              ${gsRows.length?gsRows.map(s=>`<tr><td class="bold">${s.dim}</td><td>${s.length==='RL'?'RL':s.length+"'"}</td><td class="right accent">${fmt(s.p1)}</td><td class="right">${fmt(s.p2)}</td><td class="right positive bold">+${fmt(s.premium)}</td><td class="right" style="color:var(--muted)">${fmt(s.avg)}</td><td class="right ${pctColor(s.pct)} bold">${s.pct}%</td></tr>`).join(''):'<tr><td colspan="7" class="empty-state">No data</td></tr>'}
+              <div style="overflow-x:auto;max-height:350px"><table><thead><tr><th>Dim</th><th>Len</th><th class="right">#1</th><th class="right">#2</th><th class="right">Premium</th><th class="right">Avg</th><th class="right">%ile</th><th class="right" style="color:var(--muted)">n</th></tr></thead><tbody>
+              ${gsRows.length?gsRows.map(s=>`<tr><td class="bold">${s.dim}</td><td>${s.length==='RL'?'RL':s.length+"'"}</td><td class="right accent">${fmt(s.p1)}</td><td class="right">${fmt(s.p2)}</td><td class="right positive bold">+${fmt(s.premium)}</td><td class="right" style="color:var(--muted)">${fmt(s.avg)}</td><td class="right ${pctColor(s.pct)} bold">${s.pct}%</td><td class="right" style="color:var(--muted);font-size:9px">${s.n||''}</td></tr>`).join(''):'<tr><td colspan="8" class="empty-state">No data</td></tr>'}
               </tbody></table></div></div>
           </div>`;
       }else{
@@ -1199,7 +1199,7 @@ function render(){
       const region=S.filters.reg!=='all'?S.filters.reg:'west';
       const prod1=S.compareProd1||'2x4#2';
       const prod2=S.compareProd2||'2x6#2';
-      const len=S.compareLen||'RL';
+      const len=S.compareLen||'16';
       const compareRange=S.rlRange||'1Y';
       const ranges=['1M','1Y','5Y','10Y','All'];
       const productList=['2x4#1','2x4#2','2x6#1','2x6#2','2x8#1','2x8#2','2x10#1','2x10#2','2x12#1','2x12#2'];
@@ -1265,7 +1265,7 @@ function render(){
                     <div><span style="color:var(--muted)">Max:</span> <span class="bold">${fmt(maxSpread)}</span></div>
                     <div><span style="color:var(--muted)">Current:</span> <span class="bold accent">${currentSpread!==null?fmt(currentSpread):'—'}</span></div>
                     ${pctRank!==null?`<div><span style="color:var(--muted)">Percentile:</span> <span class="bold">${pctRank}%</span></div>`:''}
-                    <div><span style="color:var(--muted)">Data pts:</span> <span class="bold">${validSpreads.length}</span></div>
+                    <div><span style="color:var(--muted)">Data pts:</span> <span class="bold">${validSpreads.length} weeks</span></div>
                   </div>
                 </div>
               `:''}

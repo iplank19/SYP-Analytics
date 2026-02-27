@@ -4064,7 +4064,7 @@ def rl_spreads():
             }
 
         # For percentile rank, get all prices per product+length
-        hist_sql = "SELECT product, length, price FROM rl_prices WHERE region=?"
+        hist_sql = "SELECT date, product, length, price FROM rl_prices WHERE region=?"
         hist_params = [region]
         if date_from:
             hist_sql += " AND date>=?"
@@ -4072,13 +4072,14 @@ def rl_spreads():
         if date_to:
             hist_sql += " AND date<=?"
             hist_params.append(date_to)
+        hist_sql += " ORDER BY date"
         hist_rows = conn.execute(hist_sql, hist_params).fetchall()
         hist = {}
         for r in hist_rows:
             key = (r['product'], r['length'])
             if key not in hist:
-                hist[key] = []
-            hist[key].append(r['price'])
+                hist[key] = {}
+            hist[key][r['date']] = r['price']
 
         conn.close()
 
@@ -4106,11 +4107,12 @@ def rl_spreads():
                 if not price:
                     continue
                 spread = round(price - base_price, 2)
-                # Historical spread stats
-                hist_base = hist.get(base_key, [])
-                hist_len = hist.get(key, [])
-                if hist_base and hist_len and len(hist_base) == len(hist_len):
-                    hist_spreads = [h - b for h, b in zip(hist_len, hist_base)]
+                # Historical spread stats — date-aligned
+                hist_base = hist.get(base_key, {})
+                hist_len = hist.get(key, {})
+                common_dates = set(hist_base.keys()) & set(hist_len.keys())
+                if common_dates:
+                    hist_spreads = [hist_len[d] - hist_base[d] for d in common_dates]
                     avg_s = round(sum(hist_spreads) / len(hist_spreads), 2)
                     min_s = round(min(hist_spreads), 2)
                     max_s = round(max(hist_spreads), 2)
@@ -4124,7 +4126,7 @@ def rl_spreads():
                     pct = 50
                 length_spreads.append({
                     'product': prod, 'length': ln, 'base': base_price, 'price': price,
-                    'spread': spread, 'avg': avg_s, 'min': min_s, 'max': max_s, 'pct': pct
+                    'spread': spread, 'avg': avg_s, 'min': min_s, 'max': max_s, 'pct': pct, 'n': len(common_dates)
                 })
 
         # Build dimension spreads (vs 2x4 base)
@@ -4146,22 +4148,26 @@ def rl_spreads():
                 if not price:
                     continue
                 spread = round(price - base_price, 2)
-                a_data = agg.get(key, {})
-                b_data = agg.get(base_key, {})
-                avg_s = round(a_data.get('avg', price) - b_data.get('avg', base_price), 2) if a_data and b_data else spread
-                # Compute percentile from historical spreads
-                hist_dim = hist.get(key, [])
-                hist_base_dim = hist.get(base_key, [])
-                min_s, max_s, pct = spread, spread, 50
-                if hist_dim and hist_base_dim and len(hist_dim) == len(hist_base_dim):
-                    hist_spreads = [h - b for h, b in zip(hist_dim, hist_base_dim)]
+                # Historical spread stats — date-aligned
+                hist_dim = hist.get(key, {})
+                hist_base_dim = hist.get(base_key, {})
+                common_dates = set(hist_dim.keys()) & set(hist_base_dim.keys())
+                if common_dates:
+                    hist_spreads = [hist_dim[d] - hist_base_dim[d] for d in common_dates]
                     avg_s = round(sum(hist_spreads) / len(hist_spreads), 2)
                     min_s = round(min(hist_spreads), 2)
                     max_s = round(max(hist_spreads), 2)
                     pct = round(sum(1 for s in hist_spreads if s <= spread) / len(hist_spreads) * 100)
+                else:
+                    a_data = agg.get(key, {})
+                    b_data = agg.get(base_key, {})
+                    avg_s = round(a_data.get('avg', price) - b_data.get('avg', base_price), 2) if a_data and b_data else spread
+                    min_s = spread
+                    max_s = spread
+                    pct = 50
                 dimension_spreads.append({
                     'length': ln, 'dim': dim, 'base': base_price, 'price': price,
-                    'spread': spread, 'avg': avg_s, 'min': min_s, 'max': max_s, 'pct': pct
+                    'spread': spread, 'avg': avg_s, 'min': min_s, 'max': max_s, 'pct': pct, 'n': len(common_dates)
                 })
 
         # Build grade spreads (#1 vs #2)
@@ -4173,22 +4179,26 @@ def rl_spreads():
                 if not p1 or not p2:
                     continue
                 premium = round(p1 - p2, 2)
-                a1 = agg.get((dim + '#1', ln), {})
-                a2 = agg.get((dim + '#2', ln), {})
-                avg_prem = round(a1.get('avg', p1) - a2.get('avg', p2), 2) if a1 and a2 else premium
-                # Compute percentile from historical grade premiums
-                hist_g1 = hist.get((dim + '#1', ln), [])
-                hist_g2 = hist.get((dim + '#2', ln), [])
-                min_p, max_p, pct = premium, premium, 50
-                if hist_g1 and hist_g2 and len(hist_g1) == len(hist_g2):
-                    hist_prems = [h1 - h2 for h1, h2 in zip(hist_g1, hist_g2)]
+                # Historical grade premium stats — date-aligned
+                hist_g1 = hist.get((dim + '#1', ln), {})
+                hist_g2 = hist.get((dim + '#2', ln), {})
+                common_dates = set(hist_g1.keys()) & set(hist_g2.keys())
+                if common_dates:
+                    hist_prems = [hist_g1[d] - hist_g2[d] for d in common_dates]
                     avg_prem = round(sum(hist_prems) / len(hist_prems), 2)
                     min_p = round(min(hist_prems), 2)
                     max_p = round(max(hist_prems), 2)
                     pct = round(sum(1 for p in hist_prems if p <= premium) / len(hist_prems) * 100)
+                else:
+                    a1 = agg.get((dim + '#1', ln), {})
+                    a2 = agg.get((dim + '#2', ln), {})
+                    avg_prem = round(a1.get('avg', p1) - a2.get('avg', p2), 2) if a1 and a2 else premium
+                    min_p = premium
+                    max_p = premium
+                    pct = 50
                 grade_spreads.append({
                     'dim': dim, 'length': ln, 'p1': p1, 'p2': p2,
-                    'premium': premium, 'avg': avg_prem, 'min': min_p, 'max': max_p, 'pct': pct
+                    'premium': premium, 'avg': avg_prem, 'min': min_p, 'max': max_p, 'pct': pct, 'n': len(common_dates)
                 })
 
         # Week-over-week changes
