@@ -2362,7 +2362,40 @@ async function saveParsedRL(){
   
   const i=S.rl.findIndex(r=>r.date===parsedRL.date);
   if(i>=0)S.rl[i]=parsedRL;else{S.rl.push(parsedRL);S.rl.sort((a,b)=>new Date(a.date)-new Date(b.date))}
-  await saveAllLocal();closeModal();render();
+  await saveAllLocal();
+
+  // Also POST to backend /api/rl/save for historical DB
+  try{
+    const rlRows=[];
+    ['west','central','east'].forEach(region=>{
+      // Composite prices (stored as region → product → price)
+      Object.entries(parsedRL[region]||{}).forEach(([product,price])=>{
+        if(typeof price==='number'&&price>0) rlRows.push({region,product,length:'RL',price});
+      });
+      // Specified lengths (region → product → length → price)
+      const sl=(parsedRL.specified_lengths||{})[region]||{};
+      Object.entries(sl).forEach(([product,lengths])=>{
+        if(!lengths||typeof lengths!=='object')return;
+        Object.entries(lengths).forEach(([len,price])=>{
+          if(typeof price==='number'&&price>0) rlRows.push({region,product,length:String(len),price});
+        });
+      });
+      // Timbers
+      const tb=(parsedRL.timbers||{})[region]||{};
+      Object.entries(tb).forEach(([product,lengths])=>{
+        if(!lengths||typeof lengths!=='object')return;
+        Object.entries(lengths).forEach(([len,price])=>{
+          if(typeof price==='number'&&price>0) rlRows.push({region,product,length:String(len),price});
+        });
+      });
+    });
+    if(rlRows.length){
+      fetch('/api/rl/save',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({date:parsedRL.date,rows:rlRows})}).catch(()=>{});
+    }
+  }catch(e){console.warn('RL backend save:',e)}
+
+  closeModal();render();
 }
 
 // ==================== CSV ORDER IMPORT ====================

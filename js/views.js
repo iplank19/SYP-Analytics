@@ -1,4 +1,112 @@
 // SYP Analytics - Views & Render
+
+// ----- RL Historical Data Fetch Helpers -----
+if(!window._rlCache)window._rlCache={};
+
+function _rlRangeFrom(range){
+  const now=new Date();
+  const days={
+    '1M':30,'1Y':365,'5Y':1825,'10Y':3650
+  }[range];
+  if(!days)return ''; // 'All' — no from filter
+  const d=new Date(now.getTime()-days*86400000);
+  return d.toISOString().slice(0,10);
+}
+
+async function rlFetchChartData(product,range){
+  const cacheKey=`${product}_${range}`;
+  if(window._rlCache[cacheKey])return; // already fetching or cached
+  window._rlCache[cacheKey]=null; // mark as fetching
+  try{
+    const from=_rlRangeFrom(range);
+    const qs=`product=${encodeURIComponent(product)}&length=RL${from?'&from='+from:''}`;
+    const res=await fetch(`/api/rl/chart-batch?${qs}`);
+    const data=await res.json();
+    // Convert server spread objects to flat arrays aligned with west dates
+    const spread46=(data.spread46||[]).map(s=>s.spread);
+    const spreadWC=(data.spreadWC||[]).map(s=>s.spread);
+    window._rlCache[cacheKey]={west:data.west,central:data.central,east:data.east,spread46,spreadWC};
+    render();
+  }catch(e){
+    console.warn('RL chart fetch error:',e);
+    delete window._rlCache[cacheKey];
+  }
+}
+
+async function rlFetchSpreads(region,range,dateFrom,dateTo){
+  const from=dateFrom||_rlRangeFrom(range);
+  const cacheKey=`spreads_${region}_${from}_${dateTo||''}`;
+  if(window._rlCache[cacheKey])return;
+  window._rlCache[cacheKey]=null;
+  try{
+    let qs=`region=${region}`;
+    if(from)qs+=`&from=${from}`;
+    if(dateTo)qs+=`&to=${dateTo}`;
+    const res=await fetch(`/api/rl/spreads?${qs}`);
+    window._rlCache[cacheKey]=await res.json();
+    render();
+  }catch(e){
+    console.warn('RL spreads fetch error:',e);
+    delete window._rlCache[cacheKey];
+  }
+}
+
+async function rlFetchCompareData(prod1,prod2,region,length,range){
+  const cacheKey=`compare_${prod1}_${prod2}_${region}_${length}_${range}`;
+  if(window._rlCache[cacheKey]!==undefined)return;
+  window._rlCache[cacheKey]=null;
+  try{
+    const from=_rlRangeFrom(range);
+    const lenParam=length==='composite'?'RL':length;
+    const [d1,d2]=await Promise.all([
+      fetch(`/api/rl/history?product=${encodeURIComponent(prod1)}&region=${region}&length=${lenParam}${from?'&from='+from:''}`).then(r=>r.json()),
+      fetch(`/api/rl/history?product=${encodeURIComponent(prod2)}&region=${region}&length=${lenParam}${from?'&from='+from:''}`).then(r=>r.json())
+    ]);
+    const p1Map=Object.fromEntries(d1.map(r=>[r.date,r.price]));
+    const p2Map=Object.fromEntries(d2.map(r=>[r.date,r.price]));
+    const allDates=[...new Set([...d1.map(r=>r.date),...d2.map(r=>r.date)])].sort();
+    const history=allDates.map(date=>{
+      const p1=p1Map[date]||null;
+      const p2=p2Map[date]||null;
+      return{date,p1,p2,spread:p1&&p2?Math.round(p2-p1):null};
+    }).filter(h=>h.p1||h.p2);
+    window._rlCache[cacheKey]=history;
+    window._rlCompareExpanded=false;
+    render();
+  }catch(e){
+    console.warn('RL compare fetch error:',e);
+    delete window._rlCache[cacheKey];
+  }
+}
+
+async function rlFetchForecast(product,region,weeks){
+  const cacheKey=`forecast_${product}_${region}_${weeks}`;
+  if(window._rlCache[cacheKey]!==undefined)return;
+  window._rlCache[cacheKey]=null;
+  try{
+    const res=await fetch(`/api/forecast/shortterm?product=${encodeURIComponent(product)}&region=${region}&weeks=${weeks}`);
+    window._rlCache[cacheKey]=await res.json();
+    render();
+  }catch(e){
+    console.warn('Forecast fetch error:',e);
+    delete window._rlCache[cacheKey];
+  }
+}
+
+async function rlFetchSeasonal(product,region,years){
+  const cacheKey=`seasonal_${product}_${region}_${years||5}`;
+  if(window._rlCache[cacheKey]!==undefined)return;
+  window._rlCache[cacheKey]=null;
+  try{
+    const res=await fetch(`/api/forecast/seasonal?product=${encodeURIComponent(product)}&region=${region}&years=${years||5}`);
+    window._rlCache[cacheKey]=await res.json();
+    render();
+  }catch(e){
+    console.warn('Seasonal fetch error:',e);
+    delete window._rlCache[cacheKey];
+  }
+}
+
 function renderNav(){
   document.getElementById('nav').innerHTML=NAV.map(n=>`<button class="nav-item ${S.view===n.id?'active':''}" onclick="go('${n.id}')"${S.view===n.id?' aria-current="page"':''}><span>${n.icon}</span><span class="nav-label">${n.label}</span></button>`).join('');
 }
@@ -11,9 +119,9 @@ function renderBreadcrumbs(){
   const subTabMap={
     dashboard:{stateKey:'dashTab',tabs:{overview:'Overview',leaderboard:'Leaderboard'}},
     trading:{stateKey:'tradingTab',tabs:{blotter:'Blotter',pnl:'P&L'}},
-    quotes:{stateKey:'quoteTab',tabs:{build:'Build',source:'Source'}},
+    quotes:null,
     millintel:{stateKey:'miTab',tabs:{intake:'Intake',prices:'Prices'}},
-    analytics:{stateKey:'analyticsTab',tabs:{briefing:'Briefing',benchmark:'vs Market',risk:'Risk',rldata:'RL Data'}},
+    analytics:{stateKey:'analyticsTab',tabs:{spreads:'Spreads',charts:'Charts',compare:'Compare',forecast:'Forecast',details:'Details'}},
     poanalysis:{stateKey:'poTab',tabs:{trends:'Trends',data:'Data'}},
     crm:{stateKey:'crmTab',tabs:{prospects:'Prospects',customers:'Customers',mills:'Mills'}}
   };
@@ -73,14 +181,17 @@ const _VIEW_REDIRECTS={
   'blotter':{parent:'trading',stateKey:'tradingTab',tab:'blotter'},
   'pnl-calendar':{parent:'trading',stateKey:'tradingTab',tab:'pnl'},
   'leaderboard':{parent:'dashboard',stateKey:'dashTab',tab:'leaderboard'},
-  'insights':{parent:'analytics',stateKey:'analyticsTab',tab:'briefing'},
-  'benchmark':{parent:'analytics',stateKey:'analyticsTab',tab:'benchmark'},
-  'risk':{parent:'analytics',stateKey:'analyticsTab',tab:'risk'},
-  'rldata':{parent:'analytics',stateKey:'analyticsTab',tab:'rldata'},
-  'charts':{parent:'analytics',stateKey:'analyticsTab',tab:'rldata'},
+  'insights':{parent:'analytics',stateKey:'analyticsTab',tab:'spreads'},
+  'benchmark':{parent:'analytics',stateKey:'analyticsTab',tab:'spreads'},
+  'risk':{parent:'analytics',stateKey:'analyticsTab',tab:'spreads'},
+  'rldata':{parent:'analytics',stateKey:'analyticsTab',tab:'charts'},
+  'charts':{parent:'analytics',stateKey:'analyticsTab',tab:'charts'},
+  'spreads':{parent:'analytics',stateKey:'analyticsTab',tab:'spreads'},
+  'compare':{parent:'analytics',stateKey:'analyticsTab',tab:'compare'},
+  'details':{parent:'analytics',stateKey:'analyticsTab',tab:'details'},
   'mi-intake':{parent:'millintel',stateKey:'miTab',tab:'intake'},
   'mi-prices':{parent:'millintel',stateKey:'miTab',tab:'prices'},
-  'mi-quotes':{parent:'quotes',stateKey:'quoteTab',tab:'source'},
+  'mi-quotes':{parent:'quotes',stateKey:null,tab:null},
   'mill-pricing':{parent:'millintel',stateKey:'miTab',tab:'intake'},
   'products':{parent:'dashboard',stateKey:null,tab:null}
 };
@@ -401,7 +512,7 @@ function render(){
   if(_resolved!==S.view){S.view=_resolved;}
   renderNav();renderMkt();renderBreadcrumbs();
   updateMobileNav();
-  const _needsAnalytics=(S.view==='dashboard'&&(!S.dashTab||S.dashTab==='overview'))||(S.view==='analytics'&&(!S.analyticsTab||S.analyticsTab==='briefing'||S.analyticsTab==='benchmark'));
+  const _needsAnalytics=(S.view==='dashboard'&&(!S.dashTab||S.dashTab==='overview'));
   const a=_needsAnalytics?analytics():null;
   const nav=NAV.find(n=>n.id===S.view);
   document.getElementById('title').textContent=(nav?.icon||'')+' '+(nav?.label||'');
@@ -411,7 +522,7 @@ function render(){
     const _dashTab=S.dashTab||'overview';
     const _dashTabBar=_subTabBar('dashTab',[{id:'overview',label:'Overview'},{id:'leaderboard',label:'Leaderboard'}],_dashTab);
     if(_dashTab==='overview'&&a&&!a.buys.length&&!a.sells.length){
-      c.innerHTML=_dashTabBar+`<div class="panel"><div class="panel-body" style="padding:80px;text-align:center"><h2 style="margin-bottom:12px;color:var(--text)">Welcome, ${escapeHtml(S.trader)}!</h2><p style="margin-bottom:24px">${S.trader==='Admin'?'No department trades yet. Traders can add trades from their accounts.':'Start by adding your trades or importing Random Lengths data.'}</p><div style="display:flex;gap:12px;justify-content:center"><button class="btn btn-success" onclick="showBuyModal()">+ Add Buy</button><button class="btn btn-primary" onclick="showSellModal()">+ Add Sell</button><button class="btn btn-warn" onclick="go('rldata')">Import RL Data</button></div></div></div>`;
+      c.innerHTML=_dashTabBar+`<div class="panel"><div class="panel-body" style="padding:80px;text-align:center"><h2 style="margin-bottom:12px;color:var(--text)">Welcome, ${escapeHtml(S.trader)}!</h2><p style="margin-bottom:24px">${S.trader==='Admin'?'No department trades yet. Traders can add trades from their accounts.':'Start by adding your trades or importing Random Lengths data.'}</p><div style="display:flex;gap:12px;justify-content:center"><button class="btn btn-success" onclick="showBuyModal()">+ Add Buy</button><button class="btn btn-primary" onclick="showSellModal()">+ Add Sell</button><button class="btn btn-warn" onclick="go('details')">Import RL Data</button></div></div></div>`;
       return;
     }
     if(_dashTab!=='leaderboard'){
@@ -879,229 +990,505 @@ function render(){
       </div>`;
     } // end leaderboard sub-tab
   } // end dashboard
-  else if(S.view==='analytics'&&(!S.analyticsTab||S.analyticsTab==='briefing')){
-    const _aTabBar=_subTabBar('analyticsTab',[{id:'briefing',label:'Briefing'},{id:'benchmark',label:'vs Market'},{id:'risk',label:'Risk'},{id:'rldata',label:'RL Data'}],S.analyticsTab||'briefing');
-    {
-    // Daily Briefing View
-    const latestRL=S.rl.length?S.rl[S.rl.length-1]:null;
-    const prevRL=S.rl.length>1?S.rl[S.rl.length-2]:null;
-    
-    // Calculate key metrics
-    const openBuys=S.buys.filter(b=>!b.shipped).length;
-    const openSells=S.sells.filter(s=>!s.delivered).length;
-    const shortPositions=S.sells.filter(s=>!s.linkedPO&&!s.orderNum);
-    
-    // Week over week changes
-    const wowChanges=[];
-    if(latestRL&&prevRL){
-      ['west','central','east'].forEach(region=>{
-        ['2x4#2','2x6#2','2x8#2'].forEach(prod=>{
-          const curr=latestRL[region]?.[prod];
-          const prev=prevRL[region]?.[prod];
-          if(curr&&prev&&curr!==prev){
-            wowChanges.push({region,prod,curr,prev,chg:curr-prev});
-          }
-        });
-      });
-    }
-    
-    // Spreads
-    const spreads=[];
-    if(latestRL){
-      ['west','central','east'].forEach(region=>{
-        const p4=latestRL[region]?.['2x4#2'];
-        const p6=latestRL[region]?.['2x6#2'];
-        const p8=latestRL[region]?.['2x8#2'];
-        if(p4&&p6)spreads.push({region,spread:'2x4/2x6',val:p6-p4});
-        if(p6&&p8)spreads.push({region,spread:'2x6/2x8',val:p8-p6});
-      });
-    }
-    
-    // Upcoming deliveries (sells not delivered in next 7 days - we don't have dates so just show pending)
-    const pendingSells=S.sells.filter(s=>!s.delivered).slice(0,5);
-    const pendingBuys=S.buys.filter(b=>!b.shipped).slice(0,5);
-    
-    c.innerHTML=_aTabBar+`
-      <div class="grid-2" style="margin-bottom:16px">
-        <div class="card">
-          <div class="card-header">
-            <span class="card-title">🌅 GOOD MORNING, IAN</span>
-            <span style="color:var(--muted);font-size:10px">${new Date().toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric'})}</span>
+  else if(S.view==='analytics'){
+    const _aTabBar=_subTabBar('analyticsTab',[{id:'spreads',label:'Spreads'},{id:'charts',label:'Charts'},{id:'compare',label:'Compare'},{id:'forecast',label:'Forecast'},{id:'details',label:'Details'}],S.analyticsTab||'spreads');
+    const _aTab=S.analyticsTab||'spreads';
+    // --- ANALYTICS TABS DISPATCH ---
+    if(_aTab==='spreads'){
+      // Spreads tab — powered by /api/rl/spreads batch endpoint
+      const spreadRegion=S.filters.reg!=='all'?S.filters.reg:'west';
+      const spreadRange=S.spreadRange||'1Y';
+      const spreadFrom=S.spreadDateFrom||_rlRangeFrom(spreadRange);
+      const spreadTo=S.spreadDateTo||'';
+      const spreadCacheKey=`spreads_${spreadRegion}_${spreadFrom}_${spreadTo}`;
+      const spreadData=window._rlCache?.[spreadCacheKey];
+
+      if(spreadData){
+        const ranges=['1M','1Y','5Y','10Y','All'];
+        let wowHTML='';
+        if(spreadData.wow_changes&&spreadData.wow_changes.length){
+          wowHTML=`<div class="card" style="margin-bottom:16px"><div class="card-header"><span class="card-title">WEEK-OVER-WEEK CHANGES</span><span style="color:var(--muted);font-size:10px">${spreadData.prev_date||''} → ${spreadData.latest_date||''}</span></div>
+            <div style="overflow-x:auto"><table><thead><tr><th>Product</th><th class="right">Prev</th><th class="right">Curr</th><th class="right">Change</th></tr></thead><tbody>
+            ${spreadData.wow_changes.map(c=>`<tr><td class="bold">${c.product}</td><td class="right">${fmt(c.prev)}</td><td class="right">${fmt(c.curr)}</td><td class="right ${c.chg>0?'positive':'negative'} bold">${c.chg>0?'+':''}${fmt(c.chg)}</td></tr>`).join('')}
+            </tbody></table></div></div>`;
+        }
+
+        const lsRows=spreadData.length_spreads||[];
+        const dsRows=spreadData.dimension_spreads||[];
+        const gsRows=spreadData.grade_spreads||[];
+
+        const pctColor=pct=>pct<=25?'positive':pct>=75?'negative':'';
+
+        c.innerHTML=_aTabBar+`
+          <div style="display:flex;gap:8px;margin-bottom:16px;align-items:center;flex-wrap:wrap">
+            <div style="display:flex;gap:2px">${ranges.map(r=>`<button class="btn ${spreadRange===r?'btn-primary':'btn-default'} btn-sm" onclick="S.spreadRange='${r}';S.spreadDateFrom='';S.spreadDateTo='';SS('spreadRange','${r}');SS('spreadDateFrom','');SS('spreadDateTo','');delete window._rlCache?.['${spreadCacheKey}'];render()" style="padding:2px 8px;font-size:10px">${r}</button>`).join('')}</div>
+            <button class="btn ${spreadRange==='custom'?'btn-primary':'btn-default'} btn-sm" onclick="document.getElementById('spread-custom').style.display=document.getElementById('spread-custom').style.display==='none'?'flex':'none'" style="padding:2px 8px;font-size:10px">Custom</button>
+            <div id="spread-custom" style="display:${spreadRange==='custom'?'flex':'none'};gap:4px;align-items:center">
+              <input type="date" id="spread-from" value="${S.spreadDateFrom||''}" style="padding:2px 6px;font-size:10px;background:var(--card);border:1px solid var(--border);color:var(--text)">
+              <span style="font-size:10px">to</span>
+              <input type="date" id="spread-to" value="${S.spreadDateTo||''}" style="padding:2px 6px;font-size:10px;background:var(--card);border:1px solid var(--border);color:var(--text)">
+              <button class="btn btn-primary btn-sm" onclick="S.spreadRange='custom';S.spreadDateFrom=document.getElementById('spread-from').value;S.spreadDateTo=document.getElementById('spread-to').value;SS('spreadRange','custom');SS('spreadDateFrom',S.spreadDateFrom);SS('spreadDateTo',S.spreadDateTo);delete window._rlCache?.['${spreadCacheKey}'];render()" style="padding:2px 8px;font-size:10px">Apply</button>
+            </div>
+            <select onchange="S.filters.reg=this.value;render()" style="padding:4px 8px;font-size:11px;background:var(--card);border:1px solid var(--border);color:var(--text)">
+              <option value="west" ${spreadRegion==='west'?'selected':''}>West</option>
+              <option value="central" ${spreadRegion==='central'?'selected':''}>Central</option>
+              <option value="east" ${spreadRegion==='east'?'selected':''}>East</option>
+            </select>
+            <span style="font-size:10px;color:var(--muted)">${spreadData.latest_date||'No data'}</span>
           </div>
-          <div class="card-body">
-            <div id="ai-briefing" style="line-height:1.6;color:var(--text)">
-              <div style="text-align:center;padding:20px;color:var(--muted)">
-                <button class="btn btn-primary" onclick="generateDailyBriefing()">🤖 Generate Today's Briefing</button>
+          ${wowHTML}
+          <div class="card" style="margin-bottom:16px"><div class="card-header"><span class="card-title accent">LENGTH SPREADS (vs 16')</span></div>
+            <div style="overflow-x:auto;max-height:350px"><table><thead><tr><th>Product</th><th>Length</th><th class="right">16' Base</th><th class="right">Price</th><th class="right">Spread</th><th class="right">Avg</th><th class="right">Min</th><th class="right">Max</th><th class="right">%ile</th></tr></thead><tbody>
+            ${lsRows.length?lsRows.map(s=>`<tr><td>${s.product}</td><td>${s.length}'</td><td class="right" style="color:var(--muted)">${fmt(s.base)}</td><td class="right">${fmt(s.price)}</td><td class="right ${s.spread>=0?'positive':'negative'} bold">${s.spread>=0?'+':''}${fmt(s.spread)}</td><td class="right" style="color:var(--muted)">${fmt(s.avg)}</td><td class="right" style="color:var(--muted)">${fmt(s.min)}</td><td class="right" style="color:var(--muted)">${fmt(s.max)}</td><td class="right ${pctColor(s.pct)} bold">${s.pct}%</td></tr>`).join(''):'<tr><td colspan="9" class="empty-state">No specified length data available</td></tr>'}
+            </tbody></table></div></div>
+          <div class="grid-2">
+            <div class="card"><div class="card-header"><span class="card-title warn">DIMENSION SPREADS (vs 2x4)</span></div>
+              <div style="overflow-x:auto;max-height:350px"><table><thead><tr><th>Length</th><th>Dim</th><th class="right">2x4 Base</th><th class="right">Price</th><th class="right">Spread</th><th class="right">Avg</th><th class="right">%ile</th></tr></thead><tbody>
+              ${dsRows.length?dsRows.map(s=>`<tr><td>${s.length==='RL'?'RL':s.length+"'"}</td><td class="bold">${s.dim}</td><td class="right" style="color:var(--muted)">${fmt(s.base)}</td><td class="right">${fmt(s.price)}</td><td class="right ${s.spread>=0?'positive':'negative'} bold">${s.spread>=0?'+':''}${fmt(s.spread)}</td><td class="right" style="color:var(--muted)">${fmt(s.avg)}</td><td class="right ${pctColor(s.pct)} bold">${s.pct}%</td></tr>`).join(''):'<tr><td colspan="7" class="empty-state">No data</td></tr>'}
+              </tbody></table></div></div>
+            <div class="card"><div class="card-header"><span class="card-title">GRADE SPREADS (#1 vs #2)</span></div>
+              <div style="overflow-x:auto;max-height:350px"><table><thead><tr><th>Dim</th><th>Len</th><th class="right">#1</th><th class="right">#2</th><th class="right">Premium</th><th class="right">Avg</th><th class="right">%ile</th></tr></thead><tbody>
+              ${gsRows.length?gsRows.map(s=>`<tr><td class="bold">${s.dim}</td><td>${s.length==='RL'?'RL':s.length+"'"}</td><td class="right accent">${fmt(s.p1)}</td><td class="right">${fmt(s.p2)}</td><td class="right positive bold">+${fmt(s.premium)}</td><td class="right" style="color:var(--muted)">${fmt(s.avg)}</td><td class="right ${pctColor(s.pct)} bold">${s.pct}%</td></tr>`).join(''):'<tr><td colspan="7" class="empty-state">No data</td></tr>'}
+              </tbody></table></div></div>
+          </div>`;
+      }else{
+        c.innerHTML=_aTabBar+`<div class="card"><div class="card-body"><div class="empty-state">Loading spreads data...</div></div></div>`;
+        rlFetchSpreads(spreadRegion,spreadRange,S.spreadDateFrom,S.spreadDateTo);
+      }
+    }
+    else if(_aTab==='charts'){
+      // Charts tab — price trends via /api/rl/chart-batch
+      const chartProduct=S.chartProduct||'2x4#2';
+      const rlRange=S.rlRange||'1Y';
+      const products=['2x4#2','2x6#2','2x8#2','2x10#2','2x12#2','2x4#1','2x6#1'];
+      const ranges=['1M','1Y','5Y','10Y','All'];
+      const cacheKey=`${chartProduct}_${rlRange}`;
+      const cached=window._rlCache?.[cacheKey];
+      const latestRL=S.rl.length?S.rl[S.rl.length-1]:null;
+      const rlData=S.rl.slice(-12);
+
+      if(cached){
+        const westData=cached.west.map(r=>r.price);
+        const centralData=cached.central.map(r=>r.price);
+        const eastData=cached.east.map(r=>r.price);
+        const chartDates=cached.west.map(r=>r.date);
+        const spread2x4_2x6=cached.spread46||[];
+        const spreadWestCentral=cached.spreadWC||[];
+        const allPrices=[...westData,...centralData,...eastData].filter(p=>p>0);
+        const minPrice=allPrices.length?Math.floor(Math.min(...allPrices)/10)*10-10:350;
+        const maxPrice=allPrices.length?Math.ceil(Math.max(...allPrices)/10)*10+10:500;
+        const range=maxPrice-minPrice||100;
+        window._chartData={westData,centralData,eastData,minPrice,range,spread2x4_2x6,spreadWestCentral};
+
+        const nPts=chartDates.length;
+        const labelFn=nPts>260?d=>d.slice(0,4):nPts>52?d=>d.slice(0,7):d=>d.slice(5);
+        const labelStep=Math.max(1,Math.ceil(nPts/8));
+        const chartLabels=chartDates.map((d,i)=>i%labelStep===0||i===nPts-1?labelFn(d):'');
+
+        const histLimit=window._rlHistExpanded?cached.west.length:52;
+        const histRows=cached.west.slice().reverse().slice(0,histLimit);
+        const centralMap=Object.fromEntries(cached.central.map(r=>[r.date,r.price]));
+        const eastMap=Object.fromEntries(cached.east.map(r=>[r.date,r.price]));
+
+        c.innerHTML=_aTabBar+`
+          <div class="card" style="margin-bottom:16px">
+            <div class="card-header">
+              <span class="card-title">SYP PRICE TRENDS</span>
+              <div style="display:flex;align-items:center;gap:12px">
+                <div style="display:flex;gap:2px">${ranges.map(r=>`<button class="btn ${rlRange===r?'btn-primary':'btn-default'} btn-sm" onclick="S.rlRange='${r}';SS('rlRange','${r}');delete window._rlCache?.['${chartProduct}_${r}'];render()" style="padding:2px 8px;font-size:10px">${r}</button>`).join('')}</div>
+                <select id="chart-product" onchange="S.chartProduct=this.value;render()" style="padding:4px 8px;font-size:11px;background:var(--card);border:1px solid var(--border);color:var(--text)">
+                  ${products.map(p=>`<option value="${p}" ${p===chartProduct?'selected':''}>${p}</option>`).join('')}
+                </select>
+                <span style="font-size:10px;color:var(--muted)">${nPts} weeks</span>
+              </div>
+            </div>
+            <div class="card-body">
+              ${nPts>1?`
+                <div style="position:relative;height:250px;margin-bottom:8px">
+                  <div style="position:absolute;left:0;top:0;bottom:30px;width:40px;display:flex;flex-direction:column;justify-content:space-between;font-size:9px;color:var(--muted);text-align:right;padding-right:6px">
+                    <span>$${maxPrice}</span>
+                    <span>$${Math.round(minPrice+(range*0.75))}</span>
+                    <span>$${Math.round(minPrice+(range*0.5))}</span>
+                    <span>$${Math.round(minPrice+(range*0.25))}</span>
+                    <span>$${minPrice}</span>
+                  </div>
+                  <div style="position:absolute;left:45px;right:10px;top:0;bottom:30px;border-left:1px solid var(--border);border-bottom:1px solid var(--border);background:linear-gradient(180deg,rgba(0,200,150,0.03) 0%,transparent 100%)">
+                    <div style="position:absolute;left:0;right:0;top:25%;border-top:1px solid rgba(255,255,255,0.05)"></div>
+                    <div style="position:absolute;left:0;right:0;top:50%;border-top:1px solid rgba(255,255,255,0.05)"></div>
+                    <div style="position:absolute;left:0;right:0;top:75%;border-top:1px solid rgba(255,255,255,0.05)"></div>
+                    <canvas id="price-canvas" style="width:100%;height:100%"></canvas>
+                  </div>
+                  <div style="position:absolute;left:45px;right:10px;bottom:0;height:25px;display:flex;justify-content:space-between;align-items:center;font-size:9px;color:var(--muted)">
+                    ${chartLabels.filter(l=>l).map(l=>`<span>${l}</span>`).join('')}
+                  </div>
+                </div>
+                <div style="display:flex;justify-content:center;gap:24px;font-size:11px">
+                  <span><span style="display:inline-block;width:16px;height:3px;background:#89b4fa;margin-right:6px"></span>West</span>
+                  <span><span style="display:inline-block;width:16px;height:3px;background:#f9e2af;margin-right:6px"></span>Central</span>
+                  <span><span style="display:inline-block;width:16px;height:3px;background:#89dceb;margin-right:6px"></span>East</span>
+                </div>
+              `:'<div class="empty-state">Need at least 2 weeks of data for charts</div>'}
+            </div>
+          </div>
+          <div class="grid-2">
+            <div class="card">
+              <div class="card-header"><span class="card-title warn">2x4/2x6 SPREAD (West)</span></div>
+              <div class="card-body">
+                ${spread2x4_2x6.length>1?`
+                  <div style="height:120px;position:relative;margin-bottom:8px">
+                    <canvas id="spread-canvas" style="width:100%;height:100%"></canvas>
+                  </div>
+                  <div style="text-align:center;margin-top:12px">
+                    <span style="font-size:20px;font-weight:700;color:var(--warn)">$${spread2x4_2x6[spread2x4_2x6.length-1]||0}</span>
+                    <div style="font-size:10px;color:var(--muted)">Current Spread</div>
+                  </div>
+                `:'<div class="empty-state">Need data</div>'}
+              </div>
+            </div>
+            <div class="card">
+              <div class="card-header"><span class="card-title info">WEST vs CENTRAL (${chartProduct})</span></div>
+              <div class="card-body">
+                ${spreadWestCentral.length>1?`
+                  <div style="height:120px;position:relative;margin-bottom:8px">
+                    <canvas id="regional-canvas" style="width:100%;height:100%"></canvas>
+                  </div>
+                  <div style="text-align:center;margin-top:12px">
+                    <span style="font-size:20px;font-weight:700;color:var(--info)">$${spreadWestCentral[spreadWestCentral.length-1]||0}</span>
+                    <div style="font-size:10px;color:var(--muted)">West Premium</div>
+                  </div>
+                `:'<div class="empty-state">Need data</div>'}
               </div>
             </div>
           </div>
-        </div>
-        
-        <div>
-          <div class="card">
-            <div class="card-header"><span class="card-title info">🎯 MARKET MOMENTUM</span></div>
+          <div class="card" style="margin-top:16px">
+            <div class="card-header"><span class="card-title">SPREAD MONITOR</span></div>
             <div class="card-body">
-              ${latestRL&&prevRL?`
-                ${(()=>{
-                  const westChg=(latestRL.west?.['2x4#2']||0)-(prevRL.west?.['2x4#2']||0);
-                  const centralChg=(latestRL.central?.['2x4#2']||0)-(prevRL.central?.['2x4#2']||0);
-                  const eastChg=(latestRL.east?.['2x4#2']||0)-(prevRL.east?.['2x4#2']||0);
-                  const avgChg=(westChg+centralChg+eastChg)/3;
-                  const trend=avgChg>3?'UP':avgChg<-3?'DOWN':'FLAT';
-                  const trendColor=trend==='UP'?'var(--positive)':trend==='DOWN'?'var(--negative)':'var(--warn)';
-                  const trendIcon=trend==='UP'?'📈':trend==='DOWN'?'📉':'➡️';
-                  
-                  // 4-week trend if available
-                  let trend4wk='';
-                  if(S.rl.length>=4){
-                    const oldest=S.rl[S.rl.length-4];
-                    const chg4=(latestRL.west?.['2x4#2']||0)-(oldest.west?.['2x4#2']||0);
-                    trend4wk=chg4>0?'+$'+chg4:'$'+chg4;
-                  }
-                  
-                  return`
-                    <div style="text-align:center;padding:12px">
-                      <div style="font-size:48px;margin-bottom:8px">${trendIcon}</div>
-                      <div style="font-size:24px;font-weight:700;color:${trendColor}">${trend}</div>
-                      <div style="font-size:11px;color:var(--muted);margin-top:4px">Avg WoW: ${avgChg>=0?'+':''}${fmt(Math.round(avgChg))}</div>
-                      ${trend4wk?`<div style="font-size:10px;color:var(--muted);margin-top:2px">4-Week: ${trend4wk}</div>`:''}
-                    </div>`;
-                })()}
-              `:'<div style="padding:16px;text-align:center;color:var(--muted)">Need 2+ weeks of RL data</div>'}
+              <table>
+                <thead><tr><th>Spread</th><th>Region</th><th class="right">Current</th><th class="right">4-Wk Avg</th><th class="right">12-Wk Avg</th><th class="right">vs Avg</th></tr></thead>
+                <tbody>${typeof generateSpreadTable==='function'?generateSpreadTable(rlData):''}</tbody>
+              </table>
             </div>
           </div>
-          
-          <div class="card">
-            <div class="card-header"><span class="card-title info">📊 MARKET SNAPSHOT</span></div>
-            <div class="card-body" style="padding:0">
-              ${latestRL?`
-                <div style="padding:12px;border-bottom:1px solid var(--border)">
-                  <div style="font-size:10px;color:var(--muted);margin-bottom:8px">RANDOM LENGTHS ${latestRL.date}</div>
-                  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;text-align:center">
-                    <div><div style="color:var(--accent);font-weight:700;font-size:16px">${fmt(latestRL.west?.['2x4#2'])}</div><div style="font-size:9px;color:var(--muted)">West 2x4</div></div>
-                    <div><div style="color:var(--warn);font-weight:700;font-size:16px">${fmt(latestRL.central?.['2x4#2'])}</div><div style="font-size:9px;color:var(--muted)">Central 2x4</div></div>
-                    <div><div style="color:var(--info);font-weight:700;font-size:16px">${fmt(latestRL.east?.['2x4#2'])}</div><div style="font-size:9px;color:var(--muted)">East 2x4</div></div>
+          <div class="card" style="margin-top:16px">
+            <div class="card-header">
+              <span class="card-title">PRICE HISTORY (${chartProduct})</span>
+              <span style="font-size:10px;color:var(--muted)">${cached.west.length} total weeks</span>
+            </div>
+            <div class="card-body" style="max-height:400px;overflow:auto">
+              <table>
+                <thead><tr><th>Date</th><th class="right">West</th><th class="right">Central</th><th class="right">East</th></tr></thead>
+                <tbody>
+                  ${histRows.map(r=>`<tr>
+                    <td>${r.date}</td>
+                    <td class="right">$${Math.round(r.price)}</td>
+                    <td class="right">${centralMap[r.date]?'$'+Math.round(centralMap[r.date]):'—'}</td>
+                    <td class="right">${eastMap[r.date]?'$'+Math.round(eastMap[r.date]):'—'}</td>
+                  </tr>`).join('')}
+                </tbody>
+              </table>
+              ${cached.west.length>52&&!window._rlHistExpanded?`<div style="text-align:center;padding:8px"><button class="btn btn-default btn-sm" onclick="window._rlHistExpanded=true;render()">Show all ${cached.west.length} rows</button></div>`:''}
+            </div>
+          </div>`;
+      }else{
+        c.innerHTML=_aTabBar+`<div class="card"><div class="card-body"><div class="empty-state">Loading ${rlRange} data for ${chartProduct}...</div></div></div>`;
+        rlFetchChartData(chartProduct,rlRange);
+      }
+    }
+    else if(_aTab==='compare'){
+      // Compare tab — historical spread comparison
+      const region=S.filters.reg!=='all'?S.filters.reg:'west';
+      const prod1=S.compareProd1||'2x4#2';
+      const prod2=S.compareProd2||'2x6#2';
+      const len=S.compareLen||'RL';
+      const compareRange=S.rlRange||'1Y';
+      const ranges=['1M','1Y','5Y','10Y','All'];
+      const productList=['2x4#1','2x4#2','2x6#1','2x6#2','2x8#1','2x8#2','2x10#1','2x10#2','2x12#1','2x12#2'];
+      const compareCacheKey=`compare_${prod1}_${prod2}_${region}_${len}_${compareRange}`;
+      const compareCached=window._rlCache?.[compareCacheKey];
+
+      if(compareCached){
+        const history=compareCached;
+        const validSpreads=history.filter(h=>h.spread!==null);
+        const avgSpread=validSpreads.length?Math.round(validSpreads.reduce((s,h)=>s+h.spread,0)/validSpreads.length):0;
+        const minSpread=validSpreads.length?Math.min(...validSpreads.map(h=>h.spread)):0;
+        const maxSpread=validSpreads.length?Math.max(...validSpreads.map(h=>h.spread)):0;
+        const currentSpread=validSpreads.length?validSpreads[validSpreads.length-1].spread:null;
+        const pctRank=currentSpread!==null&&validSpreads.length>1?Math.round(validSpreads.filter(h=>h.spread<=currentSpread).length/validSpreads.length*100):null;
+        const histLimit=window._rlCompareExpanded?history.length:52;
+
+        c.innerHTML=_aTabBar+`
+          <div class="card"><div class="card-header">
+            <span class="card-title info">HISTORICAL SPREAD COMPARISON</span>
+            <div style="display:flex;gap:2px">${ranges.map(r=>`<button class="btn ${compareRange===r?'btn-primary':'btn-default'} btn-sm" onclick="S.rlRange='${r}';SS('rlRange','${r}');delete window._rlCache?.['${compareCacheKey}'];render()" style="padding:2px 8px;font-size:10px">${r}</button>`).join('')}</div>
+          </div>
+            <div class="card-body">
+              <div class="form-grid" style="margin-bottom:16px">
+                <div class="form-group">
+                  <label class="form-label">Product 1 (Base)</label>
+                  <select id="compare-prod1" onchange="S.compareProd1=this.value;render()" style="width:100%">
+                    ${productList.map(p=>`<option value="${p}" ${p===prod1?'selected':''}>${p}</option>`).join('')}
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label class="form-label">Product 2</label>
+                  <select id="compare-prod2" onchange="S.compareProd2=this.value;render()" style="width:100%">
+                    ${productList.map(p=>`<option value="${p}" ${p===prod2?'selected':''}>${p}</option>`).join('')}
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label class="form-label">Length</label>
+                  <select id="compare-len" onchange="S.compareLen=this.value;render()" style="width:100%">
+                    <option value="RL" ${len==='RL'?'selected':''}>RL (Composite)</option>
+                    <option value="8" ${len==='8'?'selected':''}>8'</option>
+                    <option value="10" ${len==='10'?'selected':''}>10'</option>
+                    <option value="12" ${len==='12'?'selected':''}>12'</option>
+                    <option value="14" ${len==='14'?'selected':''}>14'</option>
+                    <option value="16" ${len==='16'?'selected':''}>16'</option>
+                    <option value="18" ${len==='18'?'selected':''}>18'</option>
+                    <option value="20" ${len==='20'?'selected':''}>20'</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label class="form-label">Region</label>
+                  <select onchange="S.filters.reg=this.value;render()" style="width:100%">
+                    <option value="west" ${region==='west'?'selected':''}>West</option>
+                    <option value="central" ${region==='central'?'selected':''}>Central</option>
+                    <option value="east" ${region==='east'?'selected':''}>East</option>
+                  </select>
+                </div>
+              </div>
+              ${validSpreads.length>1?`
+                <div style="margin-bottom:16px;padding:12px;background:var(--bg);border:1px solid var(--border)">
+                  <div style="display:flex;gap:24px;flex-wrap:wrap">
+                    <div><span style="color:var(--muted)">Avg Spread:</span> <span class="bold ${avgSpread>=0?'positive':'negative'}">${fmt(avgSpread)}</span></div>
+                    <div><span style="color:var(--muted)">Min:</span> <span class="bold">${fmt(minSpread)}</span></div>
+                    <div><span style="color:var(--muted)">Max:</span> <span class="bold">${fmt(maxSpread)}</span></div>
+                    <div><span style="color:var(--muted)">Current:</span> <span class="bold accent">${currentSpread!==null?fmt(currentSpread):'—'}</span></div>
+                    ${pctRank!==null?`<div><span style="color:var(--muted)">Percentile:</span> <span class="bold">${pctRank}%</span></div>`:''}
+                    <div><span style="color:var(--muted)">Data pts:</span> <span class="bold">${validSpreads.length}</span></div>
                   </div>
                 </div>
-                ${wowChanges.length?`
-                  <div style="padding:12px">
-                    <div style="font-size:10px;color:var(--muted);margin-bottom:8px">WEEK-OVER-WEEK</div>
-                    ${wowChanges.slice(0,4).map(c=>`<div style="display:flex;justify-content:space-between;margin-bottom:4px;font-size:11px">
-                      <span style="text-transform:capitalize">${c.region} ${c.prod}</span>
-                      <span style="color:${c.chg>0?'var(--positive)':'var(--negative)'};font-weight:600">${c.chg>0?'+':''}${fmt(c.chg)}</span>
-                    </div>`).join('')}
-                  </div>
-                `:''}
-              `:'<div style="padding:16px;text-align:center;color:var(--muted)">No RL data. <a href="#" onclick="go(\'rldata\');return false" style="color:var(--accent)">Import →</a></div>'}
+              `:''}
+              <div style="overflow-x:auto;max-height:400px;overflow-y:auto"><table><thead><tr><th>Date</th><th class="right">${prod1}</th><th class="right">${prod2}</th><th class="right">Spread (${prod2} - ${prod1})</th></tr></thead><tbody>
+                ${history.length?history.slice().reverse().slice(0,histLimit).map(h=>`<tr><td>${h.date}</td><td class="right">${h.p1?fmt(h.p1):'—'}</td><td class="right">${h.p2?fmt(h.p2):'—'}</td><td class="right ${h.spread===null?'':(h.spread>=0?'positive':'negative')} bold">${h.spread!==null?(h.spread>=0?'+':'')+fmt(h.spread):'—'}</td></tr>`).join(''):'<tr><td colspan="4" class="empty-state">No data for selected products</td></tr>'}
+              </tbody></table></div>
+              ${history.length>52&&!window._rlCompareExpanded?`<div style="text-align:center;padding:8px"><button class="btn btn-default btn-sm" onclick="window._rlCompareExpanded=true;render()">Show all ${history.length} rows</button></div>`:''}
+            </div>
+          </div>`;
+      }else{
+        c.innerHTML=_aTabBar+`<div class="card"><div class="card-body">
+          <div class="form-grid" style="margin-bottom:16px">
+            <div class="form-group">
+              <label class="form-label">Product 1 (Base)</label>
+              <select id="compare-prod1" onchange="S.compareProd1=this.value;render()" style="width:100%">
+                ${productList.map(p=>`<option value="${p}" ${p===prod1?'selected':''}>${p}</option>`).join('')}
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Product 2</label>
+              <select id="compare-prod2" onchange="S.compareProd2=this.value;render()" style="width:100%">
+                ${productList.map(p=>`<option value="${p}" ${p===prod2?'selected':''}>${p}</option>`).join('')}
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Length</label>
+              <select id="compare-len" onchange="S.compareLen=this.value;render()" style="width:100%">
+                <option value="RL" ${len==='RL'?'selected':''}>RL (Composite)</option>
+                <option value="8" ${len==='8'?'selected':''}>8'</option>
+                <option value="10" ${len==='10'?'selected':''}>10'</option>
+                <option value="12" ${len==='12'?'selected':''}>12'</option>
+                <option value="14" ${len==='14'?'selected':''}>14'</option>
+                <option value="16" ${len==='16'?'selected':''}>16'</option>
+                <option value="18" ${len==='18'?'selected':''}>18'</option>
+                <option value="20" ${len==='20'?'selected':''}>20'</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Region</label>
+              <select onchange="S.filters.reg=this.value;render()" style="width:100%">
+                <option value="west" ${region==='west'?'selected':''}>West</option>
+                <option value="central" ${region==='central'?'selected':''}>Central</option>
+                <option value="east" ${region==='east'?'selected':''}>East</option>
+              </select>
             </div>
           </div>
-        </div>
-      </div>
-      
-      <div class="grid-3">
-        <div class="card">
-          <div class="card-header"><span class="card-title accent">🗺️ REGIONAL VALUE</span></div>
-          <div class="card-body">
-            ${latestRL?`
-              ${(()=>{
-                const regions=[
-                  {name:'West',price:latestRL.west?.['2x4#2']||0,color:'var(--accent)'},
-                  {name:'Central',price:latestRL.central?.['2x4#2']||0,color:'var(--warn)'},
-                  {name:'East',price:latestRL.east?.['2x4#2']||0,color:'var(--info)'}
-                ].filter(r=>r.price>0).sort((a,b)=>a.price-b.price);
-                
-                if(!regions.length)return'<div class="empty-state">No price data</div>';
-                
-                const best=regions[0];
-                const worst=regions[regions.length-1];
-                const savings=worst.price-best.price;
-                
-                return`
-                  <div style="text-align:center;margin-bottom:12px">
-                    <div style="font-size:10px;color:var(--muted)">BEST VALUE</div>
-                    <div style="font-size:24px;font-weight:700;color:${best.color}">${best.name}</div>
-                    <div style="font-size:14px;color:var(--positive)">${fmt(savings)} cheaper than ${worst.name}</div>
-                  </div>
-                  <div style="font-size:11px">
-                    ${regions.map((r,i)=>`<div style="display:flex;justify-content:space-between;padding:6px 0;${i<regions.length-1?'border-bottom:1px solid var(--border)':''}">
-                      <span style="color:${r.color}">${i+1}. ${r.name}</span>
-                      <span style="font-weight:600">${fmt(r.price)}</span>
-                    </div>`).join('')}
-                  </div>`;
-              })()}
-            `:'<div class="empty-state">Need RL data</div>'}
+          <div class="empty-state">Loading comparison data...</div>
+        </div></div>`;
+        rlFetchCompareData(prod1,prod2,region,len,compareRange);
+      }
+    }
+    else if(_aTab==='forecast'){
+      // Forecast tab — price forecasts + seasonal analysis
+      const fProduct=S.forecastProduct||'2x4#2';
+      const fRegion=S.forecastRegion||'west';
+      const fWeeks=S.forecastWeeks||8;
+      const fProducts=['2x4#2','2x6#2','2x8#2','2x10#2','2x12#2'];
+      const forecastCacheKey=`forecast_${fProduct}_${fRegion}_${fWeeks}`;
+      const seasonalCacheKey=`seasonal_${fProduct}_${fRegion}_5`;
+      const forecastData=window._rlCache?.[forecastCacheKey];
+      const seasonalData=window._rlCache?.[seasonalCacheKey];
+
+      if(forecastData&&seasonalData){
+        // Stats bar
+        const fc=forecastData;
+        const sc=seasonalData;
+        const trendIcon=fc.trend==='up'?'&#9650;':fc.trend==='down'?'&#9660;':'&#9654;';
+        const trendColor=fc.trend==='up'?'var(--positive)':fc.trend==='down'?'var(--negative)':'var(--muted)';
+        const momColor=fc.momentum>=0?'var(--positive)':'var(--negative)';
+        const pctColor=p=>p<=30?'positive':p>=70?'negative':'';
+
+        // Build seasonal heatmap for all 5 core products
+        const monthNames=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+        const currentMonth=new Date().getMonth()+1;
+
+        // Fetch seasonal data for all products (use cached or trigger fetch)
+        const allSeasonalKeys=fProducts.map(p=>`seasonal_${p}_${fRegion}_5`);
+        const allSeasonalData=fProducts.map((p,i)=>window._rlCache?.[allSeasonalKeys[i]]);
+        const allSeasonalReady=allSeasonalData.every(d=>d&&d.monthlyFactors);
+
+        // If not all seasonal data loaded, trigger fetches for missing ones
+        if(!allSeasonalReady){
+          fProducts.forEach((p,i)=>{
+            if(!allSeasonalData[i])rlFetchSeasonal(p,fRegion,5);
+          });
+        }
+
+        let heatmapHTML='';
+        if(allSeasonalReady){
+          heatmapHTML=`<div class="card" style="margin-bottom:16px"><div class="card-header"><span class="card-title warn">SEASONAL HEATMAP</span><span style="color:var(--muted);font-size:10px">${fRegion.toUpperCase()} — 5yr seasonal indices</span></div>
+            <div style="overflow-x:auto"><table style="font-size:10px"><thead><tr><th>Product</th>${monthNames.map((m,i)=>`<th class="right" style="${i+1===currentMonth?'background:var(--accent);color:var(--bg);font-weight:700':''}">${m}</th>`).join('')}</tr></thead><tbody>
+            ${fProducts.map((p,pi)=>{
+              const sd=allSeasonalData[pi];
+              if(!sd||!sd.monthlyFactors)return'';
+              return`<tr><td class="bold">${p}</td>${sd.monthlyFactors.map((mf,mi)=>{
+                const idx=mf.index;
+                const bg=idx>=1.02?'rgba(166,227,161,0.25)':idx<=0.98?'rgba(243,139,168,0.25)':'transparent';
+                const clr=idx>=1.02?'var(--positive)':idx<=0.98?'var(--negative)':'var(--text)';
+                const isCurrent=mi+1===currentMonth;
+                return`<td class="right" style="background:${isCurrent?'var(--accent)':bg};color:${isCurrent?'var(--bg)':clr};font-weight:${isCurrent?'700':'400'}">${idx.toFixed(2)}</td>`;
+              }).join('')}</tr>`;
+            }).join('')}
+            </tbody></table></div>
+            ${sc.currentPosition?`<div style="padding:8px 12px;margin-top:8px;background:var(--panel-alt);border:1px solid var(--border);font-size:11px">
+              <span class="bold accent">Seasonal Insight:</span> ${fProduct} is at the <span class="bold ${pctColor(sc.currentPosition.pctRank)}">${sc.currentPosition.pctRank}th percentile</span> for ${monthNames[currentMonth-1]} (index: ${sc.currentPosition.index.toFixed(2)}). ${sc.outlook?.peakMonths?'Peak months: <b>'+sc.outlook.peakMonths+'</b>. Low months: <b>'+sc.outlook.lowMonths+'</b>. Trend: '+sc.outlook.trend+' ($'+sc.outlook.trendPerWeek+'/wk).':''}
+            </div>`:''}
+          </div>`;
+        }
+
+        c.innerHTML=_aTabBar+`
+          <div style="display:flex;gap:8px;margin-bottom:16px;align-items:center;flex-wrap:wrap">
+            <select onchange="S.forecastProduct=this.value;SS('forecastProduct',this.value);delete window._rlCache?.['${forecastCacheKey}'];delete window._rlCache?.['${seasonalCacheKey}'];render()" style="padding:4px 8px;font-size:11px;background:var(--card);border:1px solid var(--border);color:var(--text)">
+              ${fProducts.map(p=>`<option value="${p}" ${p===fProduct?'selected':''}>${p}</option>`).join('')}
+            </select>
+            <select onchange="S.forecastRegion=this.value;SS('forecastRegion',this.value);delete window._rlCache?.['${forecastCacheKey}'];delete window._rlCache?.['${seasonalCacheKey}'];render()" style="padding:4px 8px;font-size:11px;background:var(--card);border:1px solid var(--border);color:var(--text)">
+              <option value="west" ${fRegion==='west'?'selected':''}>West</option>
+              <option value="central" ${fRegion==='central'?'selected':''}>Central</option>
+              <option value="east" ${fRegion==='east'?'selected':''}>East</option>
+            </select>
+            <span style="font-size:10px;color:var(--muted)">${fc.dataPoints||0} data points</span>
+          </div>
+
+          <div style="display:flex;gap:16px;margin-bottom:16px;flex-wrap:wrap">
+            <div style="padding:10px 16px;background:var(--card);border:1px solid var(--border);flex:1;min-width:120px">
+              <div style="font-size:9px;color:var(--muted);text-transform:uppercase">Current</div>
+              <div style="font-size:20px;font-weight:700;color:var(--accent)">$${fc.lastPrice||'—'}</div>
+            </div>
+            <div style="padding:10px 16px;background:var(--card);border:1px solid var(--border);flex:1;min-width:120px">
+              <div style="font-size:9px;color:var(--muted);text-transform:uppercase">4-Week Forecast</div>
+              <div style="font-size:20px;font-weight:700">$${fc.forecast&&fc.forecast.length>=4?fc.forecast[3].price:'—'}</div>
+            </div>
+            <div style="padding:10px 16px;background:var(--card);border:1px solid var(--border);flex:1;min-width:120px">
+              <div style="font-size:9px;color:var(--muted);text-transform:uppercase">Trend</div>
+              <div style="font-size:20px;font-weight:700;color:${trendColor}">${trendIcon} ${(fc.trend||'flat').toUpperCase()}</div>
+            </div>
+            <div style="padding:10px 16px;background:var(--card);border:1px solid var(--border);flex:1;min-width:120px">
+              <div style="font-size:9px;color:var(--muted);text-transform:uppercase">Momentum</div>
+              <div style="font-size:20px;font-weight:700;color:${momColor}">${fc.momentum>=0?'+':''}${fc.momentum||0}</div>
+            </div>
+            <div style="padding:10px 16px;background:var(--card);border:1px solid var(--border);flex:1;min-width:120px">
+              <div style="font-size:9px;color:var(--muted);text-transform:uppercase">Seasonal %ile</div>
+              <div style="font-size:20px;font-weight:700" class="${pctColor(sc.currentPosition?.pctRank||50)}">${sc.currentPosition?.pctRank||'—'}%</div>
+            </div>
+          </div>
+
+          <div class="card" style="margin-bottom:16px">
+            <div class="card-header"><span class="card-title accent">PRICE FORECAST</span><span style="color:var(--muted);font-size:10px">${fProduct} ${fRegion.toUpperCase()} — ${fWeeks}wk Holt ES + seasonal</span></div>
+            <div class="card-body">
+              <div style="position:relative;height:280px;width:100%"><canvas id="forecast-chart"></canvas></div>
+              ${fc.seasonalOutlook?`<div style="padding:8px 0;font-size:11px;color:var(--muted)">${fc.seasonalOutlook}</div>`:''}
+            </div>
+          </div>
+
+          ${heatmapHTML}
+
+          <div class="card"><div class="card-header"><span class="card-title info">FORECAST TABLE</span></div>
+            <div style="overflow-x:auto"><table style="font-size:10px"><thead><tr><th>Date</th><th class="right">Forecast</th><th class="right">Low</th><th class="right">High</th><th class="right">Band Width</th></tr></thead><tbody>
+            ${(fc.forecast||[]).map(f=>`<tr><td>${f.date}</td><td class="right bold">$${f.price}</td><td class="right" style="color:var(--negative)">$${f.low}</td><td class="right" style="color:var(--positive)">$${f.high}</td><td class="right" style="color:var(--muted)">$${f.high-f.low}</td></tr>`).join('')}
+            </tbody></table></div>
+          </div>`;
+
+        // Render forecast chart after DOM update
+        setTimeout(()=>renderForecastChart(fc),50);
+      }else{
+        c.innerHTML=_aTabBar+`<div class="card"><div class="card-body"><div class="empty-state">Loading forecast data...</div></div></div>`;
+        if(!forecastData)rlFetchForecast(fProduct,fRegion,fWeeks);
+        if(!seasonalData)rlFetchSeasonal(fProduct,fRegion,5);
+      }
+    }
+    else if(_aTab==='details'){
+      // Details tab — RL report details by date
+      const latestRL=S.rl.length?S.rl[S.rl.length-1]:null;
+      const dateTabs=S.rl.slice().reverse().map(r=>`<button class="btn ${S.rlViewDate===r.date?'btn-primary':'btn-default'} btn-sm" onclick="S.rlViewDate='${r.date}';render()" style="margin-right:4px">${r.date}</button>`).join('');
+      const selectedRL=S.rlViewDate?S.rl.find(r=>r.date===S.rlViewDate):latestRL;
+
+      let detailHTML='';
+      if(selectedRL){
+        detailHTML=`<div class="card"><div class="card-header"><span class="card-title">${selectedRL.date} DETAILS</span><button class="btn btn-danger btn-sm" onclick="delRL('${selectedRL.date}')">Delete</button></div><div class="card-body">`;
+
+        if(selectedRL.west||selectedRL.central||selectedRL.east){
+          detailHTML+=`<div style="font-weight:600;color:var(--accent);margin-bottom:8px">COMPOSITE PRICES</div>
+            <table style="width:100%;font-size:10px;margin-bottom:16px">
+            <tr><th>Product</th><th class="right" style="color:var(--accent)">West</th><th class="right" style="color:var(--warn)">Central</th><th class="right" style="color:var(--info)">East</th></tr>
+            ${['2x4#1','2x4#2','2x6#1','2x6#2','2x8#2','2x10#2','2x12#2'].map(p=>`<tr><td>${p}</td><td class="right">${selectedRL.west?.[p]?'$'+selectedRL.west[p]:'—'}</td><td class="right">${selectedRL.central?.[p]?'$'+selectedRL.central[p]:'—'}</td><td class="right">${selectedRL.east?.[p]?'$'+selectedRL.east[p]:'—'}</td></tr>`).join('')}
+            </table>`;
+        }
+
+        if(selectedRL.specified_lengths){
+          ['west','central','east'].forEach(region=>{
+            if(selectedRL.specified_lengths[region]&&Object.keys(selectedRL.specified_lengths[region]).length>0){
+              const regionColor={west:'var(--accent)',central:'var(--warn)',east:'var(--info)'}[region];
+              detailHTML+=`<div style="font-weight:600;color:${regionColor};margin:12px 0 8px;text-transform:uppercase">${region} - SPECIFIED LENGTHS</div>
+                <div style="overflow-x:auto"><table style="width:100%;font-size:10px;margin-bottom:12px">
+                <tr><th>Product</th><th class="right">8'</th><th class="right">10'</th><th class="right">12'</th><th class="right">14'</th><th class="right">16'</th><th class="right">18'</th><th class="right">20'</th></tr>`;
+              Object.entries(selectedRL.specified_lengths[region]).forEach(([prod,lengths])=>{
+                detailHTML+=`<tr><td>${prod}</td>`;
+                ['8','10','12','14','16','18','20'].forEach(len=>{
+                  detailHTML+=`<td class="right">${lengths[len]?'$'+lengths[len]:'—'}</td>`;
+                });
+                detailHTML+=`</tr>`;
+              });
+              detailHTML+=`</table></div>`;
+            }
+          });
+        }
+        detailHTML+=`</div></div>`;
+      }
+
+      c.innerHTML=_aTabBar+`
+        <div style="margin-bottom:16px;display:flex;gap:8px;justify-content:space-between;flex-wrap:wrap">
+          <div style="display:flex;gap:8px;align-items:center">
+            <span style="color:var(--muted);font-size:11px">DATES:</span>
+            <div style="display:flex;flex-wrap:wrap;gap:4px">${dateTabs||'<span style="color:var(--muted)">No data</span>'}</div>
+          </div>
+          <div style="display:flex;gap:8px">
+            <button class="btn btn-warn" onclick="showParseModal()">Import PDF</button>
+            <button class="btn btn-primary" onclick="showRLModal()">+ Manual Entry</button>
           </div>
         </div>
-        
-        <div class="card">
-          <div class="card-header"><span class="card-title warn">📏 VOLUME PACE</span></div>
-          <div class="card-body">
-            ${(()=>{
-              // Calculate this week's volume
-              const today=new Date();
-              const weekStart=new Date(today);
-              weekStart.setDate(today.getDate()-today.getDay());
-              const weekStartStr=weekStart.toISOString().split('T')[0];
-              
-              const thisWeekBuys=S.buys.filter(b=>b.date>=weekStartStr).reduce((s,b)=>s+(b.volume||0),0);
-              const thisWeekSells=S.sells.filter(s=>s.date>=weekStartStr).reduce((s,s2)=>s+(s2.volume||0),0);
-              const thisWeekTotal=thisWeekBuys+thisWeekSells;
-              
-              // Calculate average weekly volume (last 4 weeks)
-              const fourWeeksAgo=new Date(today);
-              fourWeeksAgo.setDate(today.getDate()-28);
-              const fourWeeksStr=fourWeeksAgo.toISOString().split('T')[0];
-              
-              const last4wkBuys=S.buys.filter(b=>b.date>=fourWeeksStr&&b.date<weekStartStr).reduce((s,b)=>s+(b.volume||0),0);
-              const last4wkSells=S.sells.filter(s=>s.date>=fourWeeksStr&&s.date<weekStartStr).reduce((s,s2)=>s+(s2.volume||0),0);
-              const avgWeekly=Math.round((last4wkBuys+last4wkSells)/4);
-              
-              const pct=avgWeekly>0?Math.round((thisWeekTotal/avgWeekly)*100):0;
-              const status=pct>=100?'AHEAD':pct>=75?'ON PACE':'BEHIND';
-              const statusColor=pct>=100?'var(--positive)':pct>=75?'var(--warn)':'var(--negative)';
-              
-              return`
-                <div style="text-align:center;margin-bottom:12px">
-                  <div style="font-size:10px;color:var(--muted)">THIS WEEK</div>
-                  <div style="font-size:28px;font-weight:700">${fmtN(thisWeekTotal)} <span style="font-size:14px;color:var(--muted)">MBF</span></div>
-                  <div style="font-size:12px;color:${statusColor};font-weight:600">${status}</div>
-                </div>
-                <div style="margin-bottom:8px">
-                  <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--muted);margin-bottom:4px">
-                    <span>Progress</span>
-                    <span>${pct}%</span>
-                  </div>
-                  <div style="height:8px;background:var(--border);overflow:hidden">
-                    <div style="height:100%;width:${Math.min(pct,100)}%;background:${statusColor}"></div>
-                  </div>
-                </div>
-                <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--muted)">
-                  <span>Avg Week: ${fmtN(avgWeekly)} MBF</span>
-                  <span>B:${fmtN(thisWeekBuys)} S:${fmtN(thisWeekSells)}</span>
-                </div>`;
-            })()}
-          </div>
-        </div>
-        
-        <div class="card">
-          <div class="card-header"><span class="card-title">📐 KEY SPREADS</span></div>
-          <div class="card-body" style="padding:0">
-            ${spreads.length?spreads.map(s=>`<div class="activity-item"><span style="text-transform:capitalize">${s.region} ${s.spread}</span><span style="font-weight:600">${fmt(s.val)}</span></div>`).join(''):'<div class="empty-state">No spread data</div>'}
-          </div>
-        </div>
-      </div>
-      
-      <div class="card" style="margin-top:16px">
-        <div class="card-header">
-          <span class="card-title positive">📝 WEEKLY MARKET REPORT</span>
-          <button class="btn btn-success btn-sm" onclick="generateWeeklyReport()">🤖 Generate Report</button>
-        </div>
-        <div class="card-body">
-          <div id="weekly-report" style="line-height:1.6">
-            <div style="color:var(--muted);text-align:center;padding:20px">Click "Generate Report" to create a market commentary for your customers</div>
-          </div>
-        </div>
-      </div>`;
+        ${detailHTML||'<div class="empty-state">No RL data uploaded yet</div>'}`;
+    }
+    else{
+      c.innerHTML=_aTabBar+'<div class="empty-state">Select a tab</div>';
     }
   }
   else if(S.view==='trading'&&(!S.tradingTab||S.tradingTab==='blotter')){
@@ -1276,348 +1663,8 @@ function render(){
         <div class="panel-footer"><span>Total Volume: <strong>${fmtN(sellTotalVol)} MBF</strong></span><span>Total P&L: <strong class="${sellTotalProfit>=0?'positive':'negative'}">${fmt(Math.round(sellTotalProfit))}</strong></span><span>Avg Margin: <strong class="${avgMarginAll>=0?'positive':'negative'}">${fmt(Math.round(avgMarginAll))}/MBF</strong></span><span>${filteredSells.length} trades</span></div>
       </div>`;
   }
-  else if(S.view==='analytics'&&S.analyticsTab==='benchmark'){
-    const _aTabBar=_subTabBar('analyticsTab',[{id:'briefing',label:'Briefing'},{id:'benchmark',label:'vs Market'},{id:'risk',label:'Risk'},{id:'rldata',label:'RL Data'}],'benchmark');
-    // Filter out MSR/2400 from market comparison (they're premiums)
-    const standardBench=a.bench.filter(b=>!b.isMSR);
-    const msrBench=a.bench.filter(b=>b.isMSR);
-
-    // Calculate regional performance
-    const byRegion={west:{vol:0,diff:0,count:0},central:{vol:0,diff:0,count:0},east:{vol:0,diff:0,count:0}};
-    standardBench.filter(b=>b.diff!=null).forEach(b=>{
-      const r=b.region||'west';
-      byRegion[r].vol+=b.volume||0;
-      byRegion[r].diff+=b.diff*(b.volume||0);
-      byRegion[r].count++;
-    });
-
-    // Best and worst buys
-    const withDiff=standardBench.filter(b=>b.diff!=null).sort((x,y)=>x.diff-y.diff);
-    const bestBuys=withDiff.slice(0,3);
-    const worstBuys=withDiff.slice(-3).reverse();
-
-    // Total savings/overpay
-    const totalImpact=standardBench.filter(b=>b.diff!=null).reduce((s,b)=>s+(b.diff||0)*(b.volume||0),0);
-    const matchedVol=standardBench.filter(b=>b.diff!=null).reduce((s,b)=>s+(b.volume||0),0);
-
-    // Historical vs market trend (by week)
-    const weeklyVsMarket=calcWeeklyVsMarket(S.buys,S.rl);
-
-    // Filtering
-    const benchFilter=S.benchFilter||{};
-    let filteredBench=standardBench;
-    if(benchFilter.region)filteredBench=filteredBench.filter(b=>b.region===benchFilter.region);
-    if(benchFilter.product)filteredBench=filteredBench.filter(b=>b.product===benchFilter.product);
-    if(benchFilter.showBelow)filteredBench=filteredBench.filter(b=>b.diff!=null&&b.diff<0);
-    if(benchFilter.showAbove)filteredBench=filteredBench.filter(b=>b.diff!=null&&b.diff>0);
-
-    // Sorting
-    const benchSort=S.benchSort||{col:'date',dir:'desc'};
-    filteredBench=[...filteredBench].sort((x,y)=>{
-      let av=x[benchSort.col],bv=y[benchSort.col];
-      if(benchSort.col==='date'){av=new Date(av||0);bv=new Date(bv||0);}
-      if(benchSort.col==='diff'){av=av??999;bv=bv??999;}
-      if(typeof av==='string')av=av.toLowerCase();
-      if(typeof bv==='string')bv=bv.toLowerCase();
-      return benchSort.dir==='asc'?(av>bv?1:-1):(av<bv?1:-1);
-    });
-
-    const benchProducts=[...new Set(standardBench.map(b=>b.product))].sort();
-    const benchSortIcon=col=>benchSort.col===col?(benchSort.dir==='asc'?'▲':'▼'):'';
-    const benchSortClick=col=>`onclick="toggleBenchSort('${col}')" style="cursor:pointer"`;
-
-    c.innerHTML=_aTabBar+`
-      <div class="kpi-grid">
-        <div class="kpi"><div class="kpi-label">AVG vs MARKET</div><div><span class="kpi-value ${a.avgVsRL<=0?'positive':'negative'}">${a.avgVsRL<=0?'▼':'▲'} ${fmt(Math.abs(a.avgVsRL))}</span><span class="kpi-sub">/MBF</span></div></div>
-        <div class="kpi"><div class="kpi-label">TOTAL IMPACT</div><div><span class="kpi-value ${totalImpact<=0?'positive':'negative'}">${totalImpact<=0?'':'+'} ${fmt(Math.abs(Math.round(totalImpact)))}</span><span class="kpi-sub">${totalImpact<=0?'saved':'over'}</span></div></div>
-        <div class="kpi"><div class="kpi-label">TRADES MATCHED</div><div><span class="kpi-value">${standardBench.filter(b=>b.rlP).length}/${standardBench.length}</span><span class="kpi-sub">${fmtN(matchedVol)} MBF</span></div></div>
-        <div class="kpi"><div class="kpi-label">MSR/2400 TRADES</div><div><span class="kpi-value accent">${msrBench.length}</span></div></div>
-      </div>
-
-      <!-- Regional Performance -->
-      <div class="grid-3" style="margin-bottom:16px">
-        ${['west','central','east'].map(r=>{
-          const d=byRegion[r];
-          const avg=d.vol>0?d.diff/d.vol:0;
-          const color=r==='west'?'accent':r==='central'?'warn':'info';
-          return`<div class="card">
-            <div class="card-header"><span class="card-title" style="color:var(--${color});text-transform:capitalize">${r.toUpperCase()}</span></div>
-            <div class="card-body">
-              <div style="display:flex;justify-content:space-between;margin-bottom:8px">
-                <span style="color:var(--muted)">Avg vs RL</span>
-                <span class="bold ${avg<=0?'positive':'negative'}">${avg<=0?'▼':'▲'} ${fmt(Math.abs(Math.round(avg)))}/MBF</span>
-              </div>
-              <div style="display:flex;justify-content:space-between;margin-bottom:8px">
-                <span style="color:var(--muted)">Volume</span>
-                <span>${fmtN(d.vol)} MBF</span>
-              </div>
-              <div style="display:flex;justify-content:space-between">
-                <span style="color:var(--muted)">Trades</span>
-                <span>${d.count}</span>
-              </div>
-            </div>
-          </div>`;
-        }).join('')}
-      </div>
-
-      <!-- Weekly Trend Chart -->
-      <div class="card" style="margin-bottom:16px">
-        <div class="card-header"><span class="card-title">VS MARKET TREND (Last 8 Weeks)</span></div>
-        <div class="card-body">
-          ${weeklyVsMarket.length?`
-          <div style="display:flex;gap:4px;align-items:center;height:120px;padding:10px 0">
-            ${weeklyVsMarket.map(w=>{
-              const maxAbs=Math.max(...weeklyVsMarket.map(x=>Math.abs(x.avgDiff)))||1;
-              const h=Math.max(8,Math.abs(w.avgDiff)/maxAbs*50);
-              const isBelow=w.avgDiff<=0;
-              return`<div style="flex:1;display:flex;flex-direction:column;align-items:center;height:100%">
-                <div style="flex:1;display:flex;flex-direction:column;justify-content:center;align-items:center;width:100%">
-                  ${isBelow?`<div style="width:80%;background:var(--positive);height:${h}px" title="$${Math.round(w.avgDiff)}/MBF"></div>`:''}
-                  <div style="height:1px;width:100%;background:var(--border);margin:2px 0"></div>
-                  ${!isBelow?`<div style="width:80%;background:var(--negative);height:${h}px" title="+$${Math.round(w.avgDiff)}/MBF"></div>`:''}
-                </div>
-                <div style="font-size:8px;color:var(--muted);margin-top:4px">${w.label}</div>
-                <div style="font-size:9px;color:${isBelow?'var(--positive)':'var(--negative)'}">${isBelow?'':'+'}${Math.round(w.avgDiff)}</div>
-              </div>`;
-            }).join('')}
-          </div>
-          <div style="text-align:center;font-size:9px;color:var(--muted);margin-top:8px">
-            <span style="color:var(--positive)">▼ Below market = Good</span> &nbsp;|&nbsp; <span style="color:var(--negative)">▲ Above market = Overpaid</span>
-          </div>
-          `:'<div class="empty-state">Not enough data for trend</div>'}
-        </div>
-      </div>
-
-      <!-- Best & Worst Buys -->
-      <div class="grid-2" style="margin-bottom:16px">
-        <div class="card">
-          <div class="card-header"><span class="card-title positive">BEST BUYS (vs Market)</span></div>
-          <div class="card-body" style="padding:0">
-            ${bestBuys.length?bestBuys.map(b=>`
-              <div class="activity-item">
-                <div>
-                  <div class="activity-main">${typeof formatProductLabel==='function'?formatProductLabel(b.product,b.length):escapeHtml(b.product)+' '+(escapeHtml(b.length)||'RL')}</div>
-                  <div class="activity-sub">${escapeHtml(b.mill)||'—'} • ${fmtD(b.date)}</div>
-                </div>
-                <div class="activity-right">
-                  <div class="activity-value positive">▼ ${fmt(Math.abs(b.diff))}</div>
-                  <div style="font-size:9px;color:var(--muted)">${fmtN(b.volume)} MBF</div>
-                </div>
-              </div>
-            `).join(''):'<div class="empty-state">No matched buys</div>'}
-          </div>
-        </div>
-        <div class="card">
-          <div class="card-header"><span class="card-title negative">WORST BUYS (vs Market)</span></div>
-          <div class="card-body" style="padding:0">
-            ${worstBuys.filter(b=>b.diff>0).length?worstBuys.filter(b=>b.diff>0).map(b=>`
-              <div class="activity-item">
-                <div>
-                  <div class="activity-main">${typeof formatProductLabel==='function'?formatProductLabel(b.product,b.length):escapeHtml(b.product)+' '+(escapeHtml(b.length)||'RL')}</div>
-                  <div class="activity-sub">${escapeHtml(b.mill)||'—'} • ${fmtD(b.date)}</div>
-                </div>
-                <div class="activity-right">
-                  <div class="activity-value negative">▲ +${fmt(b.diff)}</div>
-                  <div style="font-size:9px;color:var(--muted)">${fmtN(b.volume)} MBF</div>
-                </div>
-              </div>
-            `).join(''):'<div class="empty-state" style="padding:20px;color:var(--positive)">All buys at or below market!</div>'}
-          </div>
-        </div>
-      </div>
-
-      <!-- Filters -->
-      <div class="card" style="margin-bottom:16px;padding:12px">
-        <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center">
-          <span style="color:var(--muted);font-size:11px">FILTERS:</span>
-          <select onchange="setBenchFilter('region',this.value)" style="font-size:11px;padding:4px">
-            <option value="">All Regions</option>
-            <option value="west" ${benchFilter.region==='west'?'selected':''}>West</option>
-            <option value="central" ${benchFilter.region==='central'?'selected':''}>Central</option>
-            <option value="east" ${benchFilter.region==='east'?'selected':''}>East</option>
-          </select>
-          <select onchange="setBenchFilter('product',this.value)" style="font-size:11px;padding:4px">
-            <option value="">All Products</option>
-            ${benchProducts.map(p=>`<option value="${escapeHtml(p)}" ${benchFilter.product===p?'selected':''}>${escapeHtml(p)}</option>`).join('')}
-          </select>
-          <label style="font-size:11px;color:var(--positive)"><input type="checkbox" ${benchFilter.showBelow?'checked':''} onchange="setBenchFilter('showBelow',this.checked)"> Below market only</label>
-          <label style="font-size:11px;color:var(--negative)"><input type="checkbox" ${benchFilter.showAbove?'checked':''} onchange="setBenchFilter('showAbove',this.checked)"> Above market only</label>
-          <button class="btn btn-default btn-sm" onclick="S.benchFilter={};render()">Clear</button>
-        </div>
-      </div>
-
-      <div class="card"><div class="card-header"><span class="card-title">STANDARD GRADES vs RANDOM LENGTHS</span><span style="color:var(--muted);font-size:10px">${filteredBench.length} trades • Latest RL: ${a.latestRL?.date||'None'}</span></div>
-        <div style="overflow-x:auto"><table><thead><tr><th ${benchSortClick('date')}>Date ${benchSortIcon('date')}</th><th ${benchSortClick('mill')}>Mill ${benchSortIcon('mill')}</th><th ${benchSortClick('product')}>Product ${benchSortIcon('product')}</th><th>Len</th><th ${benchSortClick('region')}>Region ${benchSortIcon('region')}</th><th class="right" ${benchSortClick('price')}>Your Price ${benchSortIcon('price')}</th><th class="right">RL #1</th><th class="right" ${benchSortClick('diff')}>Diff ${benchSortIcon('diff')}</th><th class="right" ${benchSortClick('volume')}>Volume ${benchSortIcon('volume')}</th></tr></thead><tbody>
-          ${filteredBench.length?filteredBench.map(b=>`<tr><td>${fmtD(b.date)}</td><td>${escapeHtml(b.mill)||'—'}</td><td class="bold">${escapeHtml(b.product)}</td><td>${escapeHtml(b.length)||'RL'}</td><td style="text-transform:capitalize">${escapeHtml(b.region)}</td><td class="right">${fmt(b.price)}</td><td class="right" style="color:var(--muted)">${b.rlP?fmt(b.rlP):'<span style="color:var(--negative)">No match</span>'}</td><td class="right ${b.diff==null?'':b.diff<=0?'positive':'negative'} bold">${b.diff!=null?`${b.diff<=0?'':'+'}${fmt(b.diff)}`:'—'}</td><td class="right">${fmtN(b.volume)} MBF</td></tr>`).join(''):'<tr><td colspan="9" class="empty-state">No trades match filters</td></tr>'}
-        </tbody></table></div>
-        ${standardBench.some(b=>!b.rlP)?`<div style="padding:12px;color:var(--muted);font-size:10px;border-top:1px solid var(--border)">💡 "No match" means the product/length/region combo wasn't found in RL data.</div>`:''}
-      </div>
-      ${msrBench.length?`<div class="card" style="margin-top:16px"><div class="card-header"><span class="card-title accent">MSR / 2400f TRADES (Premium over #1)</span></div>
-        <div style="overflow-x:auto"><table><thead><tr><th>Date</th><th>Mill</th><th>Product</th><th>Len</th><th>Region</th><th class="right">Your Price</th><th class="right">Base #1</th><th class="right">Premium</th><th class="right">Volume</th></tr></thead><tbody>
-          ${msrBench.map(b=>`<tr><td>${fmtD(b.date)}</td><td>${escapeHtml(b.mill)||'—'}</td><td class="bold accent">${escapeHtml(b.product)}</td><td>${escapeHtml(b.length)||'RL'}</td><td style="text-transform:capitalize">${escapeHtml(b.region)}</td><td class="right">${fmt(b.price)}</td><td class="right" style="color:var(--muted)">${b.basePrice?fmt(b.basePrice):(b.rlP?fmt(b.rlP):'—')}</td><td class="right accent bold">${b.msrPremium?'+'+fmt(b.msrPremium):(b.rlP?'+'+fmt(b.price-b.rlP):'—')}</td><td class="right">${fmtN(b.volume)} MBF</td></tr>`).join('')}
-        </tbody></table></div>
-        <div style="padding:12px;color:var(--muted);font-size:10px;border-top:1px solid var(--border)">MSR/2400 prices shown as premium over #1 base price. These do not affect market comparison metrics.</div>
-      </div>`:''}`
-  }
-  else if(S.view==='analytics'&&S.analyticsTab==='risk'){
-    const _aTabBar=_subTabBar('analyticsTab',[{id:'briefing',label:'Briefing'},{id:'benchmark',label:'vs Market'},{id:'risk',label:'Risk'},{id:'rldata',label:'RL Data'}],'risk');
-    // Risk analytics shows DEPARTMENT-WIDE data for all traders to see overall exposure
-    const deptBuys=S.buys;
-    const deptSells=S.sells;
-
-    // Calculate positions by product (bought vs sold) - DEPT WIDE
-    const normLen=l=>String(l||'RL').replace(/'/g,'');
-    const positions={};
-    deptBuys.forEach(b=>{
-      const len=normLen(b.length);
-      const key=`${b.product}|${len}`;
-      if(!positions[key])positions[key]={product:b.product,length:len,region:b.region||'west',bought:0,sold:0,boughtVal:0,soldVal:0};
-      positions[key].bought+=b.volume||0;
-      positions[key].boughtVal+=(b.price||0)*(b.volume||0);
-    });
-    deptSells.forEach(s=>{
-      const len=normLen(s.length);
-      const key=`${s.product}|${len}`;
-      if(!positions[key])positions[key]={product:s.product,length:len,region:s.region||'west',bought:0,sold:0,boughtVal:0,soldVal:0};
-      positions[key].sold+=s.volume||0;
-      const freightPerMBF=s.volume>0?(s.freight||0)/s.volume:0;
-      positions[key].soldVal+=((s.price||0)-freightPerMBF)*(s.volume||0);
-    });
-
-    // Split into long/short
-    const longPos=Object.values(positions).filter(p=>p.bought>p.sold).map(p=>({...p,net:p.bought-p.sold,avgCost:p.bought?p.boughtVal/p.bought:0}));
-    const shortPos=Object.values(positions).filter(p=>p.sold>p.bought).map(p=>({...p,net:p.sold-p.bought,avgSell:p.sold?p.soldVal/p.sold:0}));
-
-    const totalLong=longPos.reduce((s,p)=>s+p.net,0);
-    const totalShort=shortPos.reduce((s,p)=>s+p.net,0);
-    const longExposure=longPos.reduce((s,p)=>s+p.net*p.avgCost,0);
-    const shortExposure=shortPos.reduce((s,p)=>s+p.net*p.avgSell,0);
-    const netPosition=totalLong-totalShort;
-
-    // Concentration risk - find largest position
-    const allPos=[...longPos,...shortPos].sort((a,b)=>(b.net*b.avgCost||b.net*b.avgSell)-(a.net*a.avgCost||a.net*a.avgSell));
-    const largestPos=allPos[0];
-    const totalExposure=longExposure+shortExposure;
-    const concentrationPct=totalExposure>0&&largestPos?(largestPos.net*(largestPos.avgCost||largestPos.avgSell))/totalExposure*100:0;
-
-    // Uncovered sells (sells without matching buy order) - DEPT WIDE
-    const buyOrders=new Set(deptBuys.map(b=>String(b.orderNum||b.po||'').trim()).filter(Boolean));
-    const uncoveredSells=deptSells.filter(s=>{
-      const ord=String(s.orderNum||s.linkedPO||s.oc||'').trim();
-      return !ord||!buyOrders.has(ord);
-    });
-    const uncoveredVol=uncoveredSells.reduce((s,x)=>s+(x.volume||0),0);
-
-    // Position limits (configurable per product, default 500 MBF)
-    const posLimits=S.positionLimits||{}
-    const defaultLimit=500
-    const getLimit=prod=>posLimits[prod]||defaultLimit
-
-    c.innerHTML=_aTabBar+`
-      <div class="kpi-row">
-        <div class="kpi-card">
-          <div class="kpi-label">Net Position</div>
-          <div class="kpi-value ${netPosition>0?'warn':netPosition<0?'negative':''}">${netPosition>0?'+':''}${fmtN(netPosition)} MBF</div>
-          <div class="kpi-trend">${netPosition>0?'long':netPosition<0?'short':'flat'}</div>
-        </div>
-        <div class="kpi-card">
-          <div class="kpi-label">Long Exposure</div>
-          <div class="kpi-value ${totalLong>0?'warn':''}">${fmt(Math.round(longExposure))}</div>
-          <div class="kpi-trend">${fmtN(totalLong)} MBF across ${longPos.length} products</div>
-        </div>
-        <div class="kpi-card">
-          <div class="kpi-label">Short Exposure</div>
-          <div class="kpi-value ${totalShort>0?'negative':''}">${fmt(Math.round(shortExposure))}</div>
-          <div class="kpi-trend">${fmtN(totalShort)} MBF across ${shortPos.length} products</div>
-        </div>
-        <div class="kpi-card">
-          <div class="kpi-label">Uncovered Sells</div>
-          <div class="kpi-value ${uncoveredVol>0?'negative':'positive'}">${uncoveredVol>0?fmtN(uncoveredVol)+' MBF':'Clear'}</div>
-          <div class="kpi-trend ${uncoveredVol>0?'negative':'positive'}">${uncoveredSells.length} orders need coverage</div>
-        </div>
-      </div>
-
-      <!-- Product Exposure with Limit Utilization Bars -->
-      <div class="panel" style="margin-top:20px"><div class="panel-header">POSITION EXPOSURE BY PRODUCT
-        ${concentrationPct>50?'<span class="status-badge status-cancelled">HIGH RISK</span>':''}
-        ${concentrationPct>30&&concentrationPct<=50?'<span class="status-badge status-pending">MODERATE</span>':''}
-      </div><div class="panel-body">
-        ${allPos.length?`
-        <table class="data-table"><thead><tr><th>Product</th><th>Length</th><th class="right">Position</th><th class="right">Exposure</th><th style="min-width:200px">Limit Utilization</th><th class="right">% of Total</th></tr></thead><tbody>
-          ${allPos.slice(0,10).map(p=>{
-            const exp=p.net*(p.avgCost||p.avgSell)
-            const pct=totalExposure>0?exp/totalExposure*100:0
-            const isLong=p.bought>p.sold
-            const limit=getLimit(p.product)
-            const utilPct=Math.min(100,p.net/limit*100)
-            const utilColor=utilPct>90?'var(--negative)':utilPct>70?'var(--warn)':'var(--positive)'
-            return`<tr>
-              <td class="bold">${escapeHtml(p.product)}</td>
-              <td>${escapeHtml(p.length)}</td>
-              <td class="right ${isLong?'warn':'negative'} bold">${isLong?'+':'-'}${fmtN(p.net)} MBF</td>
-              <td class="right">${fmt(Math.round(exp))}</td>
-              <td><div class="limit-bar"><div class="limit-fill" style="width:${utilPct}%;background:${utilColor}"></div></div><div style="display:flex;justify-content:space-between;font-size:9px;color:var(--muted);margin-top:2px"><span>${fmtN(p.net)} / ${limit} MBF</span><span style="color:${utilColor}">${Math.round(utilPct)}%</span></div></td>
-              <td class="right" style="color:${pct>30?'var(--negative)':pct>20?'var(--warn)':'var(--muted)'}">${fmtN(pct)}%</td>
-            </tr>`
-          }).join('')}
-        </tbody></table>
-        `:'<div class="empty-state">No positions</div>'}
-      </div></div>
-
-      <!-- Long/Short Position Tables -->
-      <div class="grid-2" style="margin-top:20px">
-        <div class="panel"><div class="panel-header">LONG POSITIONS <span style="color:var(--muted);font-size:10px">${longPos.length} products</span></div>
-          <div class="panel-body" style="padding:0;overflow-x:auto;max-height:300px"><table class="data-table"><thead><tr><th>Product</th><th>Len</th><th class="right">Bought</th><th class="right">Sold</th><th class="right">Net</th><th class="right">Avg Cost</th><th class="right">Exposure</th><th></th></tr></thead><tbody>
-            ${longPos.length?longPos.sort((a,b)=>b.net-a.net).map(p=>{const prodEsc=(p.product||'').replace(/'/g,"\\'");const lenEsc=(p.length||'').replace(/'/g,"\\'");return`<tr><td class="bold">${escapeHtml(p.product)}</td><td>${escapeHtml(p.length)}</td><td class="right">${fmtN(p.bought)}</td><td class="right">${fmtN(p.sold)}</td><td class="right warn bold">${fmtN(p.net)}</td><td class="right">${fmt(Math.round(p.avgCost))}</td><td class="right">${fmt(Math.round(p.net*p.avgCost))}</td><td><button class="btn btn-primary btn-sm" onclick="sellPosition('${prodEsc}','${lenEsc}',${p.net})">Sell</button></td></tr>`}).join(''):'<tr><td colspan="8" class="empty-state">No long positions</td></tr>'}
-          </tbody></table></div></div>
-        <div class="panel"><div class="panel-header">SHORT POSITIONS <span style="color:var(--muted);font-size:10px">${shortPos.length} products</span></div>
-          <div class="panel-body" style="padding:0;overflow-x:auto;max-height:300px"><table class="data-table"><thead><tr><th>Product</th><th>Len</th><th class="right">Bought</th><th class="right">Sold</th><th class="right">Net</th><th class="right">Avg Sell</th><th class="right">Exposure</th><th></th></tr></thead><tbody>
-            ${shortPos.length?shortPos.sort((a,b)=>b.net-a.net).map(p=>{const prodEsc=(p.product||'').replace(/'/g,"\\'");const lenEsc=(p.length||'').replace(/'/g,"\\'");return`<tr><td class="bold">${escapeHtml(p.product)}</td><td>${escapeHtml(p.length)}</td><td class="right">${fmtN(p.bought)}</td><td class="right">${fmtN(p.sold)}</td><td class="right negative bold">${fmtN(p.net)}</td><td class="right">${fmt(Math.round(p.avgSell))}</td><td class="right">${fmt(Math.round(p.net*p.avgSell))}</td><td><button class="btn btn-success btn-sm" onclick="coverPosition('${prodEsc}','${lenEsc}',${p.net})">Cover</button></td></tr>`}).join(''):'<tr><td colspan="8" class="empty-state">No short positions</td></tr>'}
-          </tbody></table></div></div>
-      </div>
-
-      <!-- Uncovered Sells -->
-      ${uncoveredSells.length?`
-      <div class="panel" style="margin-top:20px;border-left:3px solid var(--negative)"><div class="panel-header">UNCOVERED SELLS (Need Coverage) <span class="status-badge status-cancelled">${fmtN(uncoveredVol)} MBF at risk</span></div>
-        <div class="panel-body" style="padding:0;overflow-x:auto;max-height:250px"><table class="data-table"><thead><tr><th>Order #</th><th>Date</th><th>Customer</th><th>Product</th><th>Len</th><th class="right">Volume</th><th class="right">Price</th><th></th></tr></thead><tbody>
-          ${uncoveredSells.slice(0,10).map(s=>{
-            const ord=String(s.orderNum||s.linkedPO||s.oc||'').trim()
-            return`<tr>
-              <td class="bold negative">${escapeHtml(ord)||'--'}</td>
-              <td>${fmtD(s.date)}</td>
-              <td>${escapeHtml(s.customer)||'--'}</td>
-              <td class="bold">${escapeHtml(s.product)}</td>
-              <td>${escapeHtml(s.length)||'RL'}</td>
-              <td class="right">${fmtN(s.volume)} MBF</td>
-              <td class="right">${fmt(s.price)}</td>
-              <td><button class="btn btn-success btn-sm" onclick="coverSell(${s.id})">Cover</button></td>
-            </tr>`
-          }).join('')}
-          ${uncoveredSells.length>10?`<tr><td colspan="8" style="text-align:center;color:var(--muted);font-size:10px">...and ${uncoveredSells.length-10} more</td></tr>`:''}
-        </tbody></table></div>
-      </div>
-      `:''}`
-  }
   else if(S.view==='quotes'){
-    // Quote Engine View — with SOURCE / BUILD tabs
-    const _qeTab=S.quoteTab||'build';
-
-    // SOURCE tab: render Smart Quotes inline
-    if(_qeTab==='source'){
-      c.innerHTML=`
-        <div style="display:flex;gap:0;margin-bottom:16px">
-          <button class="btn ${_qeTab==='source'?'btn-primary':'btn-default'}" style="border-radius:var(--radius) 0 0 var(--radius)" onclick="S.quoteTab='source';render()">💡 SOURCE</button>
-          <button class="btn ${_qeTab==='build'?'btn-primary':'btn-default'}" style="border-radius:0 var(--radius) var(--radius) 0;position:relative" onclick="S.quoteTab='build';render()">📋 BUILD${(S.quoteItems||[]).length?' <span style=\"background:var(--accent);color:var(--bg);padding:1px 6px;font-size:9px;margin-left:4px\">'+(S.quoteItems||[]).length+'</span>':''}</button>
-        </div>
-        <div id="mi-quotes-inline"></div>`;
-      // Render Smart Quotes into the inline container
-      setTimeout(()=>{
-        const container=document.getElementById('mi-quotes-inline');
-        if(container) renderMiSmartQuotesInline(container);
-      },0);
-      return;
-    }
-
+    // Quote Engine View — BUILD workflow
     const latestRL=S.rl.length?S.rl[S.rl.length-1]:null;
     const customers=myCustomers().filter(c=>c.type!=='mill');
     const items=S.quoteItems||[];
@@ -1628,18 +1675,28 @@ function render(){
 
     // Template buttons for BUILD matrix
     const builtInNames=Object.keys(QUOTE_TEMPLATES);
-    const customNames=(S.quoteTemplates||[]).map(t=>t.name);
+    const allCustom=S.quoteTemplates||[];
+    const generalCustom=allCustom.filter(t=>!t.customer);
+    const customerCustom=S.qbCustomer?allCustom.filter(t=>t.customer===S.qbCustomer):[];
     const _activeT=S.qeBuildTemplate||'';
+    const _esc=s=>s.replace(/'/g,"\\'");
     const templateBtns=[
-      ...builtInNames.map(name=>`<button class="btn ${name===_activeT?'btn-primary':'btn-default'}" style="padding:2px 8px;font-size:10px;min-width:0" onclick="qeApplyTemplate('${name}')">${name}</button>`),
-      ...customNames.map(name=>`<button class="btn ${name===_activeT?'btn-primary':'btn-default'}" style="padding:2px 8px;font-size:10px;min-width:0" onclick="qeApplyTemplate('${name}')">${name}</button>`),
+      ...builtInNames.map(name=>`<button class="btn ${name===_activeT?'btn-primary':'btn-default'}" style="padding:2px 8px;font-size:10px;min-width:0" onclick="qeApplyTemplate('${_esc(name)}')">${escapeHtml(name)}</button>`),
+      ...generalCustom.map(t=>`<button class="btn ${t.name===_activeT?'btn-primary':'btn-default'}" style="padding:2px 8px;font-size:10px;min-width:0" onclick="qeApplyTemplate('${_esc(t.name)}')">${escapeHtml(t.name)} <span onclick="event.stopPropagation();qeDeleteTemplate('${_esc(t.name)}')" style="cursor:pointer;margin-left:2px;opacity:0.5" title="Delete">&times;</span></button>`),
+      ...customerCustom.map(t=>`<button class="btn ${t.name===_activeT?'btn-primary':'btn-default'}" style="padding:2px 8px;font-size:10px;min-width:0" onclick="qeApplyTemplate('${_esc(t.name)}')">&#128100; ${escapeHtml(t.name)} <span onclick="event.stopPropagation();qeDeleteTemplate('${_esc(t.name)}','${_esc(t.customer)}')" style="cursor:pointer;margin-left:2px;opacity:0.5" title="Delete">&times;</span></button>`),
+      `<button class="btn btn-default" style="padding:2px 8px;font-size:10px;min-width:0;border-style:dashed" onclick="qeSaveTemplate(false)">+ Save</button>`,
+      S.qbCustomer?`<button class="btn btn-default" style="padding:2px 8px;font-size:10px;min-width:0;border-style:dashed" onclick="qeSaveTemplate(true)">&#128100; Save for ${escapeHtml(S.qbCustomer)}</button>`:'',
     ].join('');
 
+    // Inline location warning when customer has no destination
+    const _noLoc=selectedCustomer&&!customerDest;
+    const locationBanner=_noLoc?`<div style="margin-bottom:10px;padding:8px 12px;background:rgba(232,115,74,0.08);border:1px solid var(--accent);font-size:11px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+      <span style="color:var(--accent)">&#9888; ${escapeHtml(selectedCustomer.name)} has no delivery location — freight can't calculate.</span>
+      <input id="qe-add-location-input" type="text" placeholder="City, ST" style="padding:4px 8px;font-size:11px;width:140px;border:1px solid var(--border);background:var(--bg);color:var(--text)">
+      <button class="btn btn-primary btn-sm" style="padding:2px 10px;font-size:10px" onclick="qeAddCustomerLocation()">Save</button>
+    </div>`:'';
+
     c.innerHTML=`
-      <div style="display:flex;gap:0;margin-bottom:16px">
-        <button class="btn ${_qeTab==='source'?'btn-primary':'btn-default'}" style="border-radius:var(--radius) 0 0 var(--radius)" onclick="S.quoteTab='source';render()">💡 SOURCE</button>
-        <button class="btn ${_qeTab==='build'?'btn-primary':'btn-default'}" style="border-radius:0 var(--radius) var(--radius) 0" onclick="S.quoteTab='build';render()">📋 BUILD${items.length?' <span style=\"background:var(--accent);color:var(--bg);padding:1px 6px;font-size:9px;margin-left:4px\">'+items.length+'</span>':''}</button>
-      </div>
       ${S.trader==='Admin'?`<div style="margin-bottom:12px;padding:8px 12px;background:rgba(232,115,74,0.1);border:1px solid #e8734a;font-size:11px;color:#e8734a">🔑 <strong>Admin View</strong> — Each trader has separate quote items and profiles.</div>`:''}
 
       <div class="grid-2" style="gap:16px;align-items:start">
@@ -1655,7 +1712,7 @@ function render(){
               <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px">
                 <div>
                   <label style="font-size:9px;color:var(--muted);display:block;margin-bottom:2px">Customer</label>
-                  <select id="qb-customer-select" onchange="S.qbCustomer=this.value;save('qbCustomer',S.qbCustomer);render()" style="width:100%;padding:6px 8px;font-size:11px">
+                  <select id="qb-customer-select" onchange="S.qbCustomer=this.value;save('qbCustomer',S.qbCustomer);S.qbCustomDest='';save('qbCustomDest','');render()" style="width:100%;padding:6px 8px;font-size:11px">
                     <option value="">Select customer...</option>
                     ${customers.map(c=>{
                       const dest=c.locations?.[0]||c.destination||'';
@@ -1668,6 +1725,8 @@ function render(){
                   <input type="text" id="qb-custom-dest" placeholder="City, ST" style="width:100%;padding:6px 8px;font-size:11px" value="${escapeHtml(S.qbCustomDest||customerDest||'')}" onchange="S.qbCustomDest=this.value;save('qbCustomDest',S.qbCustomDest)">
                 </div>
               </div>
+
+              ${locationBanner}
 
               <!-- Templates -->
               <div style="display:flex;gap:3px;flex-wrap:wrap;margin-bottom:8px">${templateBtns}</div>
@@ -2206,371 +2265,6 @@ function render(){
       c.appendChild(fab);
     }
   }
-  else if(S.view==='analytics'&&S.analyticsTab==='rldata'){
-    const _aTabBar=_subTabBar('analyticsTab',[{id:'briefing',label:'Briefing'},{id:'benchmark',label:'vs Market'},{id:'risk',label:'Risk'},{id:'rldata',label:'RL Data'}],'rldata');
-    // Combined RL Data & Charts View
-    const latestRL=S.rl.length?S.rl[S.rl.length-1]:null;
-    const prevRL=S.rl.length>1?S.rl[S.rl.length-2]:null;
-    const rlData=S.rl.slice(-12); // Last 12 weeks for charts
-
-    // Charts HTML
-    let chartsHTML='';
-    if(rlData.length>0){
-      const chartProduct=S.chartProduct||'2x4#2';
-      const products=['2x4#2','2x6#2','2x8#2','2x10#2','2x12#2','2x4#1','2x6#1'];
-      const chartLabels=rlData.map(r=>r.date?.split('/').slice(0,2).join('/')||'');
-      const westData=rlData.map(r=>r.west?.[chartProduct]||0);
-      const centralData=rlData.map(r=>r.central?.[chartProduct]||0);
-      const eastData=rlData.map(r=>r.east?.[chartProduct]||0);
-      const spread2x4_2x6=rlData.map(r=>(r.west?.['2x6#2']||0)-(r.west?.['2x4#2']||0));
-      const spreadWestCentral=rlData.map(r=>(r.west?.[chartProduct]||0)-(r.central?.[chartProduct]||0));
-      const allPrices=[...westData,...centralData,...eastData].filter(p=>p>0);
-      const minPrice=allPrices.length?Math.floor(Math.min(...allPrices)/10)*10-10:350;
-      const maxPrice=allPrices.length?Math.ceil(Math.max(...allPrices)/10)*10+10:500;
-      const range=maxPrice-minPrice||100;
-      window._chartData={westData,centralData,eastData,minPrice,range,spread2x4_2x6,spreadWestCentral};
-
-      chartsHTML=`
-        <div class="card" style="margin-bottom:16px">
-          <div class="card-header">
-            <span class="card-title">📈 SYP PRICE TRENDS</span>
-            <div style="display:flex;align-items:center;gap:12px">
-              <select id="chart-product" onchange="S.chartProduct=this.value;render()" style="padding:4px 8px;font-size:11px;background:var(--card);border:1px solid var(--border);color:var(--text)">
-                ${products.map(p=>`<option value="${p}" ${p===chartProduct?'selected':''}>${p}</option>`).join('')}
-              </select>
-              <span style="font-size:10px;color:var(--muted)">${rlData.length} weeks</span>
-            </div>
-          </div>
-          <div class="card-body">
-            ${rlData.length>1?`
-              <div style="position:relative;height:250px;margin-bottom:8px">
-                <div style="position:absolute;left:0;top:0;bottom:30px;width:40px;display:flex;flex-direction:column;justify-content:space-between;font-size:9px;color:var(--muted);text-align:right;padding-right:6px">
-                  <span>$${maxPrice}</span>
-                  <span>$${Math.round(minPrice+(range*0.75))}</span>
-                  <span>$${Math.round(minPrice+(range*0.5))}</span>
-                  <span>$${Math.round(minPrice+(range*0.25))}</span>
-                  <span>$${minPrice}</span>
-                </div>
-                <div style="position:absolute;left:45px;right:10px;top:0;bottom:30px;border-left:1px solid var(--border);border-bottom:1px solid var(--border);background:linear-gradient(180deg,rgba(0,200,150,0.03) 0%,transparent 100%)">
-                  <div style="position:absolute;left:0;right:0;top:25%;border-top:1px solid rgba(255,255,255,0.05)"></div>
-                  <div style="position:absolute;left:0;right:0;top:50%;border-top:1px solid rgba(255,255,255,0.05)"></div>
-                  <div style="position:absolute;left:0;right:0;top:75%;border-top:1px solid rgba(255,255,255,0.05)"></div>
-                  <canvas id="price-canvas" style="width:100%;height:100%"></canvas>
-                </div>
-                <div style="position:absolute;left:45px;right:10px;bottom:0;height:25px;display:flex;justify-content:space-between;align-items:center;font-size:9px;color:var(--muted)">
-                  ${chartLabels.filter((l,i)=>i%Math.ceil(chartLabels.length/6)===0||i===chartLabels.length-1).map(l=>`<span>${l}</span>`).join('')}
-                </div>
-              </div>
-              <div style="display:flex;justify-content:center;gap:24px;font-size:11px">
-                <span><span style="display:inline-block;width:16px;height:3px;background:#5b8af5;margin-right:6px"></span>West</span>
-                <span><span style="display:inline-block;width:16px;height:3px;background:#e8734a;margin-right:6px"></span>Central</span>
-                <span><span style="display:inline-block;width:16px;height:3px;background:#6e9ecf;margin-right:6px"></span>East</span>
-              </div>
-            `:'<div class="empty-state">Need at least 2 weeks of data for charts</div>'}
-          </div>
-        </div>
-        <div class="grid-2">
-          <div class="card">
-            <div class="card-header"><span class="card-title warn">📐 2x4/2x6 SPREAD (West)</span></div>
-            <div class="card-body">
-              ${rlData.length>1?`
-                <div style="height:120px;position:relative;margin-bottom:8px">
-                  <canvas id="spread-canvas" style="width:100%;height:100%"></canvas>
-                </div>
-                <div style="display:flex;justify-content:space-between;font-size:9px;color:var(--muted)">
-                  ${chartLabels.filter((l,i)=>i%3===0).map(l=>`<span>${l}</span>`).join('')}
-                </div>
-                <div style="text-align:center;margin-top:12px">
-                  <span style="font-size:20px;font-weight:700;color:var(--warn)">$${spread2x4_2x6[spread2x4_2x6.length-1]||0}</span>
-                  <div style="font-size:10px;color:var(--muted)">Current Spread</div>
-                </div>
-              `:'<div class="empty-state">Need data</div>'}
-            </div>
-          </div>
-          <div class="card">
-            <div class="card-header"><span class="card-title info">🗺️ WEST vs CENTRAL (${chartProduct})</span></div>
-            <div class="card-body">
-              ${rlData.length>1?`
-                <div style="height:120px;position:relative;margin-bottom:8px">
-                  <canvas id="regional-canvas" style="width:100%;height:100%"></canvas>
-                </div>
-                <div style="display:flex;justify-content:space-between;font-size:9px;color:var(--muted)">
-                  ${chartLabels.filter((l,i)=>i%3===0).map(l=>`<span>${l}</span>`).join('')}
-                </div>
-                <div style="text-align:center;margin-top:12px">
-                  <span style="font-size:20px;font-weight:700;color:var(--info)">$${spreadWestCentral[spreadWestCentral.length-1]||0}</span>
-                  <div style="font-size:10px;color:var(--muted)">West Premium</div>
-                </div>
-              `:'<div class="empty-state">Need data</div>'}
-            </div>
-          </div>
-        </div>
-        <div class="card" style="margin-top:16px">
-          <div class="card-header"><span class="card-title">📊 SPREAD MONITOR</span></div>
-          <div class="card-body">
-            <table>
-              <thead><tr><th>Spread</th><th>Region</th><th class="right">Current</th><th class="right">4-Wk Avg</th><th class="right">12-Wk Avg</th><th class="right">vs Avg</th></tr></thead>
-              <tbody>${generateSpreadTable(rlData)}</tbody>
-            </table>
-          </div>
-        </div>
-        <div class="card" style="margin-top:16px">
-          <div class="card-header"><span class="card-title">📜 PRICE HISTORY</span></div>
-          <div class="card-body" style="max-height:300px;overflow:auto">
-            <table>
-              <thead><tr><th>Date</th><th class="right">W 2x4</th><th class="right">W 2x6</th><th class="right">C 2x4</th><th class="right">C 2x6</th><th class="right">E 2x4</th><th class="right">E 2x6</th></tr></thead>
-              <tbody>
-                ${rlData.slice().reverse().map(r=>`<tr>
-                  <td>${r.date||'—'}</td>
-                  <td class="right">${r.west?.['2x4#2']?'$'+r.west['2x4#2']:'—'}</td>
-                  <td class="right">${r.west?.['2x6#2']?'$'+r.west['2x6#2']:'—'}</td>
-                  <td class="right">${r.central?.['2x4#2']?'$'+r.central['2x4#2']:'—'}</td>
-                  <td class="right">${r.central?.['2x6#2']?'$'+r.central['2x6#2']:'—'}</td>
-                  <td class="right">${r.east?.['2x4#2']?'$'+r.east['2x4#2']:'—'}</td>
-                  <td class="right">${r.east?.['2x6#2']?'$'+r.east['2x6#2']:'—'}</td>
-                </tr>`).join('')}
-              </tbody>
-            </table>
-          </div>
-        </div>`;
-    }else{
-      chartsHTML='<div class="card"><div class="card-body"><div class="empty-state">No data yet. Import a Random Lengths PDF to get started.</div></div></div>';
-    }
-
-    // Calculate spreads if we have data
-    let spreadsHTML='';
-    if(latestRL){
-      const region=S.filters.reg!=='all'?S.filters.reg:'west';
-      const sl=latestRL.specified_lengths?.[region]||{};
-      
-      // Length spreads (16' as base)
-      const lengthSpreads=[];
-      Object.entries(sl).forEach(([prod,lengths])=>{
-        if(lengths['16']){
-          const base=lengths['16'];
-          ['8','10','12','14','18','20'].forEach(len=>{
-            if(lengths[len]){
-              lengthSpreads.push({prod,len,base,price:lengths[len],spread:lengths[len]-base});
-            }
-          });
-        }
-      });
-      
-      // Dimension spreads (2x4 as base for each length)
-      const dimSpreads=[];
-      ['8','10','12','14','16','18','20'].forEach(len=>{
-        const base2x4=sl['2x4#2']?.[len]||sl['2x4#1']?.[len];
-        if(base2x4){
-          ['2x6','2x8','2x10','2x12'].forEach(dim=>{
-            const price=sl[dim+'#2']?.[len]||sl[dim+'#1']?.[len];
-            if(price)dimSpreads.push({len,dim,base:base2x4,price,spread:price-base2x4});
-          });
-        }
-      });
-      
-      // Grade spreads (#1 vs #2)
-      const gradeSpreads=[];
-      ['2x4','2x6','2x8','2x10','2x12'].forEach(dim=>{
-        ['8','10','12','14','16','18','20'].forEach(len=>{
-          const p1=sl[dim+'#1']?.[len];
-          const p2=sl[dim+'#2']?.[len];
-          if(p1&&p2)gradeSpreads.push({dim,len,p1,p2,spread:p1-p2});
-        });
-      });
-      
-      // Week-over-week changes
-      let wowHTML='';
-      if(prevRL){
-        const changes=[];
-        ['west','central','east'].forEach(reg=>{
-          ['2x4#2','2x6#2','2x8#2','2x10#2','2x12#2'].forEach(prod=>{
-            const curr=latestRL[reg]?.[prod];
-            const prev=prevRL[reg]?.[prod];
-            if(curr&&prev&&curr!==prev){
-              changes.push({reg,prod,curr,prev,chg:curr-prev});
-            }
-          });
-        });
-        if(changes.length){
-          wowHTML=`<div class="card"><div class="card-header"><span class="card-title">WEEK-OVER-WEEK CHANGES</span><span style="color:var(--muted);font-size:10px">${prevRL.date} → ${latestRL.date}</span></div>
-            <div style="overflow-x:auto"><table><thead><tr><th>Region</th><th>Product</th><th class="right">Prev</th><th class="right">Curr</th><th class="right">Change</th></tr></thead><tbody>
-            ${changes.map(c=>`<tr><td style="text-transform:capitalize">${c.reg}</td><td class="bold">${c.prod}</td><td class="right">${fmt(c.prev)}</td><td class="right">${fmt(c.curr)}</td><td class="right ${c.chg>0?'positive':'negative'} bold">${c.chg>0?'+':''}${fmt(c.chg)}</td></tr>`).join('')}
-            </tbody></table></div></div>`;
-        }
-      }
-      
-      spreadsHTML=`
-        ${wowHTML}
-        <div class="grid-2">
-          <div class="card"><div class="card-header"><span class="card-title accent">LENGTH SPREADS (vs 16')</span><span style="color:var(--muted);font-size:10px">${region}</span></div>
-            <div style="overflow-x:auto;max-height:300px"><table><thead><tr><th>Product</th><th>Length</th><th class="right">16' Base</th><th class="right">Price</th><th class="right">Spread</th></tr></thead><tbody>
-            ${lengthSpreads.length?lengthSpreads.slice(0,20).map(s=>`<tr><td>${s.prod}</td><td>${s.len}'</td><td class="right" style="color:var(--muted)">${fmt(s.base)}</td><td class="right">${fmt(s.price)}</td><td class="right ${s.spread>=0?'positive':'negative'} bold">${s.spread>=0?'+':''}${fmt(s.spread)}</td></tr>`).join(''):'<tr><td colspan="5" class="empty-state">No data</td></tr>'}
-            </tbody></table></div></div>
-          <div class="card"><div class="card-header"><span class="card-title warn">DIMENSION SPREADS (vs 2x4)</span><span style="color:var(--muted);font-size:10px">${region}</span></div>
-            <div style="overflow-x:auto;max-height:300px"><table><thead><tr><th>Length</th><th>Dim</th><th class="right">2x4 Base</th><th class="right">Price</th><th class="right">Spread</th></tr></thead><tbody>
-            ${dimSpreads.length?dimSpreads.slice(0,20).map(s=>`<tr><td>${s.len}'</td><td class="bold">${s.dim}</td><td class="right" style="color:var(--muted)">${fmt(s.base)}</td><td class="right">${fmt(s.price)}</td><td class="right ${s.spread>=0?'positive':'negative'} bold">+${fmt(s.spread)}</td></tr>`).join(''):'<tr><td colspan="5" class="empty-state">No data</td></tr>'}
-            </tbody></table></div></div>
-        </div>
-        <div class="card"><div class="card-header"><span class="card-title">GRADE SPREADS (#1 vs #2)</span><span style="color:var(--muted);font-size:10px">${region}</span></div>
-          <div style="overflow-x:auto"><table><thead><tr><th>Dim</th><th>Len</th><th class="right">#1</th><th class="right">#2</th><th class="right">#1 Premium</th></tr></thead><tbody>
-          ${gradeSpreads.length?gradeSpreads.slice(0,15).map(s=>`<tr><td class="bold">${s.dim}</td><td>${s.len}'</td><td class="right accent">${fmt(s.p1)}</td><td class="right">${fmt(s.p2)}</td><td class="right positive bold">+${fmt(s.spread)}</td></tr>`).join(''):'<tr><td colspan="5" class="empty-state">No data</td></tr>'}
-          </tbody></table></div></div>`;
-    }
-    
-    // Build product list for comparison
-    const allProducts=new Set();
-    S.rl.forEach(r=>{
-      ['west','central','east'].forEach(reg=>{
-        if(r[reg])Object.keys(r[reg]).forEach(p=>allProducts.add(p));
-        if(r.specified_lengths?.[reg])Object.keys(r.specified_lengths[reg]).forEach(p=>allProducts.add(p));
-      });
-    });
-    const productList=[...allProducts].sort();
-    
-    // Historical comparison view
-    let compareHTML='';
-    if(S.rl.length>0){
-      const region=S.filters.reg!=='all'?S.filters.reg:'west';
-      const prod1=S.compareProd1||'2x4#2';
-      const prod2=S.compareProd2||'2x6#2';
-      const len=S.compareLen||'16';
-      
-      // Build history for selected products
-      const history=S.rl.map(r=>{
-        let p1=null,p2=null;
-        // Try specified lengths first
-        if(r.specified_lengths?.[region]?.[prod1]?.[len]){
-          p1=r.specified_lengths[region][prod1][len];
-        }else if(r[region]?.[prod1]){
-          p1=r[region][prod1];
-        }
-        if(r.specified_lengths?.[region]?.[prod2]?.[len]){
-          p2=r.specified_lengths[region][prod2][len];
-        }else if(r[region]?.[prod2]){
-          p2=r[region][prod2];
-        }
-        return{date:r.date,p1,p2,spread:p1&&p2?p2-p1:null};
-      }).filter(h=>h.p1||h.p2);
-      
-      compareHTML=`
-        <div class="card"><div class="card-header"><span class="card-title info">HISTORICAL SPREAD COMPARISON</span></div>
-          <div class="card-body">
-            <div class="form-grid" style="margin-bottom:16px">
-              <div class="form-group">
-                <label class="form-label">Product 1 (Base)</label>
-                <select id="compare-prod1" onchange="S.compareProd1=this.value;render()" style="width:100%">
-                  ${productList.map(p=>`<option value="${p}" ${p===prod1?'selected':''}>${p}</option>`).join('')}
-                </select>
-              </div>
-              <div class="form-group">
-                <label class="form-label">Product 2</label>
-                <select id="compare-prod2" onchange="S.compareProd2=this.value;render()" style="width:100%">
-                  ${productList.map(p=>`<option value="${p}" ${p===prod2?'selected':''}>${p}</option>`).join('')}
-                </select>
-              </div>
-              <div class="form-group">
-                <label class="form-label">Length</label>
-                <select id="compare-len" onchange="S.compareLen=this.value;render()" style="width:100%">
-                  <option value="8" ${len==='8'?'selected':''}>8'</option>
-                  <option value="10" ${len==='10'?'selected':''}>10'</option>
-                  <option value="12" ${len==='12'?'selected':''}>12'</option>
-                  <option value="14" ${len==='14'?'selected':''}>14'</option>
-                  <option value="16" ${len==='16'?'selected':''}>16'</option>
-                  <option value="18" ${len==='18'?'selected':''}>18'</option>
-                  <option value="20" ${len==='20'?'selected':''}>20'</option>
-                  <option value="composite" ${len==='composite'?'selected':''}>Composite</option>
-                </select>
-              </div>
-              <div class="form-group">
-                <label class="form-label">Region</label>
-                <select onchange="S.filters.reg=this.value;render()" style="width:100%">
-                  <option value="west" ${region==='west'?'selected':''}>West</option>
-                  <option value="central" ${region==='central'?'selected':''}>Central</option>
-                  <option value="east" ${region==='east'?'selected':''}>East</option>
-                </select>
-              </div>
-            </div>
-            <div style="overflow-x:auto"><table><thead><tr><th>Date</th><th class="right">${prod1}</th><th class="right">${prod2}</th><th class="right">Spread (${prod2} - ${prod1})</th></tr></thead><tbody>
-              ${history.length?history.slice().reverse().map(h=>`<tr><td>${h.date}</td><td class="right">${h.p1?fmt(h.p1):'—'}</td><td class="right">${h.p2?fmt(h.p2):'—'}</td><td class="right ${h.spread===null?'':(h.spread>=0?'positive':'negative')} bold">${h.spread!==null?(h.spread>=0?'+':'')+fmt(h.spread):'—'}</td></tr>`).join(''):'<tr><td colspan="4" class="empty-state">No data for selected products</td></tr>'}
-            </tbody></table></div>
-            ${history.length>1?`
-              <div style="margin-top:16px;padding:12px;background:var(--bg);border:1px solid var(--border)">
-                <div style="display:flex;gap:24px;flex-wrap:wrap">
-                  <div><span style="color:var(--muted)">Avg Spread:</span> <span class="bold ${(history.reduce((s,h)=>s+(h.spread||0),0)/history.filter(h=>h.spread!==null).length)>=0?'positive':'negative'}">${fmt(Math.round(history.reduce((s,h)=>s+(h.spread||0),0)/history.filter(h=>h.spread!==null).length))}</span></div>
-                  <div><span style="color:var(--muted)">Min:</span> <span class="bold">${fmt(Math.min(...history.filter(h=>h.spread!==null).map(h=>h.spread)))}</span></div>
-                  <div><span style="color:var(--muted)">Max:</span> <span class="bold">${fmt(Math.max(...history.filter(h=>h.spread!==null).map(h=>h.spread)))}</span></div>
-                  <div><span style="color:var(--muted)">Current:</span> <span class="bold accent">${history.length&&history[history.length-1].spread!==null?fmt(history[history.length-1].spread):'—'}</span></div>
-                </div>
-              </div>
-            `:''}
-          </div>
-        </div>`;
-    }
-    
-    // Date selector tabs
-    const dateTabs=S.rl.slice().reverse().map(r=>`<button class="btn ${S.rlViewDate===r.date?'btn-primary':'btn-default'} btn-sm" onclick="S.rlViewDate='${r.date}';render()" style="margin-right:4px">${r.date}</button>`).join('');
-    
-    // Get selected RL report
-    const selectedRL=S.rlViewDate?S.rl.find(r=>r.date===S.rlViewDate):latestRL;
-    
-    let detailHTML='';
-    if(selectedRL){
-      detailHTML=`<div class="card"><div class="card-header"><span class="card-title">${selectedRL.date} DETAILS</span><button class="btn btn-danger btn-sm" onclick="delRL('${selectedRL.date}')">Delete</button></div><div class="card-body">`;
-      
-      // Composite prices
-      if(selectedRL.west||selectedRL.central||selectedRL.east){
-        detailHTML+=`<div style="font-weight:600;color:var(--accent);margin-bottom:8px">COMPOSITE PRICES</div>
-          <table style="width:100%;font-size:10px;margin-bottom:16px">
-          <tr><th>Product</th><th class="right" style="color:var(--accent)">West</th><th class="right" style="color:var(--warn)">Central</th><th class="right" style="color:var(--info)">East</th></tr>
-          ${['2x4#1','2x4#2','2x6#1','2x6#2','2x8#2','2x10#2','2x12#2'].map(p=>`<tr><td>${p}</td><td class="right">${selectedRL.west?.[p]?'$'+selectedRL.west[p]:'—'}</td><td class="right">${selectedRL.central?.[p]?'$'+selectedRL.central[p]:'—'}</td><td class="right">${selectedRL.east?.[p]?'$'+selectedRL.east[p]:'—'}</td></tr>`).join('')}
-          </table>`;
-      }
-      
-      // Specified lengths
-      if(selectedRL.specified_lengths){
-        ['west','central','east'].forEach(region=>{
-          if(selectedRL.specified_lengths[region]&&Object.keys(selectedRL.specified_lengths[region]).length>0){
-            const regionColor={west:'var(--accent)',central:'var(--warn)',east:'var(--info)'}[region];
-            detailHTML+=`<div style="font-weight:600;color:${regionColor};margin:12px 0 8px;text-transform:uppercase">${region} - SPECIFIED LENGTHS</div>
-              <div style="overflow-x:auto"><table style="width:100%;font-size:10px;margin-bottom:12px">
-              <tr><th>Product</th><th class="right">8'</th><th class="right">10'</th><th class="right">12'</th><th class="right">14'</th><th class="right">16'</th><th class="right">18'</th><th class="right">20'</th></tr>`;
-            Object.entries(selectedRL.specified_lengths[region]).forEach(([prod,lengths])=>{
-              detailHTML+=`<tr><td>${prod}</td>`;
-              ['8','10','12','14','16','18','20'].forEach(len=>{
-                detailHTML+=`<td class="right">${lengths[len]?'$'+lengths[len]:'—'}</td>`;
-              });
-              detailHTML+=`</tr>`;
-            });
-            detailHTML+=`</table></div>`;
-          }
-        });
-      }
-      detailHTML+=`</div></div>`;
-    }
-    
-    c.innerHTML=_aTabBar+`
-      <div style="margin-bottom:16px;display:flex;gap:8px;justify-content:space-between;flex-wrap:wrap">
-        <div style="display:flex;gap:8px;align-items:center">
-          <span style="color:var(--muted);font-size:11px">DATES:</span>
-          <div style="display:flex;flex-wrap:wrap;gap:4px">${dateTabs||'<span style="color:var(--muted)">No data</span>'}</div>
-        </div>
-        <div style="display:flex;gap:8px">
-          <button class="btn btn-warn" onclick="showParseModal()">📄 Import PDF</button>
-          <button class="btn btn-primary" onclick="showRLModal()">+ Manual Entry</button>
-        </div>
-      </div>
-      ${S.rl.length===0?`<div class="card"><div class="card-body"><div class="empty-state">No RL data yet. Import a Random Lengths PDF to get started.</div></div></div>`:`
-        <div style="margin-bottom:16px">
-          <div style="display:flex;gap:8px;margin-bottom:12px">
-            <button class="btn ${!S.rlTab||S.rlTab==='charts'?'btn-primary':'btn-default'} btn-sm" onclick="S.rlTab='charts';render()">📈 Charts</button>
-            <button class="btn ${S.rlTab==='analytics'?'btn-primary':'btn-default'} btn-sm" onclick="S.rlTab='analytics';render()">📊 Analytics</button>
-            <button class="btn ${S.rlTab==='compare'?'btn-primary':'btn-default'} btn-sm" onclick="S.rlTab='compare';render()">🔀 Compare</button>
-            <button class="btn ${S.rlTab==='details'?'btn-primary':'btn-default'} btn-sm" onclick="S.rlTab='details';render()">📋 Details</button>
-          </div>
-        </div>
-        ${!S.rlTab||S.rlTab==='charts'?chartsHTML:(S.rlTab==='analytics'?spreadsHTML:(S.rlTab==='compare'?compareHTML:detailHTML))}
-      `}`;
-  }
   else if(S.view==='millintel'&&(!S.miTab||S.miTab==='intake')){
     const _miTabBar=_subTabBar('miTab',[{id:'intake',label:'Intake'},{id:'prices',label:'Prices'}],S.miTab||'intake');
     renderMiIntake();
@@ -2834,7 +2528,7 @@ function render(){
   }
   
   // Draw charts after DOM update
-  if(S.view==='analytics'&&S.analyticsTab==='rldata'&&(!S.rlTab||S.rlTab==='charts'))setTimeout(drawCharts,10);
+  if(S.view==='analytics'&&S.analyticsTab==='charts')setTimeout(drawCharts,10);
   if(S.view==='dashboard'&&(!S.dashTab||S.dashTab==='overview')){
     setTimeout(renderDashboardCharts,10);
     // Draw KPI sparklines

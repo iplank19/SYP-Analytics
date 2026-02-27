@@ -28,6 +28,44 @@ function parseQuoteProducts(){
 }
 
 // Main function: Show best costs for all products
+// Normalize product string for matching (strip spaces around #, lowercase)
+function _qeNormProduct(p){
+  return (p||'').toLowerCase().replace(/\s+/g,'').replace(/#/g,'#');
+}
+
+// Resolve mill origin city from MILL_DIRECTORY, quote fields, S.mills, or mill name suffix
+function _resolveMillOrigin(mill,q){
+  // 1. MILL_DIRECTORY lookup (best source)
+  const dirEntry=typeof MILL_DIRECTORY!=='undefined'?MILL_DIRECTORY[mill]:null;
+  if(dirEntry)return `${dirEntry.city}, ${dirEntry.state}`;
+
+  // 2. Quote record fields (from MI database)
+  if(q?.city&&q?.state)return `${q.city}, ${q.state}`;
+  if(q?.city)return q.city;
+
+  // 3. S.mills CRM lookup
+  const crmMill=S.mills?.find(m=>m.name===mill);
+  if(crmMill?.location)return crmMill.location;
+
+  // 4. Fallback: extract city from "Company - City" pattern in mill name
+  // e.g. "Mid-South Lumber - Meridian" → try geocoding "Meridian"
+  const dashIdx=mill.lastIndexOf(' - ');
+  if(dashIdx>0){
+    const city=mill.substring(dashIdx+3).trim();
+    if(city&&city.length>1&&city!=='Unknown'){
+      // Try to find state from MILL_DIRECTORY entries for same company
+      const company=mill.substring(0,dashIdx).trim();
+      const siblingEntry=typeof MILL_DIRECTORY!=='undefined'?
+        Object.entries(MILL_DIRECTORY).find(([k,v])=>k.startsWith(company)&&v.state):null;
+      if(siblingEntry)return `${city}, ${siblingEntry[1].state}`;
+      // Last resort: just use city name (API can usually geocode "City, State" patterns)
+      return city;
+    }
+  }
+
+  return '';
+}
+
 async function showBestCosts(){
   const items=S.quoteItems||[];
   if(!items.length){
@@ -47,92 +85,110 @@ async function showBestCosts(){
   }
 
   showToast('Fetching best costs...','info');
-  const latestRL=S.rl.length?S.rl[S.rl.length-1]:null;
 
   for(const item of items){
     const parsed=parseProductString(item.product);
     if(!parsed.base)continue;
 
-    // 1. Find best mill cost from Mill Intel or local quotes
-    let bestMillCost=null;
-    let bestMill='';
-    let bestMillRegion='central';
-    let bestMillOrigin='';
+    const isMSR=item.product?.toUpperCase().includes('MSR');
+    const normBase=_qeNormProduct(parsed.base);
 
-    // Try Mill Intel
+    // 1. Collect ALL candidate quotes from Mill Intel + local
+    let candidates=[];
+
     if(typeof miLoadLatestQuotes==='function'){
       try{
-        const quotes=await miLoadLatestQuotes({product:parsed.base});
-        // Filter by length if specified
-        const filtered=quotes.filter(q=>{
-          if(!parsed.length)return true;
-          return !q.length||q.length==='RL'||normalizeLength(q.length)===parsed.length;
+        // Fetch all quotes (no product filter — we normalize client-side)
+        const quotes=await miLoadLatestQuotes({});
+        quotes.forEach(q=>{
+          if(_qeNormProduct(q.product)!==normBase)return;
+          // Length filter: prefer exact length match, allow RL only if no exact matches
+          if(parsed.length&&parsed.length!=='RL'&&q.length&&q.length!=='RL'&&normalizeLength(q.length)!==parsed.length)return;
+          const mill=q.mill_name||q.mill||'';
+          const origin=_resolveMillOrigin(mill,q);
+          candidates.push({price:q.price,mill,origin,region:q.region||'central',length:q.length||'RL'});
         });
-        if(filtered.length){
-          const best=filtered.reduce((a,b)=>a.price<b.price?a:b);
-          bestMillCost=best.price;
-          bestMill=best.mill_name||best.mill||'';
-          // Use MILL_DIRECTORY as authoritative source for mill locations
-          const dirEntry=typeof MILL_DIRECTORY!=='undefined'?MILL_DIRECTORY[bestMill]:null;
-          if(dirEntry){
-            bestMillOrigin=`${dirEntry.city}, ${dirEntry.state}`;
-          }else{
-            bestMillOrigin=best.city&&best.state?`${best.city}, ${best.state}`:best.city||'';
-          }
-          bestMillRegion=best.region||'central';
-        }
       }catch(e){console.warn('MI lookup failed:',e);}
     }
 
-    // Fallback to local mill quotes
-    if(bestMillCost===null&&typeof getBestPrice==='function'){
-      const local=getBestPrice(parsed.base);
-      if(local){
-        bestMillCost=local.price;
-        bestMill=local.mill||'';
-        // Use MILL_DIRECTORY as authoritative source
-        const dirEntry=typeof MILL_DIRECTORY!=='undefined'?MILL_DIRECTORY[bestMill]:null;
-        if(dirEntry){
-          bestMillOrigin=`${dirEntry.city}, ${dirEntry.state}`;
-        }else{
-          const mill=S.mills?.find(m=>m.name===local.mill);
-          bestMillOrigin=mill?.location||'';
+    // Add local mill quotes as fallback
+    if(typeof getLatestMillQuotes==='function'){
+      const local=getLatestMillQuotes({});
+      local.forEach(q=>{
+        if(_qeNormProduct(q.product)!==normBase)return;
+        if(parsed.length&&parsed.length!=='RL'&&q.length&&q.length!=='RL'&&normalizeLength(q.length)!==parsed.length)return;
+        const mill=q.mill||'';
+        // Skip if we already have this mill from MI
+        if(candidates.some(c=>c.mill===mill&&c.price===q.price))return;
+        const origin=_resolveMillOrigin(mill,q);
+        candidates.push({price:q.price,mill,origin,region:q.region||'central',length:q.length||'RL'});
+      });
+    }
+
+    // Prefer exact-length matches over RL when user wants a specific length
+    if(parsed.length&&parsed.length!=='RL'){
+      const exact=candidates.filter(c=>normalizeLength(c.length)===parsed.length);
+      if(exact.length)candidates=exact;
+    }
+
+    if(!candidates.length){
+      item.bestMillCost=null;item.bestMill='';item.bestMillOrigin='';
+      item.bestMillRegion='central';item.freight=null;item.landed=null;item.miles=null;
+      continue;
+    }
+
+    // 2. Calculate delivered cost for EACH candidate, pick lowest landed
+    let bestLanded=Infinity;
+    let bestCandidate=null;
+    let bestFreight=null;
+    let bestMiles=null;
+
+    for(const c of candidates){
+      let miles=null;
+      let freight=null;
+
+      if(c.origin&&dest){
+        miles=getLaneMiles(c.origin,dest);
+        if(!miles){
+          try{
+            await lookupMileageWithAPI([{origin:c.origin,dest:dest}]);
+            miles=getLaneMiles(c.origin,dest);
+          }catch(e){}
+        }
+      }
+
+      if(miles){
+        freight=calcFreightPerMBF(miles,c.origin,isMSR);
+      }
+
+      const landed=c.price!=null&&freight!=null?Math.round(c.price+freight):null;
+
+      if(landed!=null&&landed<bestLanded){
+        bestLanded=landed;
+        bestCandidate=c;
+        bestFreight=freight;
+        bestMiles=miles;
+      }else if(landed==null&&!bestCandidate){
+        // No freight data yet — track cheapest FOB as fallback
+        if(!bestCandidate||c.price<bestCandidate.price){
+          bestCandidate=c;
+          bestFreight=freight;
+          bestMiles=miles;
         }
       }
     }
 
-    // 2. Calculate freight
-    let freight=null;
-    let miles=null;
+    if(!bestCandidate)bestCandidate=candidates.reduce((a,b)=>a.price<b.price?a:b);
 
-    // Get miles from cache or API
-    if(bestMillOrigin&&dest){
-      miles=getLaneMiles(bestMillOrigin,dest);
-      if(!miles){
-        // Try to lookup via API
-        try{
-          await lookupMileageWithAPI([{origin:bestMillOrigin,dest:dest}]);
-          miles=getLaneMiles(bestMillOrigin,dest);
-        }catch(e){console.warn('Mileage lookup failed:',e);}
-      }
-    }
+    const landed=bestCandidate.price!=null&&bestFreight!=null?Math.round(bestCandidate.price+bestFreight):null;
 
-    if(miles){
-      const isMSR=item.product?.toUpperCase().includes('MSR');
-      freight=calcFreightPerMBF(miles,bestMillOrigin,isMSR);
-    }
-
-    // 3. Calculate landed cost
-    const landed=bestMillCost!=null&&freight!=null?Math.round(bestMillCost+freight):null;
-
-    // 4. Update item
-    item.bestMillCost=bestMillCost;
-    item.bestMill=bestMill;
-    item.bestMillOrigin=bestMillOrigin;
-    item.bestMillRegion=bestMillRegion;
-    item.freight=freight;
+    item.bestMillCost=bestCandidate.price;
+    item.bestMill=bestCandidate.mill;
+    item.bestMillOrigin=bestCandidate.origin;
+    item.bestMillRegion=bestCandidate.region;
+    item.freight=bestFreight;
     item.landed=landed;
-    item.miles=miles;
+    item.miles=bestMiles;
   }
 
   save('quoteItems',S.quoteItems);
@@ -730,8 +786,8 @@ function calcFreightPerMBF(miles,origin,isMSR=false){
   // Get state rate - default to reasonable rate if not set
   const stateRate=originState&&S.stateRates?S.stateRates[originState]||2.25:2.25;
 
-  // Base + (Miles × StateRate) - default base to 450
-  const base=S.freightBase||450;
+  // Base + (Miles × StateRate) - default base to 300
+  const base=S.freightBase||300;
   const freightTotal=base+(miles*stateRate);
 
   const freightPerMBF=Math.round(freightTotal/mbfPerTL);
@@ -2075,13 +2131,14 @@ function parseProductString(str){
   const sizeMatch=s.match(/(2x4|2x6|2x8|2x10|2x12|4x4|4x6)/);
   const size=sizeMatch?sizeMatch[1]:'2x4';
   
-  // Extract grade (#1, #2, #3, MSR, 2400f)
+  // Extract grade (#1, #2, #3, #4, MSR, 2400f)
   let grade='#2';
   if(s.includes('#1')||s.includes('no.1')||s.includes('no 1'))grade='#1';
   else if(s.includes('#3')||s.includes('no.3')||s.includes('no 3'))grade='#3';
+  else if(s.includes('#4')||s.includes('no.4')||s.includes('no 4'))grade='#4';
   else if(s.includes('msr')||s.includes('2400'))grade='MSR';
-  
-  base=size+grade;
+
+  base=grade==='MSR'?size+' MSR':size+grade;
   
   // Extract length - handle multiple formats: "8'", "16'", "8 ft", etc.
   // First try to find a number followed by ' or before #
@@ -2348,14 +2405,87 @@ function qeCellChanged() {
   qeUpdateMatrixHeaders()
 }
 
+function qeGetMatrixState() {
+  const grid = {}
+  MI_PRODUCTS.forEach(p => {
+    grid[p] = {}
+    QUOTE_LENGTHS.forEach(l => {
+      const cb = document.getElementById(`qe-mx-${_qePid(p)}-${l}`)
+      grid[p][l] = cb ? cb.checked : false
+    })
+  })
+  return grid
+}
+
+function qeSaveTemplate(forCustomer) {
+  const grid = qeGetMatrixState()
+  const hasAny = Object.values(grid).some(row => Object.values(row).some(v => v))
+  if (!hasAny) { showToast('Check at least one cell first', 'warn'); return }
+
+  if (!S.quoteTemplates) S.quoteTemplates = []
+
+  if (forCustomer) {
+    const cust = S.qbCustomer
+    if (!cust) { showToast('Select a customer first', 'warn'); return }
+    const name = prompt('Template name:', cust)
+    if (!name) return
+    // Remove existing with same name+customer
+    S.quoteTemplates = S.quoteTemplates.filter(t => !(t.name === name && t.customer === cust))
+    S.quoteTemplates.push({ name, grid, customer: cust })
+  } else {
+    const name = prompt('Template name:')
+    if (!name) return
+    if (QUOTE_TEMPLATES[name]) { showToast('Cannot overwrite built-in template', 'warn'); return }
+    // Remove existing general template with same name
+    S.quoteTemplates = S.quoteTemplates.filter(t => !(t.name === name && !t.customer))
+    S.quoteTemplates.push({ name, grid })
+  }
+
+  save('quoteTemplates', S.quoteTemplates)
+  showToast('Template saved', 'positive')
+  render()
+}
+
+function qeDeleteTemplate(name, customer) {
+  if (!S.quoteTemplates) return
+  if (customer) {
+    S.quoteTemplates = S.quoteTemplates.filter(t => !(t.name === name && t.customer === customer))
+  } else {
+    S.quoteTemplates = S.quoteTemplates.filter(t => !(t.name === name && !t.customer))
+  }
+  if (S.qeBuildTemplate === name) S.qeBuildTemplate = ''
+  save('quoteTemplates', S.quoteTemplates)
+  showToast('Template deleted', 'info')
+  render()
+}
+
+function qeAddCustomerLocation() {
+  const loc = document.getElementById('qe-add-location-input')
+  if (!loc || !loc.value.trim()) { showToast('Enter a city, e.g. "Dallas, TX"', 'warn'); return }
+  const dest = loc.value.trim()
+  const cust = myCustomers().find(c => c.name === S.qbCustomer)
+  if (!cust) return
+  if (!cust.locations) cust.locations = []
+  cust.locations.unshift(dest)
+  save('customers', S.customers)
+  if (typeof syncCustomersToServer === 'function') syncCustomersToServer(S.customers)
+  S.qbCustomDest = dest
+  save('qbCustomDest', S.qbCustomDest)
+  showToast(`Location "${dest}" added to ${cust.name}`, 'positive')
+  render()
+}
+
 function qeApplyTemplate(name) {
   S.qeBuildTemplate = name
   let grid
   if (QUOTE_TEMPLATES[name]) {
     grid = QUOTE_TEMPLATES[name].build()
   } else {
-    const custom = (S.quoteTemplates || []).find(t => t.name === name)
-    if (custom) grid = custom.grid
+    // Customer-specific first, then general
+    const customs = S.quoteTemplates || []
+    const match = (S.qbCustomer && customs.find(t => t.name === name && t.customer === S.qbCustomer))
+      || customs.find(t => t.name === name)
+    if (match) grid = match.grid
     else return
   }
   MI_PRODUCTS.forEach(p => {
@@ -2365,6 +2495,13 @@ function qeApplyTemplate(name) {
     })
   })
   qeUpdateMatrixHeaders()
+
+  // Auto-build if customer has destination and no items yet
+  const selectedCustomer = S.qbCustomer ? myCustomers().find(c => c.name === S.qbCustomer) : null
+  const dest = S.qbCustomDest || selectedCustomer?.locations?.[0] || selectedCustomer?.destination || ''
+  if (dest && !(S.quoteItems || []).length) {
+    qeBuildFromMatrix()
+  }
 }
 
 // Convert matrix selections → S.quoteItems and auto-price
@@ -2498,7 +2635,7 @@ function calcAvgHistoricalMargin(){
     const ord=String(b.orderNum||b.po||'').trim();
     if(ord)buyByOrder[ord]=b;
   });
-  
+
   let totalMargin=0,count=0;
   S.sells.forEach(s=>{
     const ord=String(s.orderNum||s.linkedPO||s.oc||'').trim();
@@ -2510,6 +2647,406 @@ function calcAvgHistoricalMargin(){
       count++;
     }
   });
-  
+
   return count>0?Math.round(totalMargin/count):30;
+}
+
+// ============================================================
+// CUSTOMER PRICE SHEET (PRICE tab)
+// ============================================================
+
+let _psFetching=false;
+
+function renderPriceSheet(container){
+  if(!container)return;
+  const ps=S.priceSheet||{};
+  const customers=myCustomers().filter(c=>c.type!=='mill');
+  const rows=ps.rows||[];
+  const margin=ps.margin!=null?ps.margin:25;
+
+  // Customer dropdown options
+  const custOpts=customers.map(c=>{
+    const dest=c.locations?.[0]||c.destination||'';
+    return`<option value="${escapeHtml(c.name)}" ${ps.customer===c.name?'selected':''}>${escapeHtml(c.name)}${dest?' — '+escapeHtml(dest):''}</option>`;
+  }).join('');
+
+  // Product template buttons
+  const templateNames=['History','#2 RL','Studs RL','Wides','Full Grid'];
+  const templateBtns=templateNames.map(name=>`<button class="btn btn-default" style="padding:2px 8px;font-size:10px;min-width:0" onclick="psApplyTemplate('${name}')">${name}</button>`).join(' ');
+
+  // Pricing results table
+  let tableHTML='';
+  if(rows.length){
+    const rowsHTML=rows.map((r,i)=>{
+      const isShort=r.margin<0;
+      const shortStyle=isShort?'background:rgba(243,139,168,0.08);':'';
+      const sellColor=isShort?'var(--negative)':'var(--positive)';
+      const altHTML=r.alternatives&&r.alternatives.length?`<div style="font-size:9px;color:var(--muted);padding:2px 0 0 8px">${r.alternatives.map(a=>`${a.mill} ${fmt(a.fobPrice)}${a.landedCost!=null?' landed '+fmt(a.landedCost):''}`).join(', ')}</div>`:'';
+      return`<tr style="${shortStyle}">
+        <td style="font-weight:600">${escapeHtml(r.label||r.product)}</td>
+        <td>${escapeHtml(r.bestMill||'--')}</td>
+        <td class="right">${r.fob!=null?fmt(r.fob):'--'}</td>
+        <td class="right">${r.freight!=null?fmt(r.freight):'--'}</td>
+        <td class="right" style="font-weight:600">${r.landed!=null?fmt(r.landed):'--'}</td>
+        <td class="right"><input type="number" value="${r.margin}" onchange="psUpdateRowMargin(${i},parseFloat(this.value)||0)" style="width:55px;padding:2px 4px;font-size:11px;text-align:right;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:var(--radius)"></td>
+        <td class="right" style="font-weight:bold;color:${sellColor}">${r.sell!=null?fmt(r.sell):'--'}</td>
+      </tr>${altHTML?`<tr style="${shortStyle}"><td colspan="7" style="padding:0 0 4px 0">${altHTML}</td></tr>`:''}
+      ${isShort?`<tr style="${shortStyle}"><td colspan="7" style="padding:0 0 4px 8px;font-size:9px;color:var(--negative);font-weight:600">SHORT — selling below landed cost</td></tr>`:''}`;
+    }).join('');
+
+    tableHTML=`
+      <div style="overflow-x:auto;margin-top:16px">
+        <table style="font-size:11px;width:100%">
+          <thead><tr>
+            <th>Product</th><th>Best Mill</th><th class="right">FOB</th><th class="right">Freight</th><th class="right">Landed</th><th class="right">Margin</th><th class="right">Sell</th>
+          </tr></thead>
+          <tbody>${rowsHTML}</tbody>
+        </table>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
+        <button class="btn btn-default" onclick="psCopyToClipboard()">Copy to Clipboard</button>
+        <button class="btn btn-primary" onclick="psConvertToSells()">Convert to Sell Orders</button>
+      </div>`;
+  }else if(ps.lastBuilt){
+    tableHTML='<div style="color:var(--muted);margin-top:16px;font-size:12px">No mill pricing data found for selected products. Submit mill quotes in Mill Intel → Intake first.</div>';
+  }
+
+  container.innerHTML=`
+    <div class="card">
+      <div class="card-header"><span class="card-title">CUSTOMER PRICE SHEET</span></div>
+      <div class="card-body">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+          <div>
+            <label style="font-size:9px;color:var(--muted);display:block;margin-bottom:2px">Customer</label>
+            <select id="ps-customer" onchange="psSelectCustomer(this.value)" style="width:100%;padding:6px 8px;font-size:11px">
+              <option value="">Select customer...</option>
+              ${custOpts}
+            </select>
+          </div>
+          <div>
+            <label style="font-size:9px;color:var(--muted);display:block;margin-bottom:2px">Destination</label>
+            <input type="text" id="ps-destination" placeholder="City, ST" value="${escapeHtml(ps.destination||'')}" style="width:100%;padding:6px 8px;font-size:11px" onchange="S.priceSheet.destination=this.value;save('priceSheet',S.priceSheet)">
+          </div>
+        </div>
+
+        <div style="margin-bottom:12px">
+          <label style="font-size:9px;color:var(--muted);display:block;margin-bottom:4px">Products</label>
+          <div style="display:flex;gap:4px;flex-wrap:wrap">${templateBtns}
+            <button class="btn btn-default" style="padding:2px 8px;font-size:10px;min-width:0" onclick="psAddCustomProduct()">+ Custom</button>
+          </div>
+          <div id="ps-product-tags" style="display:flex;gap:4px;flex-wrap:wrap;margin-top:8px">
+            ${(ps.products||[]).map((p,i)=>`<span style="display:inline-flex;align-items:center;gap:4px;padding:2px 8px;background:var(--accent);color:var(--bg);border-radius:var(--radius);font-size:10px;font-weight:600">${escapeHtml(p)} <button onclick="psRemoveProduct(${i})" style="background:none;border:none;color:var(--bg);cursor:pointer;font-size:12px;padding:0;line-height:1">×</button></span>`).join('')}
+          </div>
+        </div>
+
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <button class="btn btn-primary" onclick="fetchPriceSheet()" ${_psFetching?'disabled':''}>${_psFetching?'<span class="spinner" style="width:14px;height:14px;display:inline-block;vertical-align:middle;margin-right:4px"></span>Fetching...':'Fetch Prices'}</button>
+          <label style="font-size:10px;color:var(--muted)">Margin $</label>
+          <input type="number" id="ps-margin" value="${margin}" style="width:60px;padding:4px;font-size:11px;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:var(--radius)" onchange="S.priceSheet.margin=parseFloat(this.value)||0;save('priceSheet',S.priceSheet)">
+          <button class="btn btn-default btn-sm" onclick="psApplyUniformMargin()">Apply All</button>
+          <span id="ps-status" style="font-size:10px;color:var(--muted)"></span>
+        </div>
+
+        ${tableHTML}
+      </div>
+    </div>`;
+}
+
+function psSelectCustomer(name){
+  S.priceSheet.customer=name;
+  // Auto-fill destination from customer CRM data
+  if(name){
+    const cust=myCustomers().find(c=>c.name===name);
+    if(cust){
+      const dest=cust.locations?.[0]||cust.destination||'';
+      if(dest){
+        S.priceSheet.destination=dest;
+        const destInput=document.getElementById('ps-destination');
+        if(destInput) destInput.value=dest;
+      }
+    }
+  }
+  save('priceSheet',S.priceSheet);
+}
+
+function psApplyTemplate(name){
+  let products=[];
+  switch(name){
+    case 'History':
+      if(S.priceSheet.customer){
+        const custProducts=getCustomerProducts(S.priceSheet.customer);
+        products=custProducts.length?custProducts:['2x4#2','2x6#2'];
+      }else{
+        showToast('Select a customer first for History template','warn');
+        return;
+      }
+      break;
+    case '#2 RL':
+      products=MI_PRODUCTS.filter(p=>p.includes('#2'));
+      break;
+    case 'Studs RL':
+      products=MI_PRODUCTS.filter(p=>p.startsWith('2x4')||p.startsWith('2x6'));
+      break;
+    case 'Wides':
+      products=MI_PRODUCTS.filter(p=>p.startsWith('2x8')||p.startsWith('2x10')||p.startsWith('2x12'));
+      break;
+    case 'Full Grid':
+      products=[...MI_PRODUCTS];
+      break;
+  }
+  S.priceSheet.products=products;
+  save('priceSheet',S.priceSheet);
+  // Re-render just the container
+  const container=document.getElementById('ps-container');
+  if(container) renderPriceSheet(container);
+}
+
+function psAddCustomProduct(){
+  const product=prompt('Enter product (e.g. 2x4#2):');
+  if(!product||!product.trim())return;
+  if(!S.priceSheet.products)S.priceSheet.products=[];
+  if(!S.priceSheet.products.includes(product.trim())){
+    S.priceSheet.products.push(product.trim());
+    save('priceSheet',S.priceSheet);
+    const container=document.getElementById('ps-container');
+    if(container) renderPriceSheet(container);
+  }
+}
+
+function psRemoveProduct(idx){
+  S.priceSheet.products.splice(idx,1);
+  save('priceSheet',S.priceSheet);
+  const container=document.getElementById('ps-container');
+  if(container) renderPriceSheet(container);
+}
+
+async function fetchPriceSheet(){
+  const ps=S.priceSheet;
+  const destination=document.getElementById('ps-destination')?.value?.trim()||ps.destination||'';
+  if(!destination){showToast('Enter a destination (City, ST)','warn');return;}
+  if(!ps.products||!ps.products.length){showToast('Select products first','warn');return;}
+
+  ps.destination=destination;
+  _psFetching=true;
+  const container=document.getElementById('ps-container');
+  if(container) renderPriceSheet(container);
+  const statusEl=document.getElementById('ps-status');
+  if(statusEl) statusEl.textContent='Loading mill data...';
+
+  try{
+    // Step 1: Load matrix + mills in parallel (same as miBuildSmartQuote)
+    const [matrixData,mills]=await Promise.all([
+      miLoadQuoteMatrix('length'),
+      miLoadMills()
+    ]);
+
+    const millLocations={};
+    mills.forEach(m=>{
+      if(m.location) millLocations[m.name]=m.location;
+      else if(m.city) millLocations[m.name]=m.state?m.city+', '+m.state:m.city;
+    });
+    const allMills=matrixData.mills||[];
+
+    // Step 2: Collect needed lanes
+    const originMap={};
+    const neededLanes=[];
+    const seenKeys=new Set();
+
+    for(const product of ps.products){
+      // Price sheet always uses RL
+      const colKey=`${product} RL`;
+      for(const mill of allMills){
+        const millData=matrixData.matrix[mill];
+        if(!millData||!millData[colKey]) continue;
+        const q=millData[colKey];
+        const qOrigin=q.city&&q.state?q.city+', '+q.state:q.city||'';
+        const origin=millLocations[mill]||qOrigin;
+        if(!origin) continue;
+        originMap[mill]=origin;
+        const key=`${origin}|${destination}`;
+        if(seenKeys.has(key)) continue;
+        seenKeys.add(key);
+        const cachedMiles=getLaneMiles(origin,destination);
+        if(!cachedMiles) neededLanes.push({key,origin,dest:destination});
+      }
+    }
+
+    // Step 3: Bulk lookup missing lanes
+    if(neededLanes.length>0){
+      if(statusEl) statusEl.textContent=`Looking up ${neededLanes.length} lane(s)...`;
+      await lookupMileageWithAPI(neededLanes);
+    }
+
+    // Step 4: Build price rows
+    if(statusEl) statusEl.textContent='Calculating prices...';
+    const margin=ps.margin!=null?ps.margin:25;
+    const newRows=[];
+
+    for(const product of ps.products){
+      const colKey=`${product} RL`;
+      const isMSR=(product||'').toUpperCase().includes('MSR');
+      const options=[];
+
+      for(const mill of allMills){
+        const millData=matrixData.matrix[mill];
+        if(!millData||!millData[colKey]) continue;
+        const q=millData[colKey];
+        const origin=originMap[mill]||(q.city&&q.state?q.city+', '+q.state:q.city||'');
+        if(!origin) continue;
+        const miles=getLaneMiles(origin,destination);
+        const freightPerMBF=miles?calcFreightPerMBF(miles,origin,isMSR):null;
+        const landedCost=freightPerMBF!=null?q.price+freightPerMBF:null;
+        options.push({mill,origin,fobPrice:q.price,miles,freightPerMBF,landedCost,volume:q.volume||0,shipWindow:q.ship_window||'Prompt',date:q.date});
+      }
+
+      // Sort by landed cost (nulls last), then by FOB
+      options.sort((a,b)=>{
+        if(a.landedCost==null&&b.landedCost==null) return a.fobPrice-b.fobPrice;
+        if(a.landedCost==null) return 1;
+        if(b.landedCost==null) return -1;
+        return a.landedCost-b.landedCost;
+      });
+
+      const best=options[0]||null;
+      const alts=options.slice(1,3); // top 2 alternatives
+
+      newRows.push({
+        product,
+        label:formatProductLabel(product,'RL'),
+        bestMill:best?best.mill:'',
+        fob:best?best.fobPrice:null,
+        freight:best?best.freightPerMBF:null,
+        landed:best?best.landedCost:null,
+        margin,
+        sell:best&&best.landedCost!=null?best.landedCost+margin:null,
+        alternatives:alts.map(a=>({mill:a.mill,fobPrice:a.fobPrice,landedCost:a.landedCost})),
+        shipWindow:best?best.shipWindow:'',
+        _options:options
+      });
+    }
+
+    ps.rows=newRows;
+    ps.lastBuilt=new Date().toISOString();
+    S.psNewQuotesSince=null; // Clear new-data indicator
+    save('priceSheet',S.priceSheet);
+
+    if(statusEl) statusEl.textContent='';
+    showToast(`Priced ${newRows.filter(r=>r.fob!=null).length}/${ps.products.length} products`,'positive');
+  }catch(e){
+    showToast('Price sheet error: '+e.message,'warn');
+    if(statusEl) statusEl.textContent='Error: '+e.message;
+  }finally{
+    _psFetching=false;
+    const c2=document.getElementById('ps-container');
+    if(c2) renderPriceSheet(c2);
+  }
+}
+
+function psApplyUniformMargin(){
+  const margin=parseFloat(document.getElementById('ps-margin')?.value)||0;
+  S.priceSheet.margin=margin;
+  (S.priceSheet.rows||[]).forEach(r=>{
+    r.margin=margin;
+    r.sell=r.landed!=null?r.landed+margin:null;
+  });
+  save('priceSheet',S.priceSheet);
+  const container=document.getElementById('ps-container');
+  if(container) renderPriceSheet(container);
+}
+
+function psUpdateRowMargin(idx,value){
+  const rows=S.priceSheet.rows||[];
+  if(!rows[idx]) return;
+  rows[idx].margin=value;
+  rows[idx].sell=rows[idx].landed!=null?rows[idx].landed+value:null;
+  save('priceSheet',S.priceSheet);
+  const container=document.getElementById('ps-container');
+  if(container) renderPriceSheet(container);
+}
+
+function psCopyToClipboard(){
+  const ps=S.priceSheet;
+  const rows=(ps.rows||[]).filter(r=>r.sell!=null);
+  if(!rows.length){showToast('No priced rows to copy','warn');return;}
+  const dest=ps.destination||'';
+  const customer=ps.customer||'';
+
+  // HTML table for Outlook
+  const html=`<html><body style="font-family:Calibri,Arial,sans-serif;">
+<table style="border-collapse:collapse;font-family:Calibri,Arial,sans-serif;font-size:11pt;">
+  <thead>
+    <tr style="background:#1a5f7a;color:white;">
+      <th style="padding:8px 12px;text-align:left;border:1px solid #ccc;">Product</th>
+      <th style="padding:8px 12px;text-align:right;border:1px solid #ccc;">Delivered Price</th>
+      <th style="padding:8px 12px;text-align:right;border:1px solid #ccc;">Ship</th>
+    </tr>
+  </thead>
+  <tbody>
+    ${rows.map((r,i)=>`<tr style="background:${i%2?'#f5f5f5':'white'};">
+      <td style="padding:6px 12px;border:1px solid #ddd;">${r.label}</td>
+      <td style="padding:6px 12px;text-align:right;border:1px solid #ddd;font-weight:bold;color:${r.margin<0?'#c62828':'#2e7d32'};">$${Math.round(r.sell)}</td>
+      <td style="padding:6px 12px;text-align:right;border:1px solid #ddd;color:#666;">${r.shipWindow||'Prompt'}</td>
+    </tr>`).join('')}
+  </tbody>
+</table>
+<p style="font-family:Calibri,Arial,sans-serif;font-size:10pt;color:#666;margin-top:8px;">
+  <strong>DLVD ${escapeHtml(dest)}</strong>${customer?' — '+escapeHtml(customer):''}
+</p>
+</body></html>`;
+
+  // Plain text fallback
+  const lines=[`SYP Pricing — Delivered: ${dest}${customer?' — '+customer:''}`,''];
+  lines.push(['Product','Delivered','Ship'].join('\t'));
+  rows.forEach(r=>{lines.push([r.label,'$'+Math.round(r.sell),r.shipWindow||'Prompt'].join('\t'));});
+  const shorts=rows.filter(r=>r.margin<0);
+  if(shorts.length){lines.push('');lines.push('SHORT items: '+shorts.map(r=>r.label).join(', '));}
+  const text=lines.join('\n');
+
+  try{
+    const htmlBlob=new Blob([html],{type:'text/html'});
+    const textBlob=new Blob([text],{type:'text/plain'});
+    navigator.clipboard.write([new ClipboardItem({'text/html':htmlBlob,'text/plain':textBlob})]).then(()=>{
+      showToast('Copied! Paste into Outlook for formatted table','positive');
+    }).catch(()=>{
+      navigator.clipboard.writeText(text).then(()=>showToast('Copied to clipboard','positive'));
+    });
+  }catch(e){
+    navigator.clipboard.writeText(text).then(()=>showToast('Copied to clipboard','positive'));
+  }
+}
+
+function psConvertToSells(){
+  const ps=S.priceSheet;
+  const rows=(ps.rows||[]).filter(r=>r.sell!=null);
+  if(!rows.length){showToast('No priced rows to convert','warn');return;}
+  const customer=ps.customer||'';
+  if(!customer){showToast('Select a customer first','warn');return;}
+
+  let created=0;
+  rows.forEach(r=>{
+    S.sells.push({
+      id:genId(),
+      customer,
+      product:r.product,
+      length:'RL',
+      price:Math.round(r.sell),
+      volume:0,
+      date:today(),
+      status:'open',
+      notes:`Auto from Price Sheet. Mill: ${r.bestMill}, FOB: $${r.fob}, Freight: $${r.freight}, Margin: $${r.margin}`,
+      trader:S.trader
+    });
+    created++;
+  });
+
+  save('sells',S.sells);
+  showToast(`Created ${created} sell orders for ${customer}`,'positive');
+  // Navigate to trading blotter
+  S.tradingTab='blotter';SS('tradingTab','blotter');
+  go('trading');
+}
+
+// Navigate to quote engine (called from mill intake comparison)
+function psNavigateWithProducts(products){
+  go('quotes');
 }

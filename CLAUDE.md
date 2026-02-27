@@ -123,7 +123,7 @@ Sidebar has 7 flat items (no collapsible groups). `NAV_GROUPS` is `null`. Each p
 | **Trading** | Blotter \| P&L | `S.tradingTab` | `blotter` |
 | **Quotes** | Source \| Build | `S.quoteTab` | `build` |
 | **Mill Intel** | Intake \| Prices | `S.miTab` | `intake` |
-| **Analytics** | Briefing \| vs Market \| Risk \| RL Data | `S.analyticsTab` | `briefing` |
+| **Analytics** | Spreads \| Charts \| Compare \| Details | `S.analyticsTab` | `spreads` |
 | **CRM** | Prospects \| Customers \| Mills | `S.crmTab` | `prospects` |
 | **Settings** | *(none)* | — | — |
 
@@ -241,6 +241,13 @@ loadAllLocal() (parallel IDB reads)
 | `/api/mi/mills` | Mill Intel mill directory |
 | `/api/supabase/config` | Client Supabase credentials |
 | `/api/pricing/cutoff` | Matrix wipe date sync |
+| `/api/rl/history` | RL price time series (cached, filtered) |
+| `/api/rl/chart-batch` | Batch: 3 regions + spreads for one product |
+| `/api/rl/spreads` | Batch: length/dim/grade spreads with stats |
+| `/api/rl/backfill` | Batch: S.rl-shaped entries for frontend state |
+| `/api/rl/save` | Save/upsert RL price rows |
+| `/api/rl/dates` | Available dates with row counts |
+| `/api/rl/entry` | Full RL entry for one date |
 
 ## Known Architectural Notes
 

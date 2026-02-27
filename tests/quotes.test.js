@@ -25,7 +25,7 @@ describe('parseProductString', () => {
 
   test('parses MSR product', () => {
     const r = parseProductString('2x4 MSR');
-    expect(r.base).toBe('2x4MSR');
+    expect(r.base).toBe('2x4 MSR');
     expect(r.grade).toBe('MSR');
   });
 

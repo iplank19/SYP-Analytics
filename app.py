@@ -16,6 +16,10 @@ import secrets
 from datetime import datetime, timedelta, timezone
 import tempfile
 import math
+import gzip
+import csv
+import statistics
+from collections import defaultdict
 
 try:
     import jwt
@@ -453,6 +457,17 @@ MILL_DIRECTORY = {
     'Big River Forest Products - Vicksburg': ('Vicksburg', 'MS'),
     'Hankins Lumber - Grenada': ('Grenada', 'MS'),
     'Westervelt Lumber - Moundville': ('Moundville', 'AL'), 'Westervelt Lumber - Tuscaloosa': ('Tuscaloosa', 'AL'),
+    'Jordan Lumber - Mt. Gilead': ('Mt. Gilead', 'NC'),
+    'Mid-South Lumber - Meridian': ('Meridian', 'MS'),
+    'Mid-South Lumber': ('Booneville', 'MS'),
+    'WM Sheppard Lumber - Brooklet': ('Brooklet', 'GA'),
+    'Harrigan Lumber': ('Monroeville', 'AL'),
+    'Harrigan Lumber - Monroeville': ('Monroeville', 'AL'),
+    'Big River Forest Products - Unknown': ('Gloster', 'MS'),
+    'Jordan Lumber': ('Mt. Gilead', 'NC'),
+    'Roseburg Forest Products - Weldon': ('Weldon', 'NC'),
+    'Langdale Forest Products - Barnesville': ('Barnesville', 'GA'),
+    'Two Rivers Lumber': ('Troy', 'AL'),
 }
 
 # Company alias mapping (mirrors _MILL_COMPANY_ALIASES in state.js)
@@ -738,13 +753,15 @@ def init_mi_db():
         CREATE TABLE IF NOT EXISTS rl_prices (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             date TEXT NOT NULL,
-            product TEXT NOT NULL,
             region TEXT NOT NULL,
+            product TEXT NOT NULL,
+            length TEXT NOT NULL DEFAULT 'RL',
             price REAL NOT NULL,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         );
         CREATE INDEX IF NOT EXISTS idx_rl_date ON rl_prices(date);
-        CREATE UNIQUE INDEX IF NOT EXISTS idx_rl_unique ON rl_prices(date, product, region);
+        CREATE INDEX IF NOT EXISTS idx_rl_product_region ON rl_prices(product, region);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_rl_unique ON rl_prices(date, region, product, length);
 
         CREATE TABLE IF NOT EXISTS lanes (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -763,6 +780,18 @@ def init_mi_db():
     # Add locations column if missing (migration)
     try:
         conn.execute("ALTER TABLE mills ADD COLUMN locations TEXT DEFAULT '[]'")
+    except:
+        pass
+    # Add length column to rl_prices if missing (migration from old schema)
+    try:
+        conn.execute("ALTER TABLE rl_prices ADD COLUMN length TEXT NOT NULL DEFAULT 'RL'")
+    except:
+        pass
+    # Recreate unique index to include length (drop old 3-col index, create 4-col)
+    try:
+        conn.execute("DROP INDEX IF EXISTS idx_rl_unique")
+        conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_rl_unique ON rl_prices(date, region, product, length)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_rl_product_region ON rl_prices(product, region)")
     except:
         pass
     conn.commit()
@@ -1020,6 +1049,109 @@ def mi_get_region(state_code):
 # Now that mi_extract_state and mi_get_region are defined, run the cloud seed
 seed_mi_from_supabase()
 
+# ----- Seed rl_prices from gzipped CSV (historical Random Lengths data) -----
+
+def seed_rl_from_csv():
+    """Seed rl_prices table from data/rl_prices.csv.gz on startup if empty."""
+    csv_path = os.path.join(os.path.dirname(__file__), 'data', 'rl_prices.csv.gz')
+    if not os.path.exists(csv_path):
+        print("RL CSV not found — skipping historical seed")
+        return
+
+    conn = get_mi_db()
+    count = conn.execute("SELECT COUNT(*) FROM rl_prices").fetchone()[0]
+    if count > 0:
+        conn.close()
+        print(f"RL already has {count} prices — skipping CSV seed")
+        return
+    conn.close()
+
+    print(f"Seeding rl_prices from {csv_path}...")
+    try:
+        rows = []
+        with gzip.open(csv_path, 'rt') as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                try:
+                    price = float(row['price'])
+                    if price <= 0:
+                        continue
+                    rows.append((row['date'], row['region'], row['product'], row['length'], price))
+                except (ValueError, KeyError):
+                    continue
+
+        if rows:
+            conn = get_mi_db()
+            conn.executemany(
+                "INSERT OR IGNORE INTO rl_prices (date, region, product, length, price) VALUES (?,?,?,?,?)",
+                rows
+            )
+            conn.commit()
+            conn.close()
+            print(f"  Seeded {len(rows)} RL prices from CSV")
+    except Exception as e:
+        print(f"RL CSV seed error: {type(e).__name__}: {e}")
+
+def seed_rl_from_supabase():
+    """Backfill recent RL entries from Supabase cloud (captures weekly uploads since CSV was committed)."""
+    supa_url = os.environ.get('SUPABASE_URL', '')
+    supa_key = os.environ.get('SUPABASE_ANON_KEY', '')
+    if not supa_url or not supa_key:
+        return
+
+    try:
+        res = requests.get(
+            f"{supa_url}/rest/v1/syp_data?select=data&limit=1",
+            headers={'apikey': supa_key, 'Authorization': f'Bearer {supa_key}'},
+            timeout=15
+        )
+        if not res.ok:
+            return
+        data = res.json()
+        if not data or not data[0].get('data'):
+            return
+
+        cloud_rl = data[0]['data'].get('rl', [])
+        if not cloud_rl:
+            return
+
+        rows = []
+        for entry in cloud_rl:
+            date = entry.get('date')
+            if not date:
+                continue
+            # Composite prices (west/central/east → product keys like "2x4#2")
+            for region in ['west', 'central', 'east']:
+                for product, price in (entry.get(region) or {}).items():
+                    if isinstance(price, (int, float)) and price > 0:
+                        rows.append((date, region, product, 'RL', float(price)))
+            # Specified lengths
+            for region in ['west', 'central', 'east']:
+                region_data = (entry.get('specified_lengths') or {}).get(region, {})
+                for product, lengths in region_data.items():
+                    if not isinstance(lengths, dict):
+                        continue
+                    for length, price in lengths.items():
+                        if isinstance(price, (int, float)) and price > 0:
+                            rows.append((date, region, product, str(length), float(price)))
+
+        if rows:
+            conn = get_mi_db()
+            conn.executemany(
+                "INSERT OR IGNORE INTO rl_prices (date, region, product, length, price) VALUES (?,?,?,?,?)",
+                rows
+            )
+            conn.commit()
+            inserted = conn.total_changes
+            conn.close()
+            if inserted:
+                print(f"  Backfilled {inserted} RL prices from Supabase cloud")
+    except Exception as e:
+        print(f"RL Supabase seed error: {type(e).__name__}: {e}")
+
+seed_rl_from_csv()
+seed_rl_from_supabase()
+
 def mi_geocode_location(location):
     """Geocode using shared geo_cache, with DB fallback then Nominatim."""
     if not location:
@@ -1073,6 +1205,31 @@ def invalidate_matrix_cache():
     """Clear matrix cache (call when quotes are added/updated)."""
     global _matrix_cache
     _matrix_cache = {}
+
+# RL price cache (data changes weekly, so 1-hour TTL is fine)
+_rl_cache = {}
+_rl_cache_ttl = 3600  # 1 hour
+
+def get_rl_cached(cache_key):
+    """Get cached RL response if still valid."""
+    if cache_key in _rl_cache:
+        data, timestamp = _rl_cache[cache_key]
+        if time.time() - timestamp < _rl_cache_ttl:
+            return data
+        del _rl_cache[cache_key]
+    return None
+
+def set_rl_cache(cache_key, data):
+    """Cache RL response."""
+    _rl_cache[cache_key] = (data, time.time())
+    if len(_rl_cache) > 50:
+        oldest_key = min(_rl_cache.keys(), key=lambda k: _rl_cache[k][1])
+        del _rl_cache[oldest_key]
+
+def invalidate_rl_cache():
+    """Clear RL cache (call when new RL data is saved)."""
+    global _rl_cache
+    _rl_cache = {}
 
 def warm_geo_cache():
     """Pre-load geo_cache from CRM mills that have lat/lon stored."""
@@ -3009,7 +3166,7 @@ def mi_latest_quotes():
     """
     params = []
     if product:
-        sql += " AND mq.product=?"
+        sql += " AND LOWER(REPLACE(mq.product, ' ', ''))=LOWER(REPLACE(?, ' ', ''))"
         params.append(product)
     if region:
         sql += " AND m.region=?"
@@ -3550,7 +3707,6 @@ def mi_list_rl():
     return jsonify([dict(r) for r in rows])
 
 @app.route('/api/mi/rl', methods=['POST'])
-
 def mi_add_rl():
     data = request.get_json()
     entries = data if isinstance(data, list) else [data]
@@ -3564,13 +3720,14 @@ def mi_add_rl():
                 continue
         except (ValueError, TypeError):
             continue
-        rows.append((e['date'], e['product'], e['region'], price))
+        length = e.get('length', 'RL') or 'RL'
+        rows.append((e['date'], e['region'], e['product'], length, price))
     if rows:
         for attempt in range(3):
             try:
                 conn = get_mi_db()
                 conn.executemany(
-                    "INSERT OR REPLACE INTO rl_prices (date, product, region, price) VALUES (?,?,?,?)",
+                    "INSERT OR REPLACE INTO rl_prices (date, region, product, length, price) VALUES (?,?,?,?,?)",
                     rows
                 )
                 conn.commit()
@@ -3580,10 +3737,997 @@ def mi_add_rl():
                 if 'locked' in str(e) and attempt < 2:
                     try: conn.close()
                     except: pass
-                    import time; time.sleep(1)  # Retry delay for SQLite lock contention
+                    import time; time.sleep(1)
                     continue
                 raise
     return jsonify({'created': 0}), 201
+
+# ----- RL: HISTORICAL PRICE API -----
+
+@app.route('/api/rl/history', methods=['GET'])
+def rl_history():
+    """Return time series of RL prices, filtered by product/region/length/date range."""
+    try:
+        product = request.args.get('product')
+        region = request.args.get('region')
+        length = request.args.get('length')
+        date_from = request.args.get('from')
+        date_to = request.args.get('to')
+
+        cache_key = f"history_{product}_{region}_{length}_{date_from}_{date_to}"
+        cached = get_rl_cached(cache_key)
+        if cached is not None:
+            return jsonify(cached)
+
+        sql = "SELECT date, region, product, length, price FROM rl_prices WHERE 1=1"
+        params = []
+
+        if product:
+            sql += " AND product = ?"
+            params.append(product)
+        if region:
+            sql += " AND region = ?"
+            params.append(region)
+        if length:
+            sql += " AND length = ?"
+            params.append(length)
+        if date_from:
+            sql += " AND date >= ?"
+            params.append(date_from)
+        if date_to:
+            sql += " AND date <= ?"
+            params.append(date_to)
+
+        sql += " ORDER BY date"
+
+        conn = get_mi_db()
+        rows = conn.execute(sql, params).fetchall()
+        conn.close()
+        result = [dict(r) for r in rows]
+        set_rl_cache(cache_key, result)
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/rl/dates', methods=['GET'])
+def rl_dates():
+    """Return list of available dates with row counts."""
+    try:
+        conn = get_mi_db()
+        rows = conn.execute(
+            "SELECT date, COUNT(*) as row_count FROM rl_prices GROUP BY date ORDER BY date"
+        ).fetchall()
+        conn.close()
+        return jsonify([dict(r) for r in rows])
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/rl/entry', methods=['GET'])
+def rl_entry():
+    """Return full RL entry for one date, structured by region → product → length → price."""
+    try:
+        date = request.args.get('date')
+        if not date:
+            return jsonify({'error': 'date parameter required'}), 400
+
+        conn = get_mi_db()
+        rows = conn.execute(
+            "SELECT region, product, length, price FROM rl_prices WHERE date = ?",
+            (date,)
+        ).fetchall()
+        conn.close()
+
+        result = {'date': date, 'west': {}, 'central': {}, 'east': {}}
+        for r in rows:
+            region = r['region']
+            product = r['product']
+            length = r['length']
+            price = r['price']
+            if region not in result:
+                result[region] = {}
+            if product not in result[region]:
+                result[region][product] = {}
+            result[region][product][length] = price
+
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/rl/save', methods=['POST'])
+def rl_save():
+    """Save/upsert RL price rows for a given date."""
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'JSON body required'}), 400
+
+        date = data.get('date')
+        entries = data.get('rows', [])
+        if not date or not entries:
+            return jsonify({'error': 'date and rows required'}), 400
+
+        rows = []
+        for e in entries:
+            region = e.get('region', '').strip()
+            product = e.get('product', '').strip()
+            length = e.get('length', 'RL').strip() or 'RL'
+            try:
+                price = float(e.get('price', 0))
+                if price <= 0:
+                    continue
+            except (ValueError, TypeError):
+                continue
+            if not region or not product:
+                continue
+            rows.append((date, region, product, length, price))
+
+        if rows:
+            conn = get_mi_db()
+            conn.executemany(
+                "INSERT OR REPLACE INTO rl_prices (date, region, product, length, price) VALUES (?,?,?,?,?)",
+                rows
+            )
+            conn.commit()
+            conn.close()
+            invalidate_rl_cache()
+
+        return jsonify({'saved': len(rows)}), 201
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/rl/chart-batch', methods=['GET'])
+def rl_chart_batch():
+    """Batch endpoint: returns all 3 regions + spread data for one product in a single call."""
+    try:
+        product = request.args.get('product', '2x4#2')
+        length = request.args.get('length', 'RL')
+        date_from = request.args.get('from', '')
+        date_to = request.args.get('to', '')
+
+        cache_key = f"chart_batch_{product}_{length}_{date_from}_{date_to}"
+        cached = get_rl_cached(cache_key)
+        if cached is not None:
+            return jsonify(cached)
+
+        conn = get_mi_db()
+
+        # Fetch all regions for this product
+        sql = "SELECT date, region, price FROM rl_prices WHERE product=? AND length=?"
+        params = [product, length]
+        if date_from:
+            sql += " AND date>=?"
+            params.append(date_from)
+        if date_to:
+            sql += " AND date<=?"
+            params.append(date_to)
+        sql += " ORDER BY date"
+        rows = conn.execute(sql, params).fetchall()
+
+        west, central, east = [], [], []
+        for r in rows:
+            entry = {'date': r['date'], 'price': r['price']}
+            if r['region'] == 'west':
+                west.append(entry)
+            elif r['region'] == 'central':
+                central.append(entry)
+            elif r['region'] == 'east':
+                east.append(entry)
+
+        # Compute spreads if product is #2 grade
+        spread46, spread_wc = [], []
+        if '#2' in product:
+            # Get the companion product for 2x4/2x6 spread
+            if product.startswith('2x4'):
+                spread_product = product.replace('2x4', '2x6')
+            elif product.startswith('2x6'):
+                spread_product = product.replace('2x6', '2x4')
+            else:
+                spread_product = None
+
+            if spread_product:
+                sql2 = "SELECT date, region, price FROM rl_prices WHERE product=? AND length=? AND region='west'"
+                params2 = [spread_product, length]
+                if date_from:
+                    sql2 += " AND date>=?"
+                    params2.append(date_from)
+                if date_to:
+                    sql2 += " AND date<=?"
+                    params2.append(date_to)
+                sql2 += " ORDER BY date"
+                spread_rows = conn.execute(sql2, params2).fetchall()
+                spread_map = {r['date']: r['price'] for r in spread_rows}
+
+                # Also get 2x4#2 west prices for the spread
+                if product.startswith('2x4'):
+                    w4_map = {e['date']: e['price'] for e in west}
+                    w6_map = spread_map
+                else:
+                    w6_map = {e['date']: e['price'] for e in west}
+                    sql3 = "SELECT date, price FROM rl_prices WHERE product='2x4#2' AND length=? AND region='west'"
+                    params3 = [length]
+                    if date_from:
+                        sql3 += " AND date>=?"
+                        params3.append(date_from)
+                    if date_to:
+                        sql3 += " AND date<=?"
+                        params3.append(date_to)
+                    sql3 += " ORDER BY date"
+                    w4_rows = conn.execute(sql3, params3).fetchall()
+                    w4_map = {r['date']: r['price'] for r in w4_rows}
+
+                # Build 2x4/2x6 spread
+                for e in west:
+                    d = e['date']
+                    v4 = w4_map.get(d)
+                    v6 = w6_map.get(d)
+                    if v4 and v6:
+                        spread46.append({'date': d, 'spread': round(v6 - v4)})
+
+            # West vs Central spread
+            c_map = {e['date']: e['price'] for e in central}
+            for e in west:
+                d = e['date']
+                w_price = e['price']
+                c_price = c_map.get(d)
+                if w_price and c_price:
+                    spread_wc.append({'date': d, 'spread': round(w_price - c_price)})
+
+        conn.close()
+
+        result = {
+            'west': west,
+            'central': central,
+            'east': east,
+            'spread46': spread46,
+            'spreadWC': spread_wc
+        }
+        set_rl_cache(cache_key, result)
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/rl/spreads', methods=['GET'])
+def rl_spreads():
+    """Batch endpoint: returns length/dimension/grade spreads with historical stats."""
+    try:
+        region = request.args.get('region', 'west')
+        date_from = request.args.get('from', '')
+        date_to = request.args.get('to', '')
+
+        cache_key = f"spreads_{region}_{date_from}_{date_to}"
+        cached = get_rl_cached(cache_key)
+        if cached is not None:
+            return jsonify(cached)
+
+        conn = get_mi_db()
+
+        # Find latest two "complete" dates in range (skip partial entries with <10 rows)
+        date_sql = """SELECT date, COUNT(*) as cnt FROM rl_prices WHERE region=?"""
+        date_params = [region]
+        if date_from:
+            date_sql += " AND date>=?"
+            date_params.append(date_from)
+        if date_to:
+            date_sql += " AND date<=?"
+            date_params.append(date_to)
+        date_sql += " GROUP BY date HAVING cnt >= 10 ORDER BY date DESC LIMIT 2"
+        date_rows = conn.execute(date_sql, date_params).fetchall()
+        latest_date = date_rows[0]['date'] if date_rows else None
+        prev_date = date_rows[1]['date'] if len(date_rows) > 1 else None
+
+        if not latest_date:
+            conn.close()
+            return jsonify({'length_spreads': [], 'dimension_spreads': [], 'grade_spreads': [], 'wow_changes': []})
+
+        # Get latest prices
+        latest_rows = conn.execute(
+            "SELECT product, length, price FROM rl_prices WHERE region=? AND date=?",
+            (region, latest_date)
+        ).fetchall()
+        latest = {}
+        for r in latest_rows:
+            latest[(r['product'], r['length'])] = r['price']
+
+        # Get previous week prices for WoW
+        prev = {}
+        if prev_date:
+            prev_rows = conn.execute(
+                "SELECT product, length, price FROM rl_prices WHERE region=? AND date=?",
+                (region, prev_date)
+            ).fetchall()
+            for r in prev_rows:
+                prev[(r['product'], r['length'])] = r['price']
+
+        # Get aggregates for full date range
+        agg_sql = "SELECT product, length, AVG(price) as avg_price, MIN(price) as min_price, MAX(price) as max_price, COUNT(*) as cnt FROM rl_prices WHERE region=?"
+        agg_params = [region]
+        if date_from:
+            agg_sql += " AND date>=?"
+            agg_params.append(date_from)
+        if date_to:
+            agg_sql += " AND date<=?"
+            agg_params.append(date_to)
+        agg_sql += " GROUP BY product, length"
+        agg_rows = conn.execute(agg_sql, agg_params).fetchall()
+        agg = {}
+        for r in agg_rows:
+            agg[(r['product'], r['length'])] = {
+                'avg': round(r['avg_price'], 2),
+                'min': r['min_price'],
+                'max': r['max_price'],
+                'cnt': r['cnt']
+            }
+
+        # For percentile rank, get all prices per product+length
+        hist_sql = "SELECT product, length, price FROM rl_prices WHERE region=?"
+        hist_params = [region]
+        if date_from:
+            hist_sql += " AND date>=?"
+            hist_params.append(date_from)
+        if date_to:
+            hist_sql += " AND date<=?"
+            hist_params.append(date_to)
+        hist_rows = conn.execute(hist_sql, hist_params).fetchall()
+        hist = {}
+        for r in hist_rows:
+            key = (r['product'], r['length'])
+            if key not in hist:
+                hist[key] = []
+            hist[key].append(r['price'])
+
+        conn.close()
+
+        def pct_rank(key, spread_val):
+            """Compute percentile rank of a spread value within historical spread values."""
+            # For spreads we need to compute historical spreads, not just prices
+            return None  # We'll compute percentile from the spread arrays below
+
+        # Build length spreads (vs 16' base)
+        length_spreads = []
+        lengths_to_check = ['8', '10', '12', '14', '18', '20']
+        products_seen = set()
+        for (prod, ln), price in latest.items():
+            products_seen.add(prod)
+
+        for prod in sorted(products_seen):
+            base_key = (prod, '16')
+            base_price = latest.get(base_key)
+            if not base_price:
+                continue
+            base_agg = agg.get(base_key, {})
+            for ln in lengths_to_check:
+                key = (prod, ln)
+                price = latest.get(key)
+                if not price:
+                    continue
+                spread = round(price - base_price, 2)
+                # Historical spread stats
+                hist_base = hist.get(base_key, [])
+                hist_len = hist.get(key, [])
+                if hist_base and hist_len and len(hist_base) == len(hist_len):
+                    hist_spreads = [h - b for h, b in zip(hist_len, hist_base)]
+                    avg_s = round(sum(hist_spreads) / len(hist_spreads), 2)
+                    min_s = round(min(hist_spreads), 2)
+                    max_s = round(max(hist_spreads), 2)
+                    pct = round(sum(1 for s in hist_spreads if s <= spread) / len(hist_spreads) * 100)
+                else:
+                    a_data = agg.get(key, {})
+                    b_data = base_agg
+                    avg_s = round(a_data.get('avg', price) - b_data.get('avg', base_price), 2) if a_data and b_data else spread
+                    min_s = spread
+                    max_s = spread
+                    pct = 50
+                length_spreads.append({
+                    'product': prod, 'length': ln, 'base': base_price, 'price': price,
+                    'spread': spread, 'avg': avg_s, 'min': min_s, 'max': max_s, 'pct': pct
+                })
+
+        # Build dimension spreads (vs 2x4 base)
+        dimension_spreads = []
+        dims_to_check = ['2x6', '2x8', '2x10', '2x12']
+        for ln in ['RL', '8', '10', '12', '14', '16', '18', '20']:
+            # Find 2x4 base (try #2, then #1)
+            base_key_2 = ('2x4#2', ln)
+            base_key_1 = ('2x4#1', ln)
+            base_price = latest.get(base_key_2) or latest.get(base_key_1)
+            base_key = base_key_2 if latest.get(base_key_2) else base_key_1
+            if not base_price:
+                continue
+            for dim in dims_to_check:
+                key2 = (dim + '#2', ln)
+                key1 = (dim + '#1', ln)
+                key = key2 if latest.get(key2) else key1
+                price = latest.get(key)
+                if not price:
+                    continue
+                spread = round(price - base_price, 2)
+                a_data = agg.get(key, {})
+                b_data = agg.get(base_key, {})
+                avg_s = round(a_data.get('avg', price) - b_data.get('avg', base_price), 2) if a_data and b_data else spread
+                # Compute percentile from historical spreads
+                hist_dim = hist.get(key, [])
+                hist_base_dim = hist.get(base_key, [])
+                min_s, max_s, pct = spread, spread, 50
+                if hist_dim and hist_base_dim and len(hist_dim) == len(hist_base_dim):
+                    hist_spreads = [h - b for h, b in zip(hist_dim, hist_base_dim)]
+                    avg_s = round(sum(hist_spreads) / len(hist_spreads), 2)
+                    min_s = round(min(hist_spreads), 2)
+                    max_s = round(max(hist_spreads), 2)
+                    pct = round(sum(1 for s in hist_spreads if s <= spread) / len(hist_spreads) * 100)
+                dimension_spreads.append({
+                    'length': ln, 'dim': dim, 'base': base_price, 'price': price,
+                    'spread': spread, 'avg': avg_s, 'min': min_s, 'max': max_s, 'pct': pct
+                })
+
+        # Build grade spreads (#1 vs #2)
+        grade_spreads = []
+        for dim in ['2x4', '2x6', '2x8', '2x10', '2x12']:
+            for ln in ['RL', '8', '10', '12', '14', '16', '18', '20']:
+                p1 = latest.get((dim + '#1', ln))
+                p2 = latest.get((dim + '#2', ln))
+                if not p1 or not p2:
+                    continue
+                premium = round(p1 - p2, 2)
+                a1 = agg.get((dim + '#1', ln), {})
+                a2 = agg.get((dim + '#2', ln), {})
+                avg_prem = round(a1.get('avg', p1) - a2.get('avg', p2), 2) if a1 and a2 else premium
+                # Compute percentile from historical grade premiums
+                hist_g1 = hist.get((dim + '#1', ln), [])
+                hist_g2 = hist.get((dim + '#2', ln), [])
+                min_p, max_p, pct = premium, premium, 50
+                if hist_g1 and hist_g2 and len(hist_g1) == len(hist_g2):
+                    hist_prems = [h1 - h2 for h1, h2 in zip(hist_g1, hist_g2)]
+                    avg_prem = round(sum(hist_prems) / len(hist_prems), 2)
+                    min_p = round(min(hist_prems), 2)
+                    max_p = round(max(hist_prems), 2)
+                    pct = round(sum(1 for p in hist_prems if p <= premium) / len(hist_prems) * 100)
+                grade_spreads.append({
+                    'dim': dim, 'length': ln, 'p1': p1, 'p2': p2,
+                    'premium': premium, 'avg': avg_prem, 'min': min_p, 'max': max_p, 'pct': pct
+                })
+
+        # Week-over-week changes
+        wow_changes = []
+        if prev:
+            for (prod, ln), curr_price in latest.items():
+                if ln != 'RL':
+                    continue
+                prev_price = prev.get((prod, ln))
+                if prev_price and curr_price != prev_price:
+                    wow_changes.append({
+                        'product': prod, 'curr': curr_price, 'prev': prev_price,
+                        'chg': round(curr_price - prev_price, 2)
+                    })
+            wow_changes.sort(key=lambda x: abs(x['chg']), reverse=True)
+
+        result = {
+            'latest_date': latest_date,
+            'prev_date': prev_date,
+            'region': region,
+            'length_spreads': length_spreads,
+            'dimension_spreads': dimension_spreads,
+            'grade_spreads': grade_spreads,
+            'wow_changes': wow_changes
+        }
+        set_rl_cache(cache_key, result)
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/rl/backfill', methods=['GET'])
+def rl_backfill():
+    """Batch endpoint: returns S.rl-shaped entries for backfilling frontend state."""
+    try:
+        date_from = request.args.get('from', '')
+        products_param = request.args.get('products', '2x4#2,2x6#2,2x8#2,2x10#2,2x12#2,2x4#1,2x6#1')
+        products = [p.strip() for p in products_param.split(',') if p.strip()]
+
+        cache_key = f"backfill_{date_from}_{products_param}"
+        cached = get_rl_cached(cache_key)
+        if cached is not None:
+            return jsonify(cached)
+
+        conn = get_mi_db()
+        placeholders = ','.join('?' for _ in products)
+        sql = f"SELECT date, region, product, price FROM rl_prices WHERE length='RL' AND product IN ({placeholders})"
+        params = list(products)
+        if date_from:
+            sql += " AND date>=?"
+            params.append(date_from)
+        sql += " ORDER BY date"
+        rows = conn.execute(sql, params).fetchall()
+        conn.close()
+
+        # Group by date → S.rl-shaped entries
+        by_date = {}
+        for r in rows:
+            d = r['date']
+            if d not in by_date:
+                by_date[d] = {'date': d, 'west': {}, 'central': {}, 'east': {}}
+            region = r['region']
+            if region in by_date[d]:
+                by_date[d][region][r['product']] = r['price']
+
+        result = sorted(by_date.values(), key=lambda x: x['date'])
+        set_rl_cache(cache_key, result)
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+# =====================================================================
+# FORECAST ENDPOINTS — Seasonal, Short-term, and Pricing Models
+# =====================================================================
+
+MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+
+@app.route('/api/forecast/seasonal', methods=['GET'])
+def forecast_seasonal():
+    """Compute seasonal indices from historical RL prices."""
+    try:
+        product = request.args.get('product', '2x4#2')
+        region = request.args.get('region', 'west')
+        years = int(request.args.get('years', 5))
+
+        cache_key = f"seasonal_{product}_{region}_{years}"
+        cached = get_rl_cached(cache_key)
+        if cached is not None:
+            return jsonify(cached)
+
+        conn = get_mi_db()
+        cutoff = (datetime.now() - timedelta(days=365 * years)).strftime('%Y-%m-%d')
+
+        # Fetch RL-length prices only (composite prices, not specified lengths)
+        rows = conn.execute(
+            "SELECT date, price FROM rl_prices WHERE product=? AND region=? AND length='RL' AND date>=? ORDER BY date",
+            (product, region, cutoff)
+        ).fetchall()
+        conn.close()
+
+        if not rows or len(rows) < 24:
+            return jsonify({'error': 'Insufficient data', 'dataPoints': len(rows) if rows else 0})
+
+        prices = [float(r['price']) for r in rows]
+        dates = [r['date'] for r in rows]
+        n = len(prices)
+
+        # Linear detrend: fit y = a*x + b via least squares
+        x_mean = (n - 1) / 2.0
+        y_mean = sum(prices) / n
+        num = sum((i - x_mean) * (prices[i] - y_mean) for i in range(n))
+        den = sum((i - x_mean) ** 2 for i in range(n))
+        slope = num / den if den else 0
+        intercept = y_mean - slope * x_mean
+        trend_vals = [slope * i + intercept for i in range(n)]
+
+        # Group detrended prices by calendar month
+        monthly_raw = {}       # raw prices by month
+        monthly_detrended = {}  # detrended prices by month
+        for i, (date_str, price) in enumerate(zip(dates, prices)):
+            month = int(date_str[5:7])
+            monthly_raw.setdefault(month, []).append(price)
+            monthly_detrended.setdefault(month, []).append(price - trend_vals[i])
+
+        baseline = round(y_mean)
+        overall_avg = y_mean
+
+        # Compute monthly factors
+        factors = []
+        for month in range(1, 13):
+            raw = monthly_raw.get(month, [])
+            if not raw:
+                factors.append({'month': month, 'name': MONTH_NAMES[month-1], 'avg': 0, 'index': 1.0, 'pctRank': 50, 'volatility': 0, 'count': 0})
+                continue
+            month_avg = sum(raw) / len(raw)
+            month_std = statistics.stdev(raw) if len(raw) > 1 else 0
+            index = round(month_avg / overall_avg, 3) if overall_avg else 1.0
+            # Percentile rank: how does this month's avg compare to ALL prices?
+            pct_rank = round(sum(1 for p in prices if p <= month_avg) / n * 100)
+            factors.append({
+                'month': month,
+                'name': MONTH_NAMES[month-1],
+                'avg': round(month_avg),
+                'index': index,
+                'pctRank': pct_rank,
+                'volatility': round(month_std),
+                'count': len(raw)
+            })
+
+        # Current position: where is the latest price vs this month's historical norm?
+        current_month = datetime.now().month
+        current_factor = next((f for f in factors if f['month'] == current_month), None)
+        latest_price = prices[-1] if prices else None
+        current_month_prices = monthly_raw.get(current_month, [])
+        if latest_price and current_month_prices:
+            price_pct = round(sum(1 for p in current_month_prices if p <= latest_price) / len(current_month_prices) * 100)
+            if price_pct < 25:
+                signal = 'well_below_seasonal'
+            elif price_pct < 40:
+                signal = 'below_seasonal'
+            elif price_pct > 75:
+                signal = 'well_above_seasonal'
+            elif price_pct > 60:
+                signal = 'above_seasonal'
+            else:
+                signal = 'at_seasonal_norm'
+        else:
+            price_pct = 50
+            signal = 'unknown'
+
+        # Seasonal outlook text
+        peak_months = [f for f in factors if f['index'] > 1.02]
+        low_months = [f for f in factors if f['index'] < 0.98]
+        peak_names = ', '.join(f['name'] for f in sorted(peak_months, key=lambda x: x['index'], reverse=True)[:3])
+        low_names = ', '.join(f['name'] for f in sorted(low_months, key=lambda x: x['index'])[:3])
+
+        result = {
+            'product': product,
+            'region': region,
+            'baseline': baseline,
+            'monthlyFactors': factors,
+            'currentPosition': {
+                'month': current_month,
+                'monthName': MONTH_NAMES[current_month - 1],
+                'latestPrice': round(latest_price) if latest_price else None,
+                'seasonalAvg': current_factor['avg'] if current_factor else None,
+                'pctRank': price_pct,
+                'signal': signal,
+                'index': current_factor['index'] if current_factor else 1.0
+            },
+            'outlook': {
+                'peakMonths': peak_names or 'None identified',
+                'lowMonths': low_names or 'None identified',
+                'trend': 'up' if slope > 0.5 else 'down' if slope < -0.5 else 'flat',
+                'trendPerWeek': round(slope, 2)
+            },
+            'dataPoints': n,
+            'period': f"{dates[0]} to {dates[-1]}"
+        }
+        set_rl_cache(cache_key, result)
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/forecast/shortterm', methods=['GET'])
+def forecast_shortterm():
+    """Short-term price forecast using Holt exponential smoothing + seasonal adjustment."""
+    try:
+        product = request.args.get('product', '2x4#2')
+        region = request.args.get('region', 'west')
+        weeks = int(request.args.get('weeks', 8))
+
+        cache_key = f"forecast_{product}_{region}_{weeks}"
+        cached = get_rl_cached(cache_key)
+        if cached is not None:
+            return jsonify(cached)
+
+        conn = get_mi_db()
+        # Fetch last 104 weeks (2 years) for smoothing + volatility
+        cutoff = (datetime.now() - timedelta(days=730)).strftime('%Y-%m-%d')
+        rows = conn.execute(
+            "SELECT date, price FROM rl_prices WHERE product=? AND region=? AND length='RL' AND date>=? ORDER BY date",
+            (product, region, cutoff)
+        ).fetchall()
+
+        # Also fetch 5yr seasonal factors inline
+        cutoff_5y = (datetime.now() - timedelta(days=365 * 5)).strftime('%Y-%m-%d')
+        seasonal_rows = conn.execute(
+            "SELECT date, price FROM rl_prices WHERE product=? AND region=? AND length='RL' AND date>=? ORDER BY date",
+            (product, region, cutoff_5y)
+        ).fetchall()
+        conn.close()
+
+        prices = [float(r['price']) for r in rows]
+        price_dates = [r['date'] for r in rows]
+
+        if len(prices) < 12:
+            return jsonify({'error': 'Insufficient data', 'dataPoints': len(prices)})
+
+        # Compute seasonal factors from 5yr data
+        seasonal_prices = [float(r['price']) for r in seasonal_rows]
+        seasonal_dates = [r['date'] for r in seasonal_rows]
+        s_avg = sum(seasonal_prices) / len(seasonal_prices) if seasonal_prices else 1
+        monthly_avgs = {}
+        for d, p in zip(seasonal_dates, seasonal_prices):
+            monthly_avgs.setdefault(int(d[5:7]), []).append(p)
+        seasonal_index = {}
+        for m in range(1, 13):
+            vals = monthly_avgs.get(m, [])
+            seasonal_index[m] = (sum(vals) / len(vals)) / s_avg if vals and s_avg else 1.0
+
+        # Holt exponential smoothing
+        alpha, beta = 0.3, 0.1
+        level = prices[0]
+        trend = (prices[min(11, len(prices)-1)] - prices[0]) / min(11, len(prices)-1) if len(prices) > 1 else 0
+
+        for p in prices[1:]:
+            prev_level = level
+            level = alpha * p + (1 - alpha) * (level + trend)
+            trend = beta * (level - prev_level) + (1 - beta) * trend
+
+        # Rolling volatility (last 12 data points)
+        recent = prices[-12:] if len(prices) >= 12 else prices
+        vol = statistics.stdev(recent) if len(recent) > 1 else 10
+
+        # Momentum: 4-week avg vs 12-week avg
+        avg4 = sum(prices[-4:]) / min(4, len(prices))
+        avg12 = sum(prices[-12:]) / min(12, len(prices))
+        momentum = round(avg4 - avg12)
+
+        # Generate forecast using SMOOTHED RELATIVE seasonal adjustment
+        # The Holt level already reflects current seasonal conditions,
+        # so we adjust by the ratio of future month's index to current month's index.
+        # We interpolate between monthly indices based on day-of-month to avoid jitter.
+        last_date_dt = datetime.strptime(price_dates[-1], '%Y-%m-%d')
+        current_month = last_date_dt.month if price_dates else datetime.now().month
+        current_si = seasonal_index.get(current_month, 1.0)
+
+        def smoothed_seasonal(dt):
+            """Interpolate seasonal index between mid-month anchor points for smooth transitions."""
+            m = dt.month
+            d = dt.day
+            si_this = seasonal_index.get(m, 1.0)
+            if d <= 15:
+                # Blend with previous month (transition into this month)
+                prev_m = 12 if m == 1 else m - 1
+                si_prev = seasonal_index.get(prev_m, 1.0)
+                t = (d + 15) / 30.0  # 0.5 at day 1, 1.0 at day 15
+                return si_prev * (1 - t) + si_this * t
+            else:
+                # Blend with next month (transition out of this month)
+                next_m = 1 if m == 12 else m + 1
+                si_next = seasonal_index.get(next_m, 1.0)
+                t = (d - 15) / 30.0  # 0.0 at day 15, ~0.5 at day 30
+                return si_this * (1 - t) + si_next * t
+
+        forecast = []
+        for w in range(1, weeks + 1):
+            forecast_date = last_date_dt + timedelta(days=7 * w)
+            pred = level + w * trend
+            # Smoothed relative seasonal: interpolated target vs current
+            target_si = smoothed_seasonal(forecast_date)
+            ratio = target_si / current_si if current_si else 1.0
+            # Cap seasonal swing at ±15% to prevent extreme jumps
+            ratio = max(0.85, min(1.15, ratio))
+            # Ramp seasonal effect gradually — week 1 is mostly trend,
+            # full seasonal influence by the end of the horizon
+            ramp = w / weeks  # 0.125 at w=1, 1.0 at w=8
+            effective_ratio = 1.0 + ramp * (ratio - 1.0)
+            pred_adj = pred * effective_ratio
+            # Confidence widens with horizon
+            width = 1.96 * vol * (1 + 0.15 * (w - 1))
+            forecast.append({
+                'date': forecast_date.strftime('%Y-%m-%d'),
+                'price': round(pred_adj),
+                'low': round(pred_adj - width),
+                'high': round(pred_adj + width),
+                'week': w
+            })
+
+        # Actual prices for chart context (last 26 weeks)
+        actuals = []
+        for d, p in zip(price_dates[-26:], prices[-26:]):
+            actuals.append({'date': d, 'price': round(p)})
+
+        # Seasonal outlook text
+        now_month = datetime.now().month
+        next_months = [(now_month + i - 1) % 12 + 1 for i in range(1, 4)]
+        upcoming_indices = [seasonal_index.get(m, 1.0) for m in next_months]
+        avg_upcoming = sum(upcoming_indices) / len(upcoming_indices)
+        if avg_upcoming > 1.02:
+            outlook = f"Entering seasonally strong period ({', '.join(MONTH_NAMES[m-1] for m in next_months)}). Prices typically above average."
+        elif avg_upcoming < 0.98:
+            outlook = f"Entering seasonally weak period ({', '.join(MONTH_NAMES[m-1] for m in next_months)}). Prices typically below average."
+        else:
+            outlook = f"Neutral seasonal period ahead ({', '.join(MONTH_NAMES[m-1] for m in next_months)})."
+
+        result = {
+            'product': product,
+            'region': region,
+            'lastPrice': round(prices[-1]),
+            'trend': 'up' if trend > 0.5 else 'down' if trend < -0.5 else 'flat',
+            'trendPerWeek': round(trend, 1),
+            'momentum': momentum,
+            'volatility': round(vol),
+            'forecast': forecast,
+            'actuals': actuals,
+            'seasonalOutlook': outlook,
+            'method': 'Holt exponential smoothing + seasonal adjustment'
+        }
+        set_rl_cache(cache_key, result)
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/forecast/pricing', methods=['POST'])
+def forecast_pricing():
+    """Customer pricing recommendation: best mill + freight + seasonal margin adjustment."""
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'JSON body required'}), 400
+
+        customer = data.get('customer', '')
+        destination = data.get('destination', '')
+        products = data.get('products', ['2x4#2'])
+        target_margin = float(data.get('targetMargin', 25))
+
+        if not destination:
+            return jsonify({'error': 'destination required'}), 400
+
+        if isinstance(products, str):
+            products = [products]
+
+        recommendations = []
+
+        for product in products:
+            # 1. Get best mill costs from mill_quotes
+            conn = get_mi_db()
+            mill_rows = conn.execute("""
+                SELECT mill_name, price, date FROM mill_quotes
+                WHERE product=? AND price > 0
+                ORDER BY date DESC
+            """, (product,)).fetchall()
+            conn.close()
+
+            # Deduplicate: latest price per mill
+            seen_mills = {}
+            for r in mill_rows:
+                mill = r['mill_name']
+                if mill not in seen_mills:
+                    seen_mills[mill] = {'mill': mill, 'fob': float(r['price']), 'date': r['date']}
+
+            if not seen_mills:
+                recommendations.append({
+                    'product': product,
+                    'error': 'No mill pricing available'
+                })
+                continue
+
+            # 2. Calculate freight for each mill to destination
+            candidates = []
+            for mill_name, mill_data in seen_mills.items():
+                # Resolve mill origin
+                origin = ''
+                dir_entry = MILL_DIRECTORY.get(mill_name)
+                if dir_entry:
+                    origin = f"{dir_entry[0]}, {dir_entry[1]}"
+                else:
+                    # Try partial match
+                    for k, v in MILL_DIRECTORY.items():
+                        if mill_name.startswith(k.split(' - ')[0]):
+                            origin = f"{v[0]}, {v[1]}"
+                            break
+
+                if not origin or not destination:
+                    continue
+
+                # Calculate freight using existing mileage infrastructure
+                try:
+                    # Use cached lane data or geocoding
+                    freight_per_mbf = 0
+                    # Simplified freight: base + miles * rate / MBF per TL
+                    miles = None
+                    mi_conn = get_mi_db()
+                    lane = mi_conn.execute(
+                        "SELECT miles FROM lanes WHERE origin=? AND destination=?",
+                        (origin, destination)
+                    ).fetchone()
+                    mi_conn.close()
+
+                    if lane:
+                        miles = float(lane['miles'])
+                    else:
+                        # Try geocoding
+                        try:
+                            coords_o = geocode_location(origin)
+                            coords_d = geocode_location(destination)
+                            if coords_o and coords_d:
+                                route = get_driving_distance(coords_o, coords_d)
+                                if route:
+                                    miles = route.get('miles', route.get('distance', 0))
+                        except Exception:
+                            pass
+
+                    if miles:
+                        # Freight formula: (base + miles * rate) / MBF_per_TL
+                        base = 450  # default freight base
+                        rate = 2.25  # default per-mile rate
+                        mbf_per_tl = 23
+                        freight_per_mbf = round((base + miles * rate) / mbf_per_tl)
+                    else:
+                        freight_per_mbf = 20  # reasonable default
+                except Exception:
+                    freight_per_mbf = 20
+
+                landed = mill_data['fob'] + freight_per_mbf
+                candidates.append({
+                    'mill': mill_name,
+                    'fob': mill_data['fob'],
+                    'freight': freight_per_mbf,
+                    'landed': landed,
+                    'date': mill_data['date']
+                })
+
+            if not candidates:
+                recommendations.append({
+                    'product': product,
+                    'error': 'Could not calculate freight for any mill'
+                })
+                continue
+
+            # Sort by landed cost
+            candidates.sort(key=lambda c: c['landed'])
+            best = candidates[0]
+
+            # 3. Get seasonal position for margin adjustment
+            seasonal_adj = 0
+            seasonal_note = ''
+            try:
+                # Quick seasonal check inline
+                mi_conn = get_mi_db()
+                cutoff_5y = (datetime.now() - timedelta(days=365 * 5)).strftime('%Y-%m-%d')
+                s_rows = mi_conn.execute(
+                    "SELECT date, price FROM rl_prices WHERE product=? AND region='west' AND length='RL' AND date>=?",
+                    (product, cutoff_5y)
+                ).fetchall()
+                mi_conn.close()
+
+                if s_rows:
+                    s_prices = [float(r['price']) for r in s_rows]
+                    current_month = datetime.now().month
+                    month_prices = [float(r['price']) for r in s_rows if int(r['date'][5:7]) == current_month]
+                    if month_prices:
+                        latest = s_prices[-1]
+                        pct = round(sum(1 for p in month_prices if p <= latest) / len(month_prices) * 100)
+                        if pct < 30:
+                            seasonal_adj = -5
+                            seasonal_note = f"Below seasonal norm ({pct}th %ile for {MONTH_NAMES[current_month-1]}) — tighter margin, good buying window"
+                        elif pct > 70:
+                            seasonal_adj = 5
+                            seasonal_note = f"Above seasonal norm ({pct}th %ile for {MONTH_NAMES[current_month-1]}) — wider margin, prices elevated"
+                        else:
+                            seasonal_note = f"Near seasonal norm ({pct}th %ile for {MONTH_NAMES[current_month-1]})"
+            except Exception:
+                pass
+
+            adjusted_margin = target_margin + seasonal_adj
+            recommended_sell = best['landed'] + adjusted_margin
+
+            rec = {
+                'product': product,
+                'bestMill': best['mill'],
+                'fob': best['fob'],
+                'freight': best['freight'],
+                'landed': best['landed'],
+                'targetMargin': target_margin,
+                'seasonalAdj': seasonal_adj,
+                'adjustedMargin': adjusted_margin,
+                'recommendedSell': round(recommended_sell),
+                'seasonalNote': seasonal_note,
+                'millDate': best['date'],
+                'alternatives': [{'mill': c['mill'], 'fob': c['fob'], 'freight': c['freight'], 'landed': c['landed']} for c in candidates[1:4]]
+            }
+            recommendations.append(rec)
+
+        result = {
+            'customer': customer,
+            'destination': destination,
+            'products': recommendations,
+            'generatedAt': datetime.now().isoformat()
+        }
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 
 # ----- MI: LANES -----
 

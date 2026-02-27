@@ -360,7 +360,23 @@ async function saveRL(){
   REGIONS.forEach(r=>{['2x4','2x6','2x8','2x10','2x12'].forEach(s=>{const v=parseFloat(document.getElementById(`rl-${r}-${s}`).value);if(v)rl[r][`${s}#2`]=v})});
   const i=S.rl.findIndex(r=>r.date===date);
   if(i>=0)S.rl[i]=rl;else{S.rl.push(rl);S.rl.sort((a,b)=>new Date(a.date)-new Date(b.date))}
-  await saveAllLocal();closeModal();render();
+  await saveAllLocal();
+
+  // Also POST to backend /api/rl/save
+  try{
+    const rlRows=[];
+    ['west','central','east'].forEach(region=>{
+      Object.entries(rl[region]||{}).forEach(([product,price])=>{
+        if(typeof price==='number'&&price>0) rlRows.push({region,product,length:'RL',price});
+      });
+    });
+    if(rlRows.length){
+      fetch('/api/rl/save',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({date,rows:rlRows})}).catch(()=>{});
+    }
+  }catch(e){console.warn('RL backend save:',e)}
+
+  closeModal();render();
 }
 
 async function saveCust(oldName){

@@ -40,14 +40,127 @@ const MI_MILL_CITIES = {
 function miNormalizeMillName(raw) {
   if (!raw) return '';
   const s = raw.trim().toLowerCase();
-  // Use canonical location aliases from state.js, then fall back to company aliases
+
+  // 1. Direct location alias match
   if (_MILL_LOCATION_ALIASES[s]) return _MILL_LOCATION_ALIASES[s];
+
+  // 2. Normalize dashes/periods/extra spaces for flexible matching
+  const norm = s.replace(/[–—]/g, '-').replace(/\s*-\s*/g, ' - ').replace(/\s+/g, ' ').trim();
+  if (_MILL_LOCATION_ALIASES[norm]) return _MILL_LOCATION_ALIASES[norm];
+
+  // 3. Direct company alias match
   if (_MILL_COMPANY_ALIASES[s]) return _MILL_COMPANY_ALIASES[s];
+  if (_MILL_COMPANY_ALIASES[norm]) return _MILL_COMPANY_ALIASES[norm];
+
+  // 4. Exact match against MILLS array
   for (const mill of MILLS) {
-    if (mill.toLowerCase() === s) return mill;
-    if (s.includes(mill.toLowerCase().split(' - ')[1]?.toLowerCase() || '___')) return mill;
+    if (mill.toLowerCase() === s || mill.toLowerCase() === norm) return mill;
   }
+
+  // 5. Exact match against MILL_DIRECTORY keys
+  if (typeof MILL_DIRECTORY !== 'undefined') {
+    for (const dirKey of Object.keys(MILL_DIRECTORY)) {
+      if (dirKey.toLowerCase() === s || dirKey.toLowerCase() === norm) return dirKey;
+    }
+  }
+
+  // 6. Fuzzy: extract company + city parts, try to reconstruct canonical name
+  //    Handles "JORDAN - MT. GILEAD" → "Jordan Lumber - Mt. Gilead"
+  //    Handles "Georgia Pacific Gurdon" → "GP - Gurdon"
+  const dashMatch = raw.trim().match(/^(.+?)\s*[-–—]\s*(.+)$/);
+  if (dashMatch) {
+    const rawCompany = dashMatch[1].trim();
+    const rawCity = dashMatch[2].trim();
+    const company = _miFuzzyCompanyMatch(rawCompany);
+    if (company) {
+      const canonical = _miFuzzyLocationMatch(company, rawCity);
+      if (canonical) return canonical;
+      // Company matched but city not in directory — return "Company - City" format
+      const capCity = rawCity.replace(/\b\w/g, c => c.toUpperCase());
+      return `${company} - ${capCity}`;
+    }
+  }
+
+  // 7. No dash — try company alias on full string, then look for city words
+  const company = _miFuzzyCompanyMatch(raw.trim());
+  if (company) {
+    // Try to find a city in the remaining text after removing the company part
+    const remaining = s.replace(company.toLowerCase(), '').replace(/[,\-–—]/g, ' ').trim();
+    if (remaining) {
+      const canonical = _miFuzzyLocationMatch(company, remaining);
+      if (canonical) return canonical;
+    }
+    return company;
+  }
+
+  // 8. City-substring match against MILLS (original fallback)
+  for (const mill of MILLS) {
+    const cityPart = mill.split(' - ')[1]?.toLowerCase();
+    if (cityPart && s.includes(cityPart)) return mill;
+  }
+
   return raw.trim();
+}
+
+// Helper: fuzzy match a raw company name to canonical company
+function _miFuzzyCompanyMatch(raw) {
+  if (!raw) return null;
+  const lower = raw.toLowerCase().replace(/[_\-–—.]+/g, ' ').replace(/\s+/g, ' ').trim();
+
+  // Direct alias match
+  if (_MILL_COMPANY_ALIASES[lower]) return _MILL_COMPANY_ALIASES[lower];
+
+  // Longest-prefix alias match (sorted longest first)
+  const sorted = Object.entries(_MILL_COMPANY_ALIASES).sort((a, b) => b[0].length - a[0].length);
+  for (const [alias, canonical] of sorted) {
+    if (lower === alias || lower.startsWith(alias + ' ')) return canonical;
+  }
+
+  // Try without common suffixes: "lumber", "forest products", "industries", etc.
+  const stripped = lower
+    .replace(/\b(lumber|forest products|industries|timber|timberlands|inc\.?|llc|co\.?|company)\b/gi, '')
+    .replace(/\s+/g, ' ').trim();
+  if (stripped && _MILL_COMPANY_ALIASES[stripped]) return _MILL_COMPANY_ALIASES[stripped];
+
+  return null;
+}
+
+// Helper: given a canonical company and a raw city, find the matching MILL_DIRECTORY entry
+function _miFuzzyLocationMatch(company, rawCity) {
+  if (!company || !rawCity) return null;
+  const cityLower = rawCity.toLowerCase().replace(/[.,]/g, '').replace(/\s+/g, ' ').trim();
+
+  // Normalize common abbreviations: "mt." → "mt", "st." → "st", "ft." → "ft"
+  const cityNorm = cityLower.replace(/\bmt\.?\b/g, 'mt').replace(/\bst\.?\b/g, 'st').replace(/\bft\.?\b/g, 'ft');
+
+  // Build list of candidate mills for this company from MILL_DIRECTORY + MILLS
+  const candidates = [];
+  if (typeof MILL_DIRECTORY !== 'undefined') {
+    for (const [key, val] of Object.entries(MILL_DIRECTORY)) {
+      const keyCompany = key.split(' - ')[0];
+      if (keyCompany === company) candidates.push({ key, city: (key.split(' - ')[1] || '').toLowerCase() });
+    }
+  }
+  for (const mill of MILLS) {
+    const millCompany = mill.split(' - ')[0];
+    if (millCompany === company && !candidates.find(c => c.key === mill)) {
+      candidates.push({ key: mill, city: (mill.split(' - ')[1] || '').toLowerCase() });
+    }
+  }
+
+  // Try matching city
+  for (const cand of candidates) {
+    const candNorm = cand.city.replace(/[.,]/g, '').replace(/\bmt\.?\b/g, 'mt').replace(/\bst\.?\b/g, 'st').replace(/\bft\.?\b/g, 'ft');
+    // Exact match
+    if (candNorm === cityNorm) return cand.key;
+    // One contains the other (e.g., "gilead" matches "mt gilead")
+    if (candNorm.includes(cityNorm) || cityNorm.includes(candNorm)) return cand.key;
+    // Remove state suffix from input (e.g., "Mt. Gilead, NC" → "mt gilead")
+    const cityNoState = cityNorm.replace(/,?\s*[a-z]{2}$/, '').trim();
+    if (cityNoState && (candNorm === cityNoState || candNorm.includes(cityNoState) || cityNoState.includes(candNorm))) return cand.key;
+  }
+
+  return null;
 }
 
 function miInferMillCity(millName) {

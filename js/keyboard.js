@@ -9,7 +9,7 @@ const SHORTCUTS={
   'd':{action:()=>go('dashboard'),desc:'Dashboard',group:'Navigation'},
   'b':{action:()=>go('blotter'),desc:'Trade Blotter',group:'Navigation'},
   'q':{action:()=>go('quotes'),desc:'Quote Engine',group:'Navigation'},
-  'r':{action:()=>go('risk'),desc:'Risk',group:'Navigation'},
+  'r':{action:()=>go('spreads'),desc:'Spreads',group:'Navigation'},
   'c':{action:()=>go('crm'),desc:'CRM',group:'Navigation'},
   'm':{action:()=>go('millintel'),desc:'Mill Intel',group:'Navigation'},
   'a':{action:()=>go('analytics'),desc:'Analytics',group:'Navigation'},
@@ -194,8 +194,9 @@ function buildCommandItems(query){
     {icon:'&#128203;',label:'P&L',sub:'Trading > P&L',type:'view',action:()=>go('pnl-calendar')},
     {icon:'&#128176;',label:'Quote Engine',sub:'Quotes',type:'view',action:()=>go('quotes')},
     {icon:'&#128229;',label:'Mill Intel',sub:'Mill Intelligence',type:'view',action:()=>go('millintel')},
-    {icon:'&#128200;',label:'Analytics',sub:'Briefing & Analysis',type:'view',action:()=>go('analytics')},
-    {icon:'&#128200;',label:'Risk',sub:'Analytics > Risk',type:'view',action:()=>go('risk')},
+    {icon:'&#128200;',label:'Analytics',sub:'Spreads & Charts',type:'view',action:()=>go('analytics')},
+    {icon:'&#128200;',label:'Spreads',sub:'Analytics > Spreads',type:'view',action:()=>go('spreads')},
+    {icon:'&#128200;',label:'Charts',sub:'Analytics > Charts',type:'view',action:()=>{S.analyticsTab='charts';SS('analyticsTab','charts');go('analytics')}},
     {icon:'&#128100;',label:'CRM',sub:'Customer Management',type:'view',action:()=>go('crm')},
     {icon:'&#9881;',label:'Settings',sub:'Configuration',type:'view',action:()=>go('settings')}
   ]

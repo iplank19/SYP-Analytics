@@ -216,55 +216,96 @@ function generateSeasonalSignals(){
   if(!config?.enabled)return[];
 
   const signals=[];
-  const month=new Date().getMonth();
+  const month=new Date().getMonth(); // 0-indexed
+  const monthNames=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
-  // Lumber seasonal patterns (typical):
-  // Strong demand: March-June (spring building season)
-  // Weak demand: November-February (winter slowdown)
-  // Peak prices: April-May
-  // Low prices: November-December
-
-  const seasonalBias={
-    0:'weak',1:'weak',2:'strong',3:'strong',4:'strong',5:'strong',
-    6:'neutral',7:'neutral',8:'neutral',9:'neutral',10:'weak',11:'weak'
-  };
-
-  const currentBias=seasonalBias[month];
-
-  // Generate seasonal signals for key products
-  const products=['2x4#2','2x6#2'];
+  // Data-driven seasonal signals from /api/forecast/seasonal
+  // Check all 5 core products across all 3 regions
+  const products=['2x4#2','2x6#2','2x8#2','2x10#2','2x12#2'];
+  const regions=['west','central','east'];
 
   products.forEach(product=>{
-    const history=getPriceHistory(product,'west',30);
-    const current=history[history.length-1]?.price;
-    if(!current)return;
+    regions.forEach(region=>{
+      const cacheKey=`seasonal_${product}_${region}_5`;
+      const seasonal=window._rlCache?.[cacheKey];
 
-    if(currentBias==='strong'&&month<=5){
-      signals.push({
-        type:'seasonal',
-        direction:'buy',
-        product,
-        region:'all',
-        strength:'moderate',
-        price:current,
-        reason:`Entering spring building season (${['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][month]}). Historically strong demand period.`,
-        timestamp:new Date().toISOString()
-      });
-    }
+      if(seasonal&&seasonal.currentPosition&&seasonal.monthlyFactors){
+        const pos=seasonal.currentPosition;
+        const idx=pos.index;
+        const pctRank=pos.pctRank;
+        const current=seasonal.baseline?Math.round(seasonal.baseline*idx):null;
 
-    if(currentBias==='weak'&&month>=10){
-      signals.push({
-        type:'seasonal',
-        direction:'sell',
-        product,
-        region:'all',
-        strength:'moderate',
-        price:current,
-        reason:`Entering winter slowdown (${['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][month]}). Consider reducing inventory.`,
-        timestamp:new Date().toISOString()
-      });
-    }
+        // Strong buy signal: price below 25th percentile for this month
+        if(pctRank<=25){
+          const strength=pctRank<=10?'strong':'moderate';
+          signals.push({
+            type:'seasonal',
+            direction:'buy',
+            product,
+            region,
+            strength,
+            price:current,
+            reason:`${product} at ${pctRank}th percentile for ${monthNames[month]} in ${region} (seasonal index: ${idx.toFixed(2)}). Below seasonal norm — buying opportunity.`,
+            timestamp:new Date().toISOString()
+          });
+        }
+
+        // Sell signal: price above 75th percentile for this month
+        if(pctRank>=75){
+          const strength=pctRank>=90?'strong':'moderate';
+          signals.push({
+            type:'seasonal',
+            direction:'sell',
+            product,
+            region,
+            strength,
+            price:current,
+            reason:`${product} at ${pctRank}th percentile for ${monthNames[month]} in ${region} (seasonal index: ${idx.toFixed(2)}). Above seasonal norm — consider selling.`,
+            timestamp:new Date().toISOString()
+          });
+        }
+
+        // Seasonal transition signals (approaching peak/trough months)
+        if(idx>=1.04&&month>=2&&month<=4){
+          signals.push({
+            type:'seasonal',
+            direction:'buy',
+            product,
+            region,
+            strength:'weak',
+            price:current,
+            reason:`Spring rally: ${monthNames[month]} seasonal index is ${idx.toFixed(2)} for ${product} ${region}. Historically strong demand period.`,
+            timestamp:new Date().toISOString()
+          });
+        }
+      }else if(!seasonal){
+        // Trigger fetch for next render cycle (non-blocking)
+        rlFetchSeasonal(product,region,5);
+      }
+    });
   });
+
+  // Fallback: if no data-driven signals, use basic seasonal bias
+  if(signals.length===0){
+    const seasonalBias={
+      0:'weak',1:'weak',2:'strong',3:'strong',4:'strong',5:'strong',
+      6:'neutral',7:'neutral',8:'neutral',9:'neutral',10:'weak',11:'weak'
+    };
+    const currentBias=seasonalBias[month];
+    ['2x4#2','2x6#2'].forEach(product=>{
+      const history=getPriceHistory(product,'west',30);
+      const current=history[history.length-1]?.price;
+      if(!current)return;
+      if(currentBias==='strong'&&month<=5){
+        signals.push({type:'seasonal',direction:'buy',product,region:'all',strength:'moderate',price:current,
+          reason:`Entering spring building season (${monthNames[month]}). Historically strong demand period.`,timestamp:new Date().toISOString()});
+      }
+      if(currentBias==='weak'&&month>=10){
+        signals.push({type:'seasonal',direction:'sell',product,region:'all',strength:'moderate',price:current,
+          reason:`Entering winter slowdown (${monthNames[month]}). Consider reducing inventory.`,timestamp:new Date().toISOString()});
+      }
+    });
+  }
 
   return signals;
 }

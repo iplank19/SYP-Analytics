@@ -623,7 +623,6 @@ function miSendToQuoteEngine() {
   }
 
   S.view = 'quotes';
-  S.quoteTab = 'build';
   save();
   render();
   showToast(`Loaded ${added} items into Quote Engine`, 'positive');

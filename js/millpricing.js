@@ -40,9 +40,13 @@ async function editMillQuote(id,updates){
 function getLatestMillQuotes(filters={}){
   const latest={};
   const sorted=[...S.millQuotes].sort((a,b)=>new Date(b.date)-new Date(a.date));
+  const normFilter=filters.product?(filters.product||'').toLowerCase().replace(/\s+/g,''):null;
   sorted.forEach(q=>{
     if(filters.mill&&q.mill!==filters.mill)return;
-    if(filters.product&&q.product!==filters.product)return;
+    if(normFilter){
+      const normQ=(q.product||'').toLowerCase().replace(/\s+/g,'');
+      if(normQ!==normFilter)return;
+    }
     if(filters.since){
       const since=new Date(filters.since);
       if(new Date(q.date)<since)return;

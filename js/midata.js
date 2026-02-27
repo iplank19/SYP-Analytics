@@ -304,6 +304,39 @@ TRUCKLOADS: If column says "TL"/"Loads"/"Trucks": tls=N, volume=N×23
 NO QUANTITY: If no availability column exists, set volume=0, tls=0
 
 ═══════════════════════════════════════════════════════════════════════════════
+⚠️ CRITICAL: SHIPMENT & VOLUME EDGE CASES ⚠️
+═══════════════════════════════════════════════════════════════════════════════
+PATTERN A — "TL/length" format (common in email offerings):
+• "TL/12' - $525" means 1 truckload at 12', so: tls=1, length="12", volume=23
+• "TL/10' - $700" means 1 truckload at 10', so: tls=1, length="10", volume=23
+• "TL/8' - $565" means 1 truckload at 8', so: tls=1, length="8", volume=23
+
+PATTERN B — "Half TL" format:
+• "Half TL/12' - $720" means half a truckload at 12', so: tls=0, length="12", volume=11.5
+• "Half TL each 8' & 10'" means half truckload split across two lengths. Create SEPARATE entries:
+  - One for 8' with volume=11.5, tls=0
+  - One for 10' with volume=11.5, tls=0
+
+PATTERN C — "N/length'" format (quantity/length shorthand):
+• "6/8' - $485" means 6 units at 8', NOT a fraction. tls=0, length="8", calculate volume from 6 units.
+• "3/12' - $475" means 3 units at 12'. tls=0, length="12", calculate volume from 3 units.
+• "5/14' - $485" means 5 units at 14'. tls=0, length="14", calculate volume from 5 units.
+
+PATTERN D — Pieces-per-unit header (e.g., "2x4 #1 – 208pc", "2x4 DSS – 260pc"):
+• The "Npc" after the product describes pieces-per-unit for reference. It is NOT volume.
+• Do NOT use pieces-per-unit as volume. The volume comes from TL/unit counts on subsequent lines.
+• If only "TL/length" lines follow with no unit count, assume tls=1 per line.
+
+PATTERN E — "c/l" or "carload" format:
+• "c/l's 2x4 4/7/12/5/0/8/13 @ $599" means carloads with tally breakdown.
+• The numbers are unit counts per length (8'/10'/12'/14'/16'/20' etc.)
+• Each non-zero count is volume at that length. Total tls = sum/~23.
+
+PATTERN F — General shipment terms (NOT volume):
+• "5 TL minimum", "Prompt", "FOB", "Subject to prior sale" — these are terms, not quantities.
+• Do NOT parse "5 TL minimum" as tls=5. Put it in "notes" field instead.
+
+═══════════════════════════════════════════════════════════════════════════════
 LENGTH HANDLING
 ═══════════════════════════════════════════════════════════════════════════════
 • "10", "10'", "10ft" → length="10"

@@ -62,6 +62,72 @@ function renderForwardCurveChart(){
   });
 }
 
+// Forecast chart — actual prices + forecast line with confidence band
+function renderForecastChart(fc){
+  if(typeof Chart==='undefined'||!fc)return;
+  const ctx=document.getElementById('forecast-chart');
+  if(!ctx)return;
+  destroyChart('forecast');
+
+  const actuals=fc.actuals||[];
+  const forecasts=fc.forecast||[];
+  if(!actuals.length&&!forecasts.length)return;
+
+  // Build labels: actual dates + forecast dates
+  const actualLabels=actuals.map(a=>a.date);
+  const forecastLabels=forecasts.map(f=>f.date);
+  const labels=[...actualLabels,...forecastLabels];
+
+  // Actual price data (null-padded for forecast portion)
+  const actualPrices=actuals.map(a=>a.price);
+  const actualData=[...actualPrices,...forecasts.map(()=>null)];
+
+  // Forecast data: null for actuals, then forecast prices (with bridge from last actual)
+  const forecastPrices=forecasts.map(f=>f.price);
+  const forecastData=[...actuals.map(()=>null)];
+  // Bridge: set last actual slot to actual price so the line connects
+  if(forecastData.length>0&&actualPrices.length>0){
+    forecastData[forecastData.length-1]=actualPrices[actualPrices.length-1];
+  }
+  forecastData.push(...forecastPrices);
+
+  // Confidence bands (only during forecast period)
+  const highData=[...actuals.map(()=>null)];
+  const lowData=[...actuals.map(()=>null)];
+  if(highData.length>0&&actualPrices.length>0){
+    highData[highData.length-1]=actualPrices[actualPrices.length-1];
+    lowData[lowData.length-1]=actualPrices[actualPrices.length-1];
+  }
+  forecasts.forEach(f=>{highData.push(f.high);lowData.push(f.low)});
+
+  const datasets=[
+    {label:'Actual',data:actualData,borderColor:'#89b4fa',backgroundColor:'rgba(137,180,250,0.1)',tension:0.3,fill:false,pointRadius:0,borderWidth:2.5},
+    {label:'Forecast',data:forecastData,borderColor:'#f9e2af',backgroundColor:'rgba(249,226,175,0.1)',tension:0.3,fill:false,pointRadius:3,pointBackgroundColor:'#f9e2af',borderWidth:2.5,borderDash:[6,4]},
+    {label:'Upper Band',data:highData,borderColor:'rgba(166,227,161,0.3)',backgroundColor:'rgba(166,227,161,0.08)',tension:0.3,fill:'+1',pointRadius:0,borderWidth:1,borderDash:[3,3]},
+    {label:'Lower Band',data:lowData,borderColor:'rgba(243,139,168,0.3)',backgroundColor:'transparent',tension:0.3,fill:false,pointRadius:0,borderWidth:1,borderDash:[3,3]}
+  ];
+
+  window._charts['forecast']=new Chart(ctx,{
+    type:'line',
+    data:{labels,datasets},
+    plugins:[crosshairPlugin],
+    options:{responsive:true,maintainAspectRatio:false,
+      interaction:{mode:'index',intersect:false},
+      plugins:{
+        legend:{labels:{color:'#a0a0b8',font:{size:10,family:'Inter'},filter:item=>!item.text.includes('Band')}},
+        tooltip:{mode:'index',intersect:false,backgroundColor:'#2a2a3c',titleColor:'#f5f5f7',bodyColor:'#f5f5f7',borderColor:'#3e3e56',borderWidth:1,
+          filter:item=>!item.dataset.label.includes('Band'),
+          callbacks:{label:function(ctx){return ctx.dataset.label+': $'+ctx.parsed.y}}
+        }
+      },
+      scales:{
+        x:{ticks:{color:'#a0a0b8',font:{size:9},maxTicksLimit:12,maxRotation:45},grid:{color:'rgba(62,62,86,0.8)'}},
+        y:{ticks:{color:'#a0a0b8',font:{size:10},callback:v=>'$'+v},grid:{color:'rgba(62,62,86,0.8)'}}
+      }
+    }
+  });
+}
+
 // Live SYP daily price chart with volume — uses persisted front history as fallback
 function renderLivePriceChart(){
   if(typeof Chart==='undefined')return;
@@ -224,15 +290,17 @@ function drawCharts(){
         else ctx.lineTo(x,y);
       });
       ctx.stroke();
-      // Draw dots
-      valid.forEach(p=>{
-        const x=(p.i/(vals.length-1))*w;
-        const y=h-((p.v-data.minPrice)/data.range)*h;
-        ctx.beginPath();
-        ctx.arc(x,y,4,0,Math.PI*2);
-        ctx.fillStyle=color;
-        ctx.fill();
-      });
+      // Draw dots (skip when too many points to avoid clutter)
+      if(valid.length<=52){
+        valid.forEach(p=>{
+          const x=(p.i/(vals.length-1))*w;
+          const y=h-((p.v-data.minPrice)/data.range)*h;
+          ctx.beginPath();
+          ctx.arc(x,y,4,0,Math.PI*2);
+          ctx.fillStyle=color;
+          ctx.fill();
+        });
+      }
     }
     drawLine(data.westData,'#89b4fa');
     drawLine(data.centralData,'#f9e2af');
@@ -406,18 +474,20 @@ function renderPnLBarChart(labels,data){
 }
 
 function generateSpreadTable(rlData){
+  // Helper: return spread only when BOTH products have data, otherwise null
+  const _sp=(a,b)=>(a&&b)?a-b:null;
   const spreads=[
-    {name:'2x4/2x6',region:'west',calc:r=>(r.west?.['2x6#2']||0)-(r.west?.['2x4#2']||0)},
-    {name:'2x4/2x6',region:'central',calc:r=>(r.central?.['2x6#2']||0)-(r.central?.['2x4#2']||0)},
-    {name:'2x4/2x6',region:'east',calc:r=>(r.east?.['2x6#2']||0)-(r.east?.['2x4#2']||0)},
-    {name:'2x6/2x8',region:'west',calc:r=>(r.west?.['2x8#2']||0)-(r.west?.['2x6#2']||0)},
-    {name:'West/Central',region:'2x4',calc:r=>(r.west?.['2x4#2']||0)-(r.central?.['2x4#2']||0)},
-    {name:'West/East',region:'2x4',calc:r=>(r.west?.['2x4#2']||0)-(r.east?.['2x4#2']||0)}
+    {name:'2x4/2x6',region:'west',calc:r=>_sp(r.west?.['2x6#2'],r.west?.['2x4#2'])},
+    {name:'2x4/2x6',region:'central',calc:r=>_sp(r.central?.['2x6#2'],r.central?.['2x4#2'])},
+    {name:'2x4/2x6',region:'east',calc:r=>_sp(r.east?.['2x6#2'],r.east?.['2x4#2'])},
+    {name:'2x6/2x8',region:'west',calc:r=>_sp(r.west?.['2x8#2'],r.west?.['2x6#2'])},
+    {name:'West/Central',region:'2x4',calc:r=>_sp(r.west?.['2x4#2'],r.central?.['2x4#2'])},
+    {name:'West/East',region:'2x4',calc:r=>_sp(r.west?.['2x4#2'],r.east?.['2x4#2'])}
   ];
-  
+
   return spreads.map(s=>{
-    const vals=rlData.map(s.calc).filter(v=>v!==0);
-    const current=vals[vals.length-1]||0;
+    const vals=rlData.map(s.calc).filter(v=>v!==null&&v!==undefined);
+    const current=vals.length?vals[vals.length-1]:0;
     const avg4=vals.slice(-4).reduce((a,b)=>a+b,0)/(Math.min(vals.length,4)||1);
     const avg12=vals.reduce((a,b)=>a+b,0)/(vals.length||1);
     const diff=current-avg12;

@@ -54,7 +54,7 @@ const AI_TOOLS=[
   {name:'get_top_customers',desc:'Ranked customer list by volume, profit, or order count',params:['sortBy','limit']},
   {name:'get_top_products',desc:'Ranked product list by volume, margin, or P&L',params:['sortBy','limit']},
   {name:'suggest_coverage',desc:'Identify short positions needing mill coverage',params:[]},
-  {name:'generate_briefing',desc:'Generate daily trading briefing',params:[]},
+  {name:'generate_briefing',desc:'Generate daily trading briefing (deprecated)',params:[]},
   // Mill Pricing
   {name:'add_mill_quote',desc:'Add a mill pricing quote',params:['mill','product','price','length','volume','tls','shipWindow','notes']},
   {name:'parse_mill_prices',desc:'Parse a pasted mill price list (multiple quotes) and save all quotes to Mill Intel. Use when user pastes a price sheet or list of mill prices.',params:['text']},
@@ -93,7 +93,11 @@ const AI_TOOLS=[
   // Alerts
   {name:'get_alerts',desc:'Get active alerts',params:['severity']},
   {name:'generate_alerts',desc:'Generate new alerts',params:[]},
-  {name:'get_spread_analysis',desc:'Get spread analysis',params:[]}
+  {name:'get_spread_analysis',desc:'Get spread analysis',params:[]},
+  // Forecasting & Pricing Models
+  {name:'get_forecast',desc:'Get short-term price forecast (Holt ES + seasonal) for a product/region',params:['product','region','weeks']},
+  {name:'get_seasonal_analysis',desc:'Get seasonal analysis with monthly indices and percentile rank for a product/region',params:['product','region','years']},
+  {name:'get_pricing_recommendation',desc:'Get customer pricing recommendation with best mill, freight, and seasonal margin adjustment',params:['customer','destination','products','targetMargin']}
 ];
 
 async function executeAITool(name,params){
@@ -424,7 +428,7 @@ async function executeAITool(name,params){
         return{success:true,message:'Freight settings updated',data:{freightBase:S.freightBase,shortHaulFloor:S.shortHaulFloor,stateRates:S.stateRates}};
       }
       case 'navigate':{
-        const validViews=['dashboard','trading','quotes','millintel','analytics','crm','settings','leaderboard','insights','blotter','benchmark','risk','rldata','pnl-calendar','mi-intake','mi-prices'];
+        const validViews=['dashboard','trading','quotes','millintel','analytics','crm','settings','leaderboard','insights','blotter','benchmark','risk','rldata','pnl-calendar','mi-intake','mi-prices','spreads','charts','compare','details'];
         const view=params.view?.toLowerCase();
         if(!validViews.includes(view))return{success:false,message:`Invalid view. Valid views: ${validViews.join(', ')}`};
         go(view);
@@ -544,9 +548,8 @@ async function executeAITool(name,params){
         return{success:true,data:shorts.length?shorts:[{message:'No short positions found'}]};
       }
       case 'generate_briefing':{
-        if(typeof generateDailyBriefing==='function')generateDailyBriefing();
-        go('insights');
-        return{success:true,message:'Generating daily briefing... Navigated to Daily Briefing view.'};
+        go('spreads');
+        return{success:true,message:'Navigated to Spreads view (briefing has been replaced by print-focused analytics).'};
       }
       case 'add_mill_quote':{
         if(!params.mill||!params.product||!params.price)return{success:false,message:'mill, product, and price required'};
@@ -719,6 +722,42 @@ async function executeAITool(name,params){
         const spreads=getSpreadAnalysis();
         return{success:true,data:spreads};
       }
+      case 'get_forecast':{
+        const prod=params.product||'2x4#2';
+        const reg=params.region||'west';
+        const wks=parseInt(params.weeks)||8;
+        try{
+          const res=await fetch(`/api/forecast/shortterm?product=${encodeURIComponent(prod)}&region=${reg}&weeks=${wks}`);
+          const data=await res.json();
+          if(data.error)return{success:false,message:data.error};
+          return{success:true,data:{product:prod,region:reg,lastPrice:data.lastPrice,trend:data.trend,momentum:data.momentum,forecast:data.forecast,seasonalOutlook:data.seasonalOutlook,dataPoints:data.dataPoints}};
+        }catch(e){return{success:false,message:'Forecast endpoint unavailable: '+e.message}}
+      }
+      case 'get_seasonal_analysis':{
+        const prod=params.product||'2x4#2';
+        const reg=params.region||'west';
+        const yrs=parseInt(params.years)||5;
+        try{
+          const res=await fetch(`/api/forecast/seasonal?product=${encodeURIComponent(prod)}&region=${reg}&years=${yrs}`);
+          const data=await res.json();
+          if(data.error)return{success:false,message:data.error};
+          return{success:true,data};
+        }catch(e){return{success:false,message:'Seasonal endpoint unavailable: '+e.message}}
+      }
+      case 'get_pricing_recommendation':{
+        const body={
+          customer:params.customer||'',
+          destination:params.destination||'',
+          products:Array.isArray(params.products)?params.products:(params.products?params.products.split(',').map(s=>s.trim()):[]),
+          targetMargin:parseFloat(params.targetMargin)||25
+        };
+        try{
+          const res=await fetch('/api/forecast/pricing',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+          const data=await res.json();
+          if(data.error)return{success:false,message:data.error};
+          return{success:true,data};
+        }catch(e){return{success:false,message:'Pricing endpoint unavailable: '+e.message}}
+      }
       default:
         return{success:false,message:`Unknown tool: ${name}`};
     }
@@ -871,6 +910,9 @@ Settings: Base $${S.freightBase}/load, Floor $${S.shortHaulFloor}/MBF
 QUOTE ENGINE: ${quoteItems}
 
 MILL PRICING DATABASE: ${typeof getLatestMillQuotes==='function'&&S.millQuotes.length?getLatestMillQuotes().slice(0,15).map(q=>`${q.mill}: ${q.product} @ $${q.price} (${q.shipWindow||'?'}, ${q.date})`).join('\n'):'No mill quotes in database'}
+
+FORECASTING & PRICING MODELS:
+You have 3 forecast tools: get_forecast (short-term price forecast), get_seasonal_analysis (seasonal indices + percentile), get_pricing_recommendation (customer pricing with best mill + freight + seasonal margin). Use these when asked about price outlook, seasonal patterns, buying windows, or customer pricing recommendations. The models use 26 years of RL pricing history with Holt exponential smoothing + seasonal adjustment.
 
 ALWAYS use tools to execute actions. Never just describe what you would do - actually do it.
 When deleting, first search to find the correct IDs, then delete.

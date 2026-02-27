@@ -61,7 +61,14 @@ function generateDailyFlash(){
       sellVolume:a.sVol,
       margin:a.margin,
       matchedTrades:a.matchedVol
-    }
+    },
+    forecast:(()=>{
+      try{
+        const fc=window._rlCache?.['forecast_2x4#2_west_8'];
+        if(!fc)return null;
+        return{trendDirection:fc.trend||'flat',weekAheadPrice:fc.forecast?.[0]?.price||null,seasonalPosition:fc.seasonalOutlook||'',momentum:fc.momentum||0};
+      }catch(e){return null}
+    })()
   };
   }catch(e){console.error('generateDailyFlash error:',e);return{type:'dailyFlash',error:true,message:'Error generating daily flash: '+e.message,generatedAt:new Date().toISOString()};}
 }
@@ -137,7 +144,24 @@ function generateWeeklyReport(){
     weeklyTrend:rolling,
     comparison:{
       vsLastWeek:rolling.length>=2?rolling[rolling.length-1].pnl-rolling[rolling.length-2].pnl:0
-    }
+    },
+    seasonalContext:(()=>{
+      try{
+        const monthNames=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+        const curMonth=new Date().getMonth();
+        const sc=window._rlCache?.['seasonal_2x4#2_west_5'];
+        if(!sc||!sc.currentPosition)return null;
+        const extremes=[];
+        ['2x4#2','2x6#2','2x8#2','2x10#2','2x12#2'].forEach(p=>{
+          const sd=window._rlCache?.[`seasonal_${p}_west_5`];
+          if(sd?.currentPosition){
+            if(sd.currentPosition.pctRank>=90)extremes.push(`${p} at ${sd.currentPosition.pctRank}th %ile (HIGH)`);
+            if(sd.currentPosition.pctRank<=10)extremes.push(`${p} at ${sd.currentPosition.pctRank}th %ile (LOW)`);
+          }
+        });
+        return{currentMonth:monthNames[curMonth],seasonalIndex:sc.currentPosition.index,percentileRank:sc.currentPosition.pctRank,outlook:sc.outlook||'',productsAtExtremes:extremes};
+      }catch(e){return null}
+    })()
   };
   }catch(e){console.error('generateWeeklyReport error:',e);return{type:'weeklyReport',error:true,message:'Error generating weekly report: '+e.message,generatedAt:new Date().toISOString()};}
 }

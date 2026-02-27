@@ -151,7 +151,8 @@ const MILLS=[
   'Biewer - Newton','Biewer - Winona','Anthony Timberlands - Bearden','Anthony Timberlands - Malvern',
   'Harrigan Lumber','T.R. Miller - Brewton',
   'Lincoln Lumber - Jasper','Lincoln Lumber - Conroe',
-  'Binderholz - Live Oak','Binderholz - Enfield'
+  'Binderholz - Live Oak','Binderholz - Enfield',
+  'Jordan Lumber - Mt. Gilead'
 ];
 const FREIGHT={west:{Atlanta:96,Charlotte:104,Dallas:40,Memphis:60,Birmingham:85,Chicago:110,Houston:55,Nashville:78},central:{Atlanta:83,Charlotte:91,Dallas:70,Memphis:50,Birmingham:60,Chicago:90,Houston:75,Nashville:55},east:{Atlanta:60,Charlotte:55,Dallas:120,Memphis:80,Birmingham:65,Chicago:84,Houston:115,Nashville:65}};
 
@@ -218,7 +219,18 @@ const MILL_DIRECTORY={
   'Big River Forest Products - Gloster':{city:'Gloster',state:'MS'},
   'Big River Forest Products - Vicksburg':{city:'Vicksburg',state:'MS'},
   'Hankins Lumber - Grenada':{city:'Grenada',state:'MS'},
-  'Westervelt Lumber - Moundville':{city:'Moundville',state:'AL'},'Westervelt Lumber - Tuscaloosa':{city:'Tuscaloosa',state:'AL'}
+  'Westervelt Lumber - Moundville':{city:'Moundville',state:'AL'},'Westervelt Lumber - Tuscaloosa':{city:'Tuscaloosa',state:'AL'},
+  'Jordan Lumber - Mt. Gilead':{city:'Mt. Gilead',state:'NC'},
+  'Mid-South Lumber - Meridian':{city:'Meridian',state:'MS'},
+  'Mid-South Lumber':{city:'Booneville',state:'MS'},
+  'WM Sheppard Lumber - Brooklet':{city:'Brooklet',state:'GA'},
+  'Harrigan Lumber':{city:'Monroeville',state:'AL'},
+  'Harrigan Lumber - Monroeville':{city:'Monroeville',state:'AL'},
+  'Big River Forest Products - Unknown':{city:'Gloster',state:'MS'},
+  'Jordan Lumber':{city:'Mt. Gilead',state:'NC'},
+  'Roseburg Forest Products - Weldon':{city:'Weldon',state:'NC'},
+  'Langdale Forest Products - Barnesville':{city:'Barnesville',state:'GA'},
+  'Two Rivers Lumber':{city:'Troy',state:'AL'}
 };
 
 // Company alias mapping for normalization: alternate names → canonical company prefix
@@ -524,7 +536,11 @@ const _MILL_LOCATION_ALIASES={
   'binderholz enfield':'Binderholz - Enfield','binderholz - enfield':'Binderholz - Enfield',
   'hunt forest':'Hunt Forest Products - Winnfield','hunt forest products':'Hunt Forest Products - Winnfield',
   'biewer newton':'Biewer - Newton','biewer - newton':'Biewer - Newton',
-  'biewer winona':'Biewer - Winona','biewer - winona':'Biewer - Winona'
+  'biewer winona':'Biewer - Winona','biewer - winona':'Biewer - Winona',
+  'jordan mt. gilead':'Jordan Lumber - Mt. Gilead','jordan mt gilead':'Jordan Lumber - Mt. Gilead',
+  'jordan lumber mt. gilead':'Jordan Lumber - Mt. Gilead','jordan lumber mt gilead':'Jordan Lumber - Mt. Gilead',
+  'jordan lumber - mt. gilead':'Jordan Lumber - Mt. Gilead','jordan lumber - mt gilead':'Jordan Lumber - Mt. Gilead',
+  'jordan - mt. gilead':'Jordan Lumber - Mt. Gilead','jordan - mt gilead':'Jordan Lumber - Mt. Gilead'
 };
 
 // Normalize mill name for CRM - matches existing mills to prevent duplicates
@@ -743,6 +759,7 @@ let S={
   freightBase:LS('freightBase',450),
   singleQuoteCustomer:'',
   chartProduct:'2x4#2',
+  rlRange:LS('rlRange','1Y'),
   trader:LS('trader','Ian P'),
   // Leaderboard & Goals
   leaderboardPeriod:LS('leaderboardPeriod','30d'),
@@ -754,7 +771,13 @@ let S={
   dashTab:LS('dashTab','overview'),
   tradingTab:LS('tradingTab','blotter'),
   miTab:LS('miTab','intake'),
-  analyticsTab:LS('analyticsTab','briefing'),
+  analyticsTab:LS('analyticsTab','spreads'),
+  forecastProduct:LS('forecastProduct','2x4#2'),
+  forecastRegion:LS('forecastRegion','west'),
+  forecastWeeks:LS('forecastWeeks',8),
+  spreadRange:LS('spreadRange','1Y'),
+  spreadDateFrom:LS('spreadDateFrom',''),
+  spreadDateTo:LS('spreadDateTo',''),
   // Futures
   futuresContracts:LS('futuresContracts',[]),
   frontHistory:LS('frontHistory',[]),
@@ -786,6 +809,9 @@ let S={
   miQuoteCustomer:'',
   miQuoteItems:[],
   quoteTemplates:LS('quoteTemplates',[]),
+  // Price Sheet
+  priceSheet:LS('priceSheet',{customer:'',destination:'',products:[],margin:25,rows:[],lastBuilt:null}),
+  psNewQuotesSince:null, // timestamp: set when mill quotes submitted, cleared when price sheet fetched
   // PO Analysis
   poHistory:LS('poHistory',[]),
   poTab:LS('poTab','trends'),

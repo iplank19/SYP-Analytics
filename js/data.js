@@ -335,6 +335,7 @@ async function cloudSync(action='push',opts={}){
         syncMillsToServer(S.mills).catch(e=>console.warn('Mill sync:',e));
         syncMillQuotesToMillIntel().catch(e=>console.warn('Mill quote sync:',e));
         syncRLToMillIntel().catch(e=>console.warn('RL sync:',e));
+        backfillRLFromBackend().catch(e=>console.warn('RL backfill:',e));
         _isPulling=false;
         return{success:true,action:'pulled',updated:rows[0].updated_at};
       }
@@ -443,7 +444,7 @@ async function syncRLToMillIntel(){
           ['west','central','east'].forEach(region=>{
             Object.entries(rl[region]||{}).forEach(([product,price])=>{
               if(price&&typeof price==='number'){
-                entries.push({date:rl.date,product,region,price});
+                entries.push({date:rl.date,product,region,length:'RL',price});
               }
             });
           });
@@ -454,7 +455,7 @@ async function syncRLToMillIntel(){
                 if(lengths&&typeof lengths==='object'){
                   Object.entries(lengths).forEach(([len,price])=>{
                     if(price&&typeof price==='number'){
-                      entries.push({date:rl.date,product:`${product} ${len}'`,region,price});
+                      entries.push({date:rl.date,product,region,length:String(len),price});
                     }
                   });
                 }
@@ -468,7 +469,7 @@ async function syncRLToMillIntel(){
                 if(lengths&&typeof lengths==='object'){
                   Object.entries(lengths).forEach(([len,price])=>{
                     if(price&&typeof price==='number'){
-                      entries.push({date:rl.date,product:`${product} ${len}'`,region,price});
+                      entries.push({date:rl.date,product,region,length:String(len),price});
                     }
                   });
                 }
@@ -493,6 +494,36 @@ async function syncRLToMillIntel(){
       }
     },3000);
   });
+}
+
+// Backfill S.rl from backend if sparse (fewer than 52 entries)
+// This ensures quotes, signals, risk, and portfolio code have enough RL data
+async function backfillRLFromBackend(){
+  if(S.rl.length>=52)return; // already have a year of data
+  try{
+    const oneYearAgo=new Date(Date.now()-365*86400000).toISOString().slice(0,10);
+    const res=await fetch(`/api/rl/backfill?from=${oneYearAgo}`);
+    if(!res.ok)return;
+    const newEntries=await res.json();
+    if(!newEntries.length)return;
+
+    // Merge with existing S.rl (existing entries win on same date)
+    const existingDates=new Set(S.rl.map(r=>r.date));
+    let added=0;
+    for(const entry of newEntries){
+      if(!existingDates.has(entry.date)){
+        S.rl.push(entry);
+        added++;
+      }
+    }
+    if(added){
+      S.rl.sort((a,b)=>new Date(a.date)-new Date(b.date));
+      await saveAllLocal();
+      _dbg(`Backfilled ${added} RL entries from backend`);
+    }
+  }catch(e){
+    _dbg('RL backfill error:',e.message);
+  }
 }
 
 // Push mill quotes from S.millQuotes → Mill Intel backend (/api/mi/quotes)
