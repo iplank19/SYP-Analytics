@@ -33,20 +33,25 @@ async function renderMiAggregated() {
       </div>
     </div>
     <div class="card" id="mi-agg-content" style="border-radius:0 0 var(--radius) var(--radius);border-top:1px solid var(--border)">
-      <div class="card-body"><div class="spinner" style="margin:20px auto"></div></div>
+      <div class="card-body"><div class="spinner" style="margin:20px auto"></div><div style="text-align:center;font-size:10px;color:var(--muted);margin-top:8px">Loading prices...</div></div>
     </div>
   `;
 
-  if (_miAggTab === 'table') await miRenderAggTable();
-  else if (_miAggTab === 'matrix') await miRenderAggMatrix();
-  else if (_miAggTab === 'trends') await miRenderAggTrends();
-  else if (_miAggTab === 'log') await miRenderAggLog();
+  try {
+    if (_miAggTab === 'table') await miRenderAggTable();
+    else if (_miAggTab === 'matrix') await miRenderAggMatrix();
+    else if (_miAggTab === 'trends') await miRenderAggTrends();
+    else if (_miAggTab === 'log') await miRenderAggLog();
+  } catch (e) {
+    const el = document.getElementById('mi-agg-content');
+    if (el) el.innerHTML = `<div class="card-body" style="text-align:center;padding:40px"><div style="font-size:14px;color:var(--negative);margin-bottom:8px">⚠ Failed to load prices</div><div style="font-size:11px;color:var(--muted);margin-bottom:12px">${e.message||'Unknown error'}</div><button class="btn btn-primary btn-sm" onclick="renderMiAggregated()">Retry</button></div>`;
+  }
 }
 
 async function miRenderAggTable() {
-  const el = document.getElementById('mi-agg-content');
   try {
     const quotes = await miLoadLatestQuotes({product: S.miFilterProduct || undefined, since: _miMatrixCutoff || undefined});
+    const el = document.getElementById('mi-agg-content');
     const allMills = [...new Set(quotes.map(q => q.mill_name))].sort();
     const allProducts = [...new Set(quotes.map(q => q.product))].sort();
     const allTraders = [...new Set(quotes.map(q => q.trader))].sort();
@@ -116,20 +121,22 @@ async function miRenderAggTable() {
       </div>
     </div>`;
   } catch (e) {
-    el.innerHTML = `<div class="card-body empty-state">Error loading quotes: ${e.message}</div>`;
+    const el = document.getElementById('mi-agg-content');
+    if (el) el.innerHTML = `<div class="card-body empty-state">Error loading quotes: ${e.message}</div>`;
   }
 }
 
 async function miRenderAggMatrix() {
-  const el = document.getElementById('mi-agg-content');
   try {
+    const el = document.getElementById('mi-agg-content');
     if (_miMatrixDetail === 'length') {
       await miRenderGranularMatrix(el);
     } else {
       await miRenderSummaryMatrix(el);
     }
   } catch (e) {
-    el.innerHTML = `<div class="card-body empty-state">Error: ${e.message}</div>`;
+    const el = document.getElementById('mi-agg-content');
+    if (el) el.innerHTML = `<div class="card-body empty-state">Error: ${e.message}</div>`;
   }
 }
 

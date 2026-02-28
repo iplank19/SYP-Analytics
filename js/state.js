@@ -714,7 +714,7 @@ function normalizeMillQuotes(){
   if(changed)save('millQuotes',S.millQuotes)
 }
 
-const NAV=[{id:'dashboard',icon:'📊',label:'Dashboard'},{id:'trading',icon:'📋',label:'Trading'},{id:'quotes',icon:'💰',label:'Quotes'},{id:'millintel',icon:'📥',label:'Mill Intel'},{id:'analytics',icon:'📈',label:'Analytics'},{id:'poanalysis',icon:'📦',label:'PO Analysis'},{id:'crm',icon:'🏢',label:'CRM'},{id:'settings',icon:'⚙️',label:'Settings'}];
+const NAV=[{id:'dashboard',icon:'📊',label:'Dashboard'},{id:'trading',icon:'📋',label:'Trading'},{id:'quotes',icon:'💰',label:'Quotes'},{id:'millintel',icon:'📥',label:'Mill Intel'},{id:'analytics',icon:'📈',label:'Analytics'},{id:'intelligence',icon:'🧠',label:'Intelligence'},{id:'poanalysis',icon:'📦',label:'PO Analysis'},{id:'crm',icon:'🏢',label:'CRM'},{id:'settings',icon:'⚙️',label:'Settings'}];
 
 // Nav groups removed — sidebar is now a flat list
 const NAV_GROUPS=null;
@@ -772,12 +772,17 @@ let S={
   tradingTab:LS('tradingTab','blotter'),
   miTab:LS('miTab','intake'),
   analyticsTab:LS('analyticsTab','spreads'),
+  intelligenceTab:LS('intelligenceTab','regime'),
+  intelRegion:LS('intelRegion','west'),
   forecastProduct:LS('forecastProduct','2x4#2'),
   forecastRegion:LS('forecastRegion','west'),
   forecastWeeks:LS('forecastWeeks',8),
+  quotesViewTab:LS('quotesViewTab','build'),
+  offeringsTab:LS('offeringsTab','pending'),
   spreadRange:LS('spreadRange','1Y'),
   spreadDateFrom:LS('spreadDateFrom',''),
   spreadDateTo:LS('spreadDateTo',''),
+  spreadExcludeCovid:LS('spreadExcludeCovid','0'),
   // Futures
   futuresContracts:LS('futuresContracts',[]),
   frontHistory:LS('frontHistory',[]),
@@ -890,7 +895,7 @@ function getDailyBasis(){
   });
 }
 
-const fmt=(v,d=0)=>v!=null&&!isNaN(v)?`$${Number(v).toLocaleString(undefined,{minimumFractionDigits:d,maximumFractionDigits:d})}`:'—';
+const fmt=(v,d=0)=>{if(v==null||isNaN(v))return'—';const n=Number(v);const abs=Math.abs(n).toLocaleString(undefined,{minimumFractionDigits:d,maximumFractionDigits:d});return n<0?`-$${abs}`:`$${abs}`;};
 const fmtN=v=>v!=null&&!isNaN(v)?parseFloat(Number(v).toFixed(2)):'—';// max 2 decimals, no trailing zeros
 const fmtPct=v=>v!=null&&!isNaN(v)?`${v>=0?'+':''}${Number(v).toFixed(1)}%`:'—';
 const fmtD=d=>d?new Date(d+'T00:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric'}):'—';

@@ -1758,9 +1758,10 @@ async function createPOFromOC(){
   if(!oc){showToast('Enter OC # first','warn');return}
   if(!product||!price){showToast('Enter product and price first','warn');return}
 
-  // Save customer to CRM if new
+  // Save customer to CRM if new + entity resolution
   if(customer&&!S.customers.find(c=>c.name===customer)){
     S.customers.push({name:customer,destination:destination,addedDate:today()});
+    if(typeof resolveEntity==='function')resolveEntity(customer,'customer','trade_entry').catch(()=>{});
   }
   
   const s={
@@ -1833,9 +1834,10 @@ async function createOCFromPO(){
   if(!po){showToast('Enter PO # first','warn');return}
   if(!product||!price){showToast('Enter product and price first','warn');return}
 
-  // Save mill to CRM if new
+  // Save mill to CRM if new + entity resolution
   if(mill&&!S.mills.find(m=>m.name===mill)){
     S.mills.push({name:mill,origin:origin,addedDate:today()});
+    if(typeof resolveEntity==='function')resolveEntity(mill,'mill','trade_entry').catch(()=>{});
   }
 
   const b={

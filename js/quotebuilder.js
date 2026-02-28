@@ -23,7 +23,7 @@ function initQuoteBuilder(){
 
 // Get best mill quotes for a product (sorted by price)
 function qbGetMillQuotes(product){
-  const cutoff=Date.now()-30*24*60*60*1000; // 30 days
+  const cutoff=Date.now()-2*24*60*60*1000; // 2 days (today + yesterday)
   const quotes=(S.millQuotes||[])
     .filter(q=>q.product===product&&new Date(q.date)>=cutoff)
     .sort((a,b)=>a.price-b.price);
@@ -156,6 +156,11 @@ async function qbGenerateQuotes(){
   if(!S.qb.customer||!S.qb.products.length){
     showToast('Select customer and products','warn');
     return;
+  }
+
+  // Refresh mill quotes from server before generating (ensures no stale data)
+  if(typeof refreshMillQuotesFromServer==='function'){
+    try{await refreshMillQuotesFromServer();}catch(e){}
   }
 
   const quotes=[];

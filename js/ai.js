@@ -97,7 +97,19 @@ const AI_TOOLS=[
   // Forecasting & Pricing Models
   {name:'get_forecast',desc:'Get short-term price forecast (Holt ES + seasonal) for a product/region',params:['product','region','weeks']},
   {name:'get_seasonal_analysis',desc:'Get seasonal analysis with monthly indices and percentile rank for a product/region',params:['product','region','years']},
-  {name:'get_pricing_recommendation',desc:'Get customer pricing recommendation with best mill, freight, and seasonal margin adjustment',params:['customer','destination','products','targetMargin']}
+  {name:'get_pricing_recommendation',desc:'Get customer pricing recommendation with best mill, freight, and seasonal margin adjustment',params:['customer','destination','products','targetMargin']},
+  // Auto-Offerings
+  {name:'generate_offering',desc:'Generate a draft offering for a customer (by profile_id or customer name). Use force=true to bypass schedule.',params:['profile_id','force']},
+  {name:'get_offering_status',desc:'Get offering status — pending drafts, history for a customer, or all offerings. Filter by status (draft/approved/sent) or customer_id.',params:['status','customer_id','limit']},
+  // Intelligence
+  {name:'get_regime',desc:'Get current market regime classification (Rally/Topping/Decline/Bottoming/Choppy) with confidence score and trading bias for a region.',params:['region']},
+  {name:'get_spread_signals',desc:'Get spread mean-reversion signals — flags spreads at extreme percentiles with reversion probability. Filter by region and type (dimension/length/grade/all).',params:['region','type']},
+  {name:'get_mill_moves',desc:'Get recent mill price changes — which mills moved pricing, by how much, for which products. Filter by days, product, or mill name.',params:['days','product','mill']},
+  // Platform Oversight
+  {name:'get_platform_health',desc:'Get full platform health: data freshness (RL, mill quotes, orders), sync status, data quality issues, stale items, and system warnings. Use proactively at conversation start.',params:[]},
+  {name:'get_daily_digest',desc:'Generate a comprehensive daily trading digest: market regime, position summary, pending actions (approvals, follow-ups, stale quotes), spread signals, recent mill moves, and recommended focus areas. Use when user asks "what should I focus on?" or at start of day.',params:[]},
+  {name:'get_workflow_status',desc:'Get all pending workflow items: draft offerings awaiting approval, unshipped buys, undelivered sells, stale quotes (>2 days), prospects needing follow-up, and overdue items.',params:[]},
+  {name:'get_data_quality',desc:'Audit data quality: missing customer destinations, mills without regions, orders missing fields, orphan records, duplicate detection, and completeness scores.',params:[]}
 ];
 
 async function executeAITool(name,params){
@@ -758,6 +770,164 @@ async function executeAITool(name,params){
           return{success:true,data};
         }catch(e){return{success:false,message:'Pricing endpoint unavailable: '+e.message}}
       }
+      case 'generate_offering':{
+        try{
+          const body={force:params.force!==false};
+          if(params.profile_id)body.profile_id=parseInt(params.profile_id);
+          const res=await fetch('/api/offerings/generate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+          const data=await res.json();
+          if(data.error)return{success:false,message:data.error};
+          return{success:true,data};
+        }catch(e){return{success:false,message:'Generate endpoint unavailable: '+e.message}}
+      }
+      case 'get_offering_status':{
+        try{
+          let url='/api/offerings?';
+          if(params.status)url+='status='+encodeURIComponent(params.status)+'&';
+          if(params.customer_id)url+='customer_id='+encodeURIComponent(params.customer_id)+'&';
+          if(params.limit)url+='limit='+encodeURIComponent(params.limit)+'&';
+          const res=await fetch(url);
+          const data=await res.json();
+          if(data.error)return{success:false,message:data.error};
+          return{success:true,offerings:data,count:data.length};
+        }catch(e){return{success:false,message:'Offerings endpoint unavailable: '+e.message}}
+      }
+      // Intelligence tools
+      case 'get_regime':{
+        try{
+          const rg=params.region||'west';
+          const res=await fetch(`/api/intelligence/regime?region=${encodeURIComponent(rg)}&product=2x4%232`);
+          const data=await res.json();
+          if(data.error)return{success:false,message:data.error};
+          return{success:true,data};
+        }catch(e){return{success:false,message:'Regime endpoint unavailable: '+e.message}}
+      }
+      case 'get_spread_signals':{
+        try{
+          const rg=params.region||'west';
+          const tp=params.type||'all';
+          const res=await fetch(`/api/intelligence/spread-signals?region=${encodeURIComponent(rg)}&type=${encodeURIComponent(tp)}`);
+          const data=await res.json();
+          if(data.error)return{success:false,message:data.error};
+          return{success:true,data};
+        }catch(e){return{success:false,message:'Spread signals endpoint unavailable: '+e.message}}
+      }
+      case 'get_mill_moves':{
+        try{
+          let url='/api/intelligence/mill-moves?';
+          if(params.days)url+='days='+encodeURIComponent(params.days)+'&';
+          if(params.product)url+='product='+encodeURIComponent(params.product)+'&';
+          if(params.mill)url+='mill='+encodeURIComponent(params.mill)+'&';
+          const res=await fetch(url);
+          const data=await res.json();
+          if(data.error)return{success:false,message:data.error};
+          return{success:true,data};
+        }catch(e){return{success:false,message:'Mill moves endpoint unavailable: '+e.message}}
+      }
+      // Platform Oversight Tools
+      case 'get_platform_health':{
+        const now=Date.now();
+        const dayMs=86400000;
+        // RL data freshness
+        const latestRL=S.rl.length?S.rl[S.rl.length-1]:null;
+        const rlDate=latestRL?.date||'unknown';
+        const rlAge=latestRL?.date?Math.floor((now-new Date(latestRL.date).getTime())/dayMs):999;
+        // Mill quote freshness
+        const recentQuotes=(S.millQuotes||[]).filter(q=>q.date&&(now-new Date(q.date).getTime())<2*dayMs);
+        const staleQuotes=(S.millQuotes||[]).filter(q=>q.date&&(now-new Date(q.date).getTime())>=2*dayMs);
+        const totalQuotes=(S.millQuotes||[]).length;
+        // Order counts
+        const unshipped=S.buys.filter(b=>!b.shipped).length;
+        const undelivered=S.sells.filter(s=>!s.delivered).length;
+        // Data completeness
+        const custsNoDestination=S.customers.filter(c=>c.type!=='mill'&&!c.destination).length;
+        const millsNoRegion=(S.mills||[]).filter(m=>!m.region).length;
+        // Sync status
+        const syncActive=!!S.autoSync;
+        const warnings=[];
+        if(rlAge>7)warnings.push(`RL data is ${rlAge} days old — may need update`);
+        if(staleQuotes.length>10)warnings.push(`${staleQuotes.length} mill quotes are stale (>2 days old)`);
+        if(unshipped>20)warnings.push(`${unshipped} unshipped buys — review for shipping status`);
+        if(custsNoDestination>0)warnings.push(`${custsNoDestination} customers missing destination`);
+        return{success:true,data:{
+          rl:{latestDate:rlDate,ageDays:rlAge,totalWeeks:S.rl.length},
+          millQuotes:{total:totalQuotes,recent:recentQuotes.length,stale:staleQuotes.length},
+          orders:{totalBuys:S.buys.length,totalSells:S.sells.length,unshipped,undelivered},
+          dataQuality:{customersNoDestination:custsNoDestination,millsNoRegion},
+          sync:{autoSync:syncActive,cloudConfigured:!!S.supabaseUrl},
+          warnings
+        }};
+      }
+      case 'get_daily_digest':{
+        const results={};
+        // Regime
+        try{const r=await fetch('/api/intelligence/regime?region=west&product=2x4%232');results.regime=await r.json()}catch(e){results.regime={error:e.message}}
+        // Spread signals
+        try{const r=await fetch('/api/intelligence/spread-signals?region=west&type=all');results.spreadSignals=await r.json()}catch(e){results.spreadSignals={error:e.message}}
+        // Mill moves (7 days)
+        try{const r=await fetch('/api/intelligence/mill-moves?days=7');results.millMoves=await r.json()}catch(e){results.millMoves={error:e.message}}
+        // Position summary
+        const posData={};
+        S.buys.forEach(b=>{const k=b.product;if(!posData[k])posData[k]={b:0,s:0};posData[k].b+=(b.volume||0)});
+        S.sells.forEach(s=>{const k=s.product;if(!posData[k])posData[k]={b:0,s:0};posData[k].s+=(s.volume||0)});
+        results.positions=Object.entries(posData).map(([p,v])=>({product:p,bought:v.b,sold:v.s,net:v.b-v.s,status:v.b>v.s?'LONG':v.b<v.s?'SHORT':'FLAT'}));
+        // Pending items
+        results.pending={
+          unshippedBuys:S.buys.filter(b=>!b.shipped).length,
+          undeliveredSells:S.sells.filter(s=>!s.delivered).length,
+          staleMillQuotes:(S.millQuotes||[]).filter(q=>q.date&&(Date.now()-new Date(q.date).getTime())>=2*86400000).length
+        };
+        // Offerings
+        try{const r=await fetch('/api/offerings?status=draft');const d=await r.json();results.pendingOfferings=Array.isArray(d)?d.length:0}catch(e){results.pendingOfferings=0}
+        return{success:true,data:results};
+      }
+      case 'get_workflow_status':{
+        const now=Date.now();const dayMs=86400000;
+        const wf={};
+        // Unshipped buys (sorted by age)
+        wf.unshippedBuys=S.buys.filter(b=>!b.shipped).map(b=>({id:b.id,date:b.date,mill:b.mill,product:b.product,volume:b.volume,ageDays:b.date?Math.floor((now-new Date(b.date).getTime())/dayMs):0})).sort((a,b)=>b.ageDays-a.ageDays).slice(0,20);
+        // Undelivered sells
+        wf.undeliveredSells=S.sells.filter(s=>!s.delivered).map(s=>({id:s.id,date:s.date,customer:s.customer,product:s.product,volume:s.volume,ageDays:s.date?Math.floor((now-new Date(s.date).getTime())/dayMs):0})).sort((a,b)=>b.ageDays-a.ageDays).slice(0,20);
+        // Stale mill quotes
+        wf.staleQuotes=(S.millQuotes||[]).filter(q=>q.date&&(now-new Date(q.date).getTime())>=2*dayMs).length;
+        // Draft offerings
+        try{const r=await fetch('/api/offerings?status=draft');const d=await r.json();wf.draftOfferings=Array.isArray(d)?d:[];wf.draftOfferingCount=wf.draftOfferings.length}catch(e){wf.draftOfferings=[];wf.draftOfferingCount=0}
+        // Prospect follow-ups
+        try{const r=await fetch('/api/crm/prospects');const d=await r.json();const prospects=Array.isArray(d)?d:(d.prospects||[]);wf.overdueFollowUps=prospects.filter(p=>p.follow_up_date&&new Date(p.follow_up_date)<new Date()).length;wf.totalProspects=prospects.length}catch(e){wf.overdueFollowUps=0;wf.totalProspects=0}
+        return{success:true,data:wf};
+      }
+      case 'get_data_quality':{
+        const dq={scores:{},issues:[]};
+        // Customer completeness
+        const custs=S.customers.filter(c=>c.type!=='mill');
+        const custsComplete=custs.filter(c=>c.name&&c.destination).length;
+        dq.scores.customers=custs.length?Math.round(custsComplete/custs.length*100):100;
+        custs.filter(c=>!c.destination).forEach(c=>dq.issues.push({type:'customer',severity:'medium',item:c.name,issue:'Missing destination'}));
+        custs.filter(c=>!c.email).forEach(c=>dq.issues.push({type:'customer',severity:'low',item:c.name,issue:'Missing email'}));
+        // Mill completeness
+        const mills=S.mills||[];
+        const millsComplete=mills.filter(m=>m.name&&m.region&&(m.lat||m.location)).length;
+        dq.scores.mills=mills.length?Math.round(millsComplete/mills.length*100):100;
+        mills.filter(m=>!m.region).forEach(m=>dq.issues.push({type:'mill',severity:'medium',item:m.name,issue:'Missing region'}));
+        // Order completeness
+        const buysComplete=S.buys.filter(b=>b.mill&&b.product&&b.price&&b.volume&&b.region).length;
+        dq.scores.buys=S.buys.length?Math.round(buysComplete/S.buys.length*100):100;
+        S.buys.filter(b=>!b.region).forEach(b=>dq.issues.push({type:'buy',severity:'low',item:`${b.mill} ${b.product}`,issue:'Missing region'}));
+        const sellsComplete=S.sells.filter(s=>s.customer&&s.product&&s.price&&s.volume).length;
+        dq.scores.sells=S.sells.length?Math.round(sellsComplete/S.sells.length*100):100;
+        // Duplicate detection
+        const buyDupes=new Map();
+        S.buys.forEach(b=>{const k=`${b.date}_${b.mill}_${b.product}_${b.price}`;buyDupes.set(k,(buyDupes.get(k)||0)+1)});
+        dq.potentialDuplicateBuys=[...buyDupes.entries()].filter(([k,v])=>v>1).length;
+        const sellDupes=new Map();
+        S.sells.forEach(s=>{const k=`${s.date}_${s.customer}_${s.product}_${s.price}`;sellDupes.set(k,(sellDupes.get(k)||0)+1)});
+        dq.potentialDuplicateSells=[...sellDupes.entries()].filter(([k,v])=>v>1).length;
+        if(dq.potentialDuplicateBuys)dq.issues.push({type:'buy',severity:'high',item:`${dq.potentialDuplicateBuys} sets`,issue:'Potential duplicate buy orders'});
+        if(dq.potentialDuplicateSells)dq.issues.push({type:'sell',severity:'high',item:`${dq.potentialDuplicateSells} sets`,issue:'Potential duplicate sell orders'});
+        dq.overallScore=Math.round((dq.scores.customers+dq.scores.mills+dq.scores.buys+dq.scores.sells)/4);
+        dq.issueCount=dq.issues.length;
+        return{success:true,data:dq};
+      }
       default:
         return{success:false,message:`Unknown tool: ${name}`};
     }
@@ -850,34 +1020,50 @@ async function sendAI(){
 
   const toolDefs=AI_TOOLS.map(t=>`- ${t.name}(${t.params.join(', ')}): ${t.desc}`).join('\n');
 
-  const ctx=`You are an expert AI trading assistant for SYP (Southern Yellow Pine) lumber trading at Buckeye Pacific. You have FULL CONTROL over the entire platform and can execute ANY action. You are knowledgeable about lumber markets, pricing, freight, and trading strategy.
+  const ctx=`You are the AI trading agent for Buckeye Pacific's SYP (Southern Yellow Pine) lumber desk. You have FULL CONTROL and VISIBILITY over the entire platform — orders, customers, mills, pricing, analytics, intelligence, and workflow. You are not a chatbot answering questions; you are an embedded agent that runs the trading desk alongside the traders.
 
-CAPABILITIES:
-- CREATE, UPDATE, DELETE buy orders and sell orders
-- Manage customers and mills (add, update, delete)
-- Control the quote engine
-- Navigate between views
-- Update settings and freight rates
-- Access all trading data, analytics, and market intelligence
-- Analyze positions, margins, and customer profitability
-- Suggest trading strategies based on market conditions
+IDENTITY & POSTURE:
+- You are proactive. If you see issues (stale data, limit breaches, open positions needing coverage), flag them immediately.
+- You are precise. Always use tools to get real numbers — never estimate from context alone.
+- You are strategic. Connect market intelligence (regime, spreads, seasonality) to specific trading recommendations.
+- You are efficient. Execute multi-step workflows in a single turn when possible.
+- You speak in trading desk language: concise, direct, numbers-first.
+
+PLATFORM CAPABILITIES (use tools for ALL of these):
+1. ORDER MANAGEMENT — Create, update, delete, ship/deliver buy and sell orders
+2. CUSTOMER & MILL MANAGEMENT — Full CRUD on customers, mills, freight lanes
+3. QUOTE ENGINE — Build quotes, generate offerings, manage pricing
+4. MARKET INTELLIGENCE — Regime detection, spread signals, mill price tracking, seasonal forecasts
+5. RISK & ANALYTICS — VaR, exposure, P&L attribution, position limits, correlations
+6. PLATFORM OVERSIGHT — Health checks, data quality audits, workflow status, daily digest
+7. NAVIGATION — Direct users to any view in the platform
 
 AVAILABLE TOOLS:
 ${toolDefs}
 
-TO USE A TOOL, respond with a JSON block:
+TO USE A TOOL:
 \`\`\`tool
 {"tool":"tool_name","params":{"param1":"value1","param2":"value2"}}
 \`\`\`
 
-IMPORTANT WORKFLOW FOR DELETIONS:
-1. First use get_buys or get_sells to find the order IDs
-2. Then use delete_buy or delete_sell with the specific ID
-3. For bulk deletions, use delete_buys or delete_sells with criteria or IDs
+PROACTIVE BEHAVIORS:
+- When greeting or at conversation start, run get_platform_health to check for issues.
+- If asked "what should I focus on?" or "morning briefing", run get_daily_digest.
+- When discussing any customer, use get_customer_summary for real data.
+- When discussing any mill, use get_mill_summary for real data.
+- When making pricing recommendations, ALWAYS check regime + spread signals + seasonal position first.
+- Before generating quotes, check mill data freshness. If stale (>2 days), warn the trader.
+- When positions are discussed, cross-reference with risk limits via check_limits.
 
-You can use multiple tools in one response. After tool results come back, you can reason about them and call more tools if needed.
+WORKFLOW PATTERNS:
+- Deletions: ALWAYS search first (get_buys/get_sells), then delete by specific ID.
+- Quotes: Check mill freshness → generate → review with trader → adjust if needed.
+- Offerings: Check regime context → generate draft → surface for approval.
+- Coverage: suggest_coverage → identify short positions → recommend mills via get_best_mill_price.
 
-CURRENT MARKET:
+CURRENT LIVE DATA:
+
+MARKET:
 ${rlSummary}
 ${rlTrends}
 ${futuresSummary}
@@ -911,12 +1097,15 @@ QUOTE ENGINE: ${quoteItems}
 
 MILL PRICING DATABASE: ${typeof getLatestMillQuotes==='function'&&S.millQuotes.length?getLatestMillQuotes().slice(0,15).map(q=>`${q.mill}: ${q.product} @ $${q.price} (${q.shipWindow||'?'}, ${q.date})`).join('\n'):'No mill quotes in database'}
 
-FORECASTING & PRICING MODELS:
-You have 3 forecast tools: get_forecast (short-term price forecast), get_seasonal_analysis (seasonal indices + percentile), get_pricing_recommendation (customer pricing with best mill + freight + seasonal margin). Use these when asked about price outlook, seasonal patterns, buying windows, or customer pricing recommendations. The models use 26 years of RL pricing history with Holt exponential smoothing + seasonal adjustment.
+TOOL CATEGORIES:
+- FORECASTING: get_forecast, get_seasonal_analysis, get_pricing_recommendation (26yr RL history, Holt ES + seasonal)
+- OFFERINGS: generate_offering, get_offering_status (automated customer pricing drafts)
+- INTELLIGENCE: get_regime (5-state market classification), get_spread_signals (mean-reversion at extremes), get_mill_moves (price change tracking)
+- OVERSIGHT: get_platform_health (system-wide health check), get_daily_digest (comprehensive morning briefing), get_workflow_status (pending actions), get_data_quality (data completeness audit)
+- RISK: get_var, get_exposure, check_limits, get_drawdown, get_risk_dashboard
+- SIGNALS: get_signals, generate_signals, get_recommendations
 
-ALWAYS use tools to execute actions. Never just describe what you would do - actually do it.
-When deleting, first search to find the correct IDs, then delete.
-When analyzing data, use the analytical tools (get_matched_trades, analyze_margin, get_position_detail, etc.) to get precise numbers rather than estimating from the context above.`;
+ALWAYS execute — never just describe. Use multiple tools per turn when it makes sense. Be the best trading desk AI in lumber.`;
 
   await runAIWithTools(ctx,msg);
 }

@@ -2378,7 +2378,12 @@ function qeUpdateMatrixHeaders() {
   })
   const count = qeGetCheckedCombos().length
   const el = document.getElementById('qe-mx-count')
-  if (el) el.textContent = `${count} combo${count !== 1 ? 's' : ''} selected`
+  if (el) {
+    const itemCount = (S.quoteItems||[]).length
+    if (count > 0) el.textContent = `${count} combo${count !== 1 ? 's' : ''} selected`
+    else if (itemCount > 0) el.textContent = `${itemCount} item${itemCount !== 1 ? 's' : ''} in quote`
+    else el.textContent = ''
+  }
 }
 
 function qeToggleRow(product) {

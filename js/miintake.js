@@ -660,6 +660,8 @@ async function miAddNewMillToCRM(millName, city) {
       if (!S.mills.find(m => m.name === company)) {
         S.mills.push({name: company, origin: city, locations: loc, addedDate: today()});
       }
+      // Fire-and-forget entity resolution
+      if(typeof resolveEntity==='function')resolveEntity(company,'mill','mill_quote').catch(()=>{});
       showToast(`Added "${company}" to CRM`, 'positive');
       miRenderEditingState();
     } else {

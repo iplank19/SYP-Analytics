@@ -257,6 +257,50 @@ loadAllLocal() (parallel IDB reads)
 - Single Supabase JSON blob per user_id stores entire app state (can get large)
 - Gunicorn runs 2 workers + 4 threads to prevent single-request blocking
 
+## Entity Resolution
+
+Fuzzy matching system that unifies mill and customer identities across CRM, Mill Intel, and trading data.
+
+- **Engine**: `entity_resolution.py` — Levenshtein (50%), token overlap (30%), semantic scoring (20%)
+- **Thresholds**: ≥0.92 auto-link, 0.75–0.91 manual review, <0.75 create new entity
+- **Frontend**: `js/entityResolution.js` — review modal, unified entity view, settings panel
+- **DB tables**: `entity_canonical`, `entity_alias`, `entity_review` (in crm.db)
+- **API prefix**: `/api/entity/*` (resolve, search, review, link, unified, merge, migrate, stats)
+- **CRM integration**: 🔗 buttons on mill/customer rows, fire-and-forget resolution on new entity creation
+- **Activation**: Restart Flask → Settings → Entity Resolution → "Initialize Entity Resolution"
+
+## Obsidian Vault
+
+Ian's personal Obsidian vault for daily journaling, goal tracking, and project notes.
+
+**Path**: `/Users/iplank19/Library/Mobile Documents/iCloud~md~obsidian/Documents/Ian/`
+
+```
+Ian/
+├── 0 Inbox/           ← Quick capture, raw dumps
+├── 1 Journal/         ← Daily notes (YYYY-MM-DD.md format)
+│   └── Claude Work Log/  ← Technical session logs
+├── 2 Atlas/           ← Knowledge base, MOCs (Maps of Content)
+├── 3 Goals/           ← Active goals with progress logs
+│   ├── Sobriety.md
+│   ├── Physical Fitness.md
+│   └── Mental Clarity.md
+├── 4 Reflections/     ← Deeper reflections
+├── Maps/              ← MOC index files (Projects MOC, Goals MOC, People MOC, etc.)
+├── Meta/              ← Vault config
+├── Templates/         ← Note templates (Daily Journal, Goal, Project, etc.)
+├── Start Here.md
+└── *.canvas           ← Visual canvases
+```
+
+**Daily note workflow**: Ian dumps raw thoughts → Claude parses into the daily template sections (Morning Brain Dump, What's on My Mind, People, Work, Ideas, Evening Check-in, Gratitude/Wins, Tomorrow's Intentions) and updates relevant goal progress logs with `[[wikilinks]]`.
+
+**Template location**: `Templates/Daily Journal.md` — uses frontmatter (date, type, mood, energy, tags).
+
+**Goal tracking**: Each goal in `3 Goals/` has a Progress Log section with `[[YYYY-MM-DD]]` backlinks to daily notes.
+
+**IMPORTANT — Session logging**: At the end of every work session (or when Ian asks), update the daily note in `1 Journal/YYYY-MM-DD.md` with a summary of what was worked on under the "What I Worked On" section. If a daily note doesn't exist yet for today, create one using the template format. Also update any relevant goal progress logs if personal items came up. Always request access to the vault folder if not already mounted.
+
 ## Cache Busting
 
 Script tags in `index.html` use version parameters (`?v=timestamp`). Update with:

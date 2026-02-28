@@ -1,5 +1,8 @@
 // SYP Analytics - Views & Render
 
+// ----- Ordinal suffix helper -----
+function ordinal(n){const s=['th','st','nd','rd'],v=n%100;return n+(s[(v-20)%10]||s[v]||s[0]);}
+
 // ----- RL Historical Data Fetch Helpers -----
 if(!window._rlCache)window._rlCache={};
 
@@ -33,15 +36,17 @@ async function rlFetchChartData(product,range){
   }
 }
 
-async function rlFetchSpreads(region,range,dateFrom,dateTo){
+async function rlFetchSpreads(region,range,dateFrom,dateTo,excludeCovid){
   const from=dateFrom||_rlRangeFrom(range);
-  const cacheKey=`spreads_${region}_${from}_${dateTo||''}`;
+  const covid=excludeCovid||'0';
+  const cacheKey=`spreads_${region}_${from}_${dateTo||''}_covid${covid}`;
   if(window._rlCache[cacheKey])return;
   window._rlCache[cacheKey]=null;
   try{
     let qs=`region=${region}`;
     if(from)qs+=`&from=${from}`;
     if(dateTo)qs+=`&to=${dateTo}`;
+    if(covid==='1')qs+=`&exclude_covid=1`;
     const res=await fetch(`/api/rl/spreads?${qs}`);
     window._rlCache[cacheKey]=await res.json();
     render();
@@ -1000,7 +1005,8 @@ function render(){
       const spreadRange=S.spreadRange||'1Y';
       const spreadFrom=S.spreadDateFrom||_rlRangeFrom(spreadRange);
       const spreadTo=S.spreadDateTo||'';
-      const spreadCacheKey=`spreads_${spreadRegion}_${spreadFrom}_${spreadTo}`;
+      const spreadCovid=S.spreadExcludeCovid||'0';
+      const spreadCacheKey=`spreads_${spreadRegion}_${spreadFrom}_${spreadTo}_covid${spreadCovid}`;
       const spreadData=window._rlCache?.[spreadCacheKey];
 
       if(spreadData){
@@ -1018,42 +1024,47 @@ function render(){
         const gsRows=spreadData.grade_spreads||[];
 
         const pctColor=pct=>pct<=25?'positive':pct>=75?'negative':'';
+        const fmtSprd=v=>v!=null?`${v>=0?'+':''}${fmt(v)}`:'—';
 
         c.innerHTML=_aTabBar+`
           <div style="display:flex;gap:8px;margin-bottom:16px;align-items:center;flex-wrap:wrap">
-            <div style="display:flex;gap:2px">${ranges.map(r=>`<button class="btn ${spreadRange===r?'btn-primary':'btn-default'} btn-sm" onclick="S.spreadRange='${r}';S.spreadDateFrom='';S.spreadDateTo='';SS('spreadRange','${r}');SS('spreadDateFrom','');SS('spreadDateTo','');delete window._rlCache?.['${spreadCacheKey}'];render()" style="padding:2px 8px;font-size:10px">${r}</button>`).join('')}</div>
+            <div style="display:flex;gap:2px">${ranges.map(r=>`<button class="btn ${spreadRange===r?'btn-primary':'btn-default'} btn-sm" onclick="S.spreadRange='${r}';S.spreadDateFrom='';S.spreadDateTo='';SS('spreadRange','${r}');SS('spreadDateFrom','');SS('spreadDateTo','');render()" style="padding:2px 8px;font-size:10px">${r}</button>`).join('')}</div>
             <button class="btn ${spreadRange==='custom'?'btn-primary':'btn-default'} btn-sm" onclick="document.getElementById('spread-custom').style.display=document.getElementById('spread-custom').style.display==='none'?'flex':'none'" style="padding:2px 8px;font-size:10px">Custom</button>
             <div id="spread-custom" style="display:${spreadRange==='custom'?'flex':'none'};gap:4px;align-items:center">
               <input type="date" id="spread-from" value="${S.spreadDateFrom||''}" style="padding:2px 6px;font-size:10px;background:var(--card);border:1px solid var(--border);color:var(--text)">
               <span style="font-size:10px">to</span>
               <input type="date" id="spread-to" value="${S.spreadDateTo||''}" style="padding:2px 6px;font-size:10px;background:var(--card);border:1px solid var(--border);color:var(--text)">
-              <button class="btn btn-primary btn-sm" onclick="S.spreadRange='custom';S.spreadDateFrom=document.getElementById('spread-from').value;S.spreadDateTo=document.getElementById('spread-to').value;SS('spreadRange','custom');SS('spreadDateFrom',S.spreadDateFrom);SS('spreadDateTo',S.spreadDateTo);delete window._rlCache?.['${spreadCacheKey}'];render()" style="padding:2px 8px;font-size:10px">Apply</button>
+              <button class="btn btn-primary btn-sm" onclick="S.spreadRange='custom';S.spreadDateFrom=document.getElementById('spread-from').value;S.spreadDateTo=document.getElementById('spread-to').value;SS('spreadRange','custom');SS('spreadDateFrom',S.spreadDateFrom);SS('spreadDateTo',S.spreadDateTo);render()" style="padding:2px 8px;font-size:10px">Apply</button>
             </div>
             <select onchange="S.filters.reg=this.value;render()" style="padding:4px 8px;font-size:11px;background:var(--card);border:1px solid var(--border);color:var(--text)">
               <option value="west" ${spreadRegion==='west'?'selected':''}>West</option>
               <option value="central" ${spreadRegion==='central'?'selected':''}>Central</option>
               <option value="east" ${spreadRegion==='east'?'selected':''}>East</option>
             </select>
-            <span style="font-size:10px;color:var(--muted)">${spreadData.latest_date||'No data'}</span>
+            <label style="display:flex;align-items:center;gap:4px;font-size:10px;color:var(--muted);cursor:pointer;margin-left:4px" title="Exclude Mar 2020 – Dec 2022 from historical averages">
+              <input type="checkbox" ${spreadCovid==='1'?'checked':''} onchange="S.spreadExcludeCovid=this.checked?'1':'0';SS('spreadExcludeCovid',S.spreadExcludeCovid);render()" style="accent-color:var(--accent)">
+              Exclude COVID
+            </label>
+            <span style="font-size:10px;color:var(--muted)">${spreadData.latest_date||'No data'}${spreadData.exclude_covid?' (excl. COVID)':''}</span>
           </div>
           ${wowHTML}
           <div class="card" style="margin-bottom:16px"><div class="card-header"><span class="card-title accent">LENGTH SPREADS (vs 16')</span></div>
-            <div style="overflow-x:auto;max-height:350px"><table><thead><tr><th>Product</th><th>Length</th><th class="right">16' Base</th><th class="right">Price</th><th class="right">Spread</th><th class="right">Avg</th><th class="right">Min</th><th class="right">Max</th><th class="right">%ile</th><th class="right" style="color:var(--muted)">n</th></tr></thead><tbody>
-            ${lsRows.length?lsRows.map(s=>`<tr><td>${s.product}</td><td>${s.length}'</td><td class="right" style="color:var(--muted)">${fmt(s.base)}</td><td class="right">${fmt(s.price)}</td><td class="right ${s.spread>=0?'positive':'negative'} bold">${s.spread>=0?'+':''}${fmt(s.spread)}</td><td class="right" style="color:var(--muted)">${fmt(s.avg)}</td><td class="right" style="color:var(--muted)">${fmt(s.min)}</td><td class="right" style="color:var(--muted)">${fmt(s.max)}</td><td class="right ${pctColor(s.pct)} bold">${s.pct}%</td><td class="right" style="color:var(--muted);font-size:9px">${s.n||''}</td></tr>`).join(''):'<tr><td colspan="10" class="empty-state">No specified length data available</td></tr>'}
+            <div style="overflow-x:auto;max-height:350px"><table><thead><tr><th>Product</th><th>Length</th><th class="right">16' Base</th><th class="right">Price</th><th class="right">Spread</th><th class="right">Avg</th><th class="right" title="Recency-weighted average (180-day half-life)">WAvg</th><th class="right">Min</th><th class="right">Max</th><th class="right">%ile</th><th class="right" style="color:var(--muted)">n</th></tr></thead><tbody>
+            ${lsRows.length?lsRows.map(s=>`<tr><td>${s.product}</td><td>${s.length}'</td><td class="right" style="color:var(--muted)">${fmt(s.base)}</td><td class="right">${fmt(s.price)}</td><td class="right ${s.spread>=0?'positive':'negative'} bold">${fmtSprd(s.spread)}</td><td class="right" style="color:var(--muted)">${fmtSprd(s.avg)}</td><td class="right accent" title="Recency-weighted">${fmtSprd(s.wavg)}</td><td class="right" style="color:var(--muted)">${fmtSprd(s.min)}</td><td class="right" style="color:var(--muted)">${fmtSprd(s.max)}</td><td class="right ${pctColor(s.pct)} bold">${s.pct}%</td><td class="right" style="color:var(--muted);font-size:9px">${s.n||''}</td></tr>`).join(''):'<tr><td colspan="11" class="empty-state">No specified length data available</td></tr>'}
             </tbody></table></div></div>
           <div class="grid-2">
             <div class="card"><div class="card-header"><span class="card-title warn">DIMENSION SPREADS (vs 2x4)</span></div>
-              <div style="overflow-x:auto;max-height:350px"><table><thead><tr><th>Length</th><th>Dim</th><th class="right">2x4 Base</th><th class="right">Price</th><th class="right">Spread</th><th class="right">Avg</th><th class="right">%ile</th><th class="right" style="color:var(--muted)">n</th></tr></thead><tbody>
-              ${dsRows.length?dsRows.map(s=>`<tr><td>${s.length==='RL'?'RL':s.length+"'"}</td><td class="bold">${s.dim}</td><td class="right" style="color:var(--muted)">${fmt(s.base)}</td><td class="right">${fmt(s.price)}</td><td class="right ${s.spread>=0?'positive':'negative'} bold">${s.spread>=0?'+':''}${fmt(s.spread)}</td><td class="right" style="color:var(--muted)">${fmt(s.avg)}</td><td class="right ${pctColor(s.pct)} bold">${s.pct}%</td><td class="right" style="color:var(--muted);font-size:9px">${s.n||''}</td></tr>`).join(''):'<tr><td colspan="8" class="empty-state">No data</td></tr>'}
+              <div style="overflow-x:auto;max-height:350px"><table><thead><tr><th>Length</th><th>Dim</th><th class="right">2x4 Base</th><th class="right">Price</th><th class="right">Spread</th><th class="right">Avg</th><th class="right" title="Recency-weighted average">WAvg</th><th class="right">%ile</th><th class="right" style="color:var(--muted)">n</th></tr></thead><tbody>
+              ${dsRows.length?dsRows.map(s=>`<tr><td>${s.length==='RL'?'RL':s.length+"'"}</td><td class="bold">${s.dim}</td><td class="right" style="color:var(--muted)">${fmt(s.base)}</td><td class="right">${fmt(s.price)}</td><td class="right ${s.spread>=0?'positive':'negative'} bold">${fmtSprd(s.spread)}</td><td class="right" style="color:var(--muted)">${fmtSprd(s.avg)}</td><td class="right accent">${fmtSprd(s.wavg)}</td><td class="right ${pctColor(s.pct)} bold">${s.pct}%</td><td class="right" style="color:var(--muted);font-size:9px">${s.n||''}</td></tr>`).join(''):'<tr><td colspan="9" class="empty-state">No data</td></tr>'}
               </tbody></table></div></div>
             <div class="card"><div class="card-header"><span class="card-title">GRADE SPREADS (#1 vs #2)</span></div>
-              <div style="overflow-x:auto;max-height:350px"><table><thead><tr><th>Dim</th><th>Len</th><th class="right">#1</th><th class="right">#2</th><th class="right">Premium</th><th class="right">Avg</th><th class="right">%ile</th><th class="right" style="color:var(--muted)">n</th></tr></thead><tbody>
-              ${gsRows.length?gsRows.map(s=>`<tr><td class="bold">${s.dim}</td><td>${s.length==='RL'?'RL':s.length+"'"}</td><td class="right accent">${fmt(s.p1)}</td><td class="right">${fmt(s.p2)}</td><td class="right positive bold">+${fmt(s.premium)}</td><td class="right" style="color:var(--muted)">${fmt(s.avg)}</td><td class="right ${pctColor(s.pct)} bold">${s.pct}%</td><td class="right" style="color:var(--muted);font-size:9px">${s.n||''}</td></tr>`).join(''):'<tr><td colspan="8" class="empty-state">No data</td></tr>'}
+              <div style="overflow-x:auto;max-height:350px"><table><thead><tr><th>Dim</th><th>Len</th><th class="right">#1</th><th class="right">#2</th><th class="right">Premium</th><th class="right">Avg</th><th class="right" title="Recency-weighted average">WAvg</th><th class="right">%ile</th><th class="right" style="color:var(--muted)">n</th></tr></thead><tbody>
+              ${gsRows.length?gsRows.map(s=>`<tr><td class="bold">${s.dim}</td><td>${s.length==='RL'?'RL':s.length+"'"}</td><td class="right accent">${fmt(s.p1)}</td><td class="right">${fmt(s.p2)}</td><td class="right positive bold">+${fmt(s.premium)}</td><td class="right" style="color:var(--muted)">${fmtSprd(s.avg)}</td><td class="right accent">${fmtSprd(s.wavg)}</td><td class="right ${pctColor(s.pct)} bold">${s.pct}%</td><td class="right" style="color:var(--muted);font-size:9px">${s.n||''}</td></tr>`).join(''):'<tr><td colspan="9" class="empty-state">No data</td></tr>'}
               </tbody></table></div></div>
           </div>`;
       }else{
         c.innerHTML=_aTabBar+`<div class="card"><div class="card-body"><div class="empty-state">Loading spreads data...</div></div></div>`;
-        rlFetchSpreads(spreadRegion,spreadRange,S.spreadDateFrom,S.spreadDateTo);
+        rlFetchSpreads(spreadRegion,spreadRange,S.spreadDateFrom,S.spreadDateTo,spreadCovid);
       }
     }
     else if(_aTab==='charts'){
@@ -1370,7 +1381,7 @@ function render(){
             }).join('')}
             </tbody></table></div>
             ${sc.currentPosition?`<div style="padding:8px 12px;margin-top:8px;background:var(--panel-alt);border:1px solid var(--border);font-size:11px">
-              <span class="bold accent">Seasonal Insight:</span> ${fProduct} is at the <span class="bold ${pctColor(sc.currentPosition.pctRank)}">${sc.currentPosition.pctRank}th percentile</span> for ${monthNames[currentMonth-1]} (index: ${sc.currentPosition.index.toFixed(2)}). ${sc.outlook?.peakMonths?'Peak months: <b>'+sc.outlook.peakMonths+'</b>. Low months: <b>'+sc.outlook.lowMonths+'</b>. Trend: '+sc.outlook.trend+' ($'+sc.outlook.trendPerWeek+'/wk).':''}
+              <span class="bold accent">Seasonal Insight:</span> ${fProduct} is at the <span class="bold ${pctColor(sc.currentPosition.pctRank)}">${ordinal(sc.currentPosition.pctRank)} percentile</span> for ${monthNames[currentMonth-1]} (index: ${sc.currentPosition.index.toFixed(2)}). ${sc.outlook?.peakMonths?'Peak months: <b>'+sc.outlook.peakMonths+'</b>. Low months: <b>'+sc.outlook.lowMonths+'</b>. Trend: '+sc.outlook.trend+' ($'+sc.outlook.trendPerWeek+'/wk).':''}
             </div>`:''}
           </div>`;
         }
@@ -1664,6 +1675,21 @@ function render(){
       </div>`;
   }
   else if(S.view==='quotes'){
+    // Quotes view with BUILD + Offerings tabs
+    const qTab=S.quotesViewTab||'build';
+    const _qTabBar=`<div style="display:flex;gap:4px;margin-bottom:16px;background:var(--panel);padding:4px">
+      <button class="btn ${qTab==='build'?'btn-primary':'btn-default'}" onclick="S.quotesViewTab='build';render()">🔨 Build</button>
+      <button class="btn ${qTab==='offerings'?'btn-primary':'btn-default'}" onclick="S.quotesViewTab='offerings';render()">📋 Offerings <span id="offerings-badge" style="font-size:9px;padding:1px 5px;border-radius:8px;background:var(--accent);color:var(--bg);margin-left:3px;display:none">0</span></button>
+    </div>`;
+
+    if(qTab==='offerings'){
+      c.innerHTML=_qTabBar+renderOfferingsView();
+      // Load pending count
+      fetch('/api/offerings/pending-count'+(S.trader?'?trader='+encodeURIComponent(S.trader):'')).then(r=>r.json()).then(d=>{
+        const badge=document.getElementById('offerings-badge');
+        if(badge&&d.count>0){badge.textContent=d.count;badge.style.display='inline';}
+      }).catch(()=>{});
+    } else {
     // Quote Engine View — BUILD workflow
     const latestRL=S.rl.length?S.rl[S.rl.length-1]:null;
     const customers=myCustomers().filter(c=>c.type!=='mill');
@@ -1696,7 +1722,7 @@ function render(){
       <button class="btn btn-primary btn-sm" style="padding:2px 10px;font-size:10px" onclick="qeAddCustomerLocation()">Save</button>
     </div>`:'';
 
-    c.innerHTML=`
+    c.innerHTML=_qTabBar+`
       ${S.trader==='Admin'?`<div style="margin-bottom:12px;padding:8px 12px;background:rgba(232,115,74,0.1);border:1px solid #e8734a;font-size:11px;color:#e8734a">🔑 <strong>Admin View</strong> — Each trader has separate quote items and profiles.</div>`:''}
 
       <div class="grid-2" style="gap:16px;align-items:start">
@@ -1889,7 +1915,7 @@ function render(){
 
     // Initialize matrix headers after render
     setTimeout(()=>qeUpdateMatrixHeaders(),0);
-  }
+  }}
   else if(S.view==='crm'){
     // CRM with Prospects and Customers tabs
     const crmTab=S.crmTab||'prospects';
@@ -2144,7 +2170,7 @@ function render(){
           <div class="panel-body" style="padding:0;overflow-x:auto"><table class="data-table"><thead><tr>${S.trader==='Admin'?'<th>Trader</th>':''}<th class="sortable" ${_csC('name')}>Customer ${_csI('name')}</th><th>Locations</th><th class="right sortable" ${_csC('trades')}>Trades ${_csI('trades')}</th><th class="right sortable" ${_csC('vol')}>Volume ${_csI('vol')}</th><th class="right sortable" ${_csC('margin')}>Avg Margin ${_csI('margin')}</th><th>Credit Status</th><th></th></tr></thead><tbody>
             ${custData.length?custData.map(cu=>{
               const creditColor=cu.creditUtil>90?'var(--negative)':cu.creditUtil>70?'var(--warn)':'var(--positive)'
-              return`<tr style="${S.selectedCustomer===cu.name?'background:var(--panel-alt)':''}">${S.trader==='Admin'?`<td><span style="display:inline-block;width:18px;height:18px;border-radius:50%;background:${traderColor(cu.trader||'Ian P')};color:var(--bg);font-size:9px;font-weight:700;text-align:center;line-height:18px" title="${escapeHtml(cu.trader||'Ian P')}">${traderInitial(cu.trader||'Ian P')}</span></td>`:''}<td class="bold" style="cursor:pointer" onclick="S.selectedCustomer='${escapeHtml(cu.name||'')}';render()">${escapeHtml(cu.name||'')}</td><td style="font-size:10px">${cu.locs.length?escapeHtml(cu.locs.join(', ')):'--'}</td><td class="right">${cu.tradeCount}</td><td class="right">${fmtN(cu.vol)} MBF</td><td class="right ${cu.avgMargin>=0?'positive':'negative'} bold">${cu.vol>0?fmt(Math.round(cu.avgMargin)):''}</td><td><div class="limit-bar" style="width:100px;display:inline-block;vertical-align:middle"><div class="limit-fill" style="width:${Math.min(100,cu.creditUtil)}%;background:${creditColor}"></div></div> <span style="font-size:9px;color:${creditColor}">${Math.round(cu.creditUtil)}%</span></td><td style="white-space:nowrap"><button class="btn btn-default btn-sm" onclick="S.selectedCustomer='${escapeHtml(cu.name||'')}';render()">360</button> <button class="btn btn-default btn-sm" onclick="editCust('${escapeHtml(cu.name||'')}')">Edit</button> <button class="btn btn-default btn-sm" onclick="deleteCust('${escapeHtml(cu.name||'')}')" style="color:var(--negative)">x</button></td></tr>`
+              return`<tr style="${S.selectedCustomer===cu.name?'background:var(--panel-alt)':''}">${S.trader==='Admin'?`<td><span style="display:inline-block;width:18px;height:18px;border-radius:50%;background:${traderColor(cu.trader||'Ian P')};color:var(--bg);font-size:9px;font-weight:700;text-align:center;line-height:18px" title="${escapeHtml(cu.trader||'Ian P')}">${traderInitial(cu.trader||'Ian P')}</span></td>`:''}<td class="bold" style="cursor:pointer" onclick="S.selectedCustomer='${escapeHtml(cu.name||'')}';render()">${escapeHtml(cu.name||'')}</td><td style="font-size:10px">${cu.locs.length?escapeHtml(cu.locs.join(', ')):'--'}</td><td class="right">${cu.tradeCount}</td><td class="right">${fmtN(cu.vol)} MBF</td><td class="right ${cu.avgMargin>=0?'positive':'negative'} bold">${cu.vol>0?fmt(Math.round(cu.avgMargin)):''}</td><td><div class="limit-bar" style="width:100px;display:inline-block;vertical-align:middle"><div class="limit-fill" style="width:${Math.min(100,cu.creditUtil)}%;background:${creditColor}"></div></div> <span style="font-size:9px;color:${creditColor}">${Math.round(cu.creditUtil)}%</span></td><td style="white-space:nowrap">${typeof erOpenUnifiedByName==='function'?`<button class="btn btn-default btn-sm" onclick="erOpenUnifiedByName('${escapeHtml(cu.name||'')}','customer')" title="Unified Entity View">🔗</button> `:''}<button class="btn btn-default btn-sm" onclick="S.selectedCustomer='${escapeHtml(cu.name||'')}';render()">360</button> <button class="btn btn-default btn-sm" onclick="editCust('${escapeHtml(cu.name||'')}')">Edit</button> <button class="btn btn-default btn-sm" onclick="deleteCust('${escapeHtml(cu.name||'')}')" style="color:var(--negative)">x</button></td></tr>`
             }).join(''):`<tr><td colspan="${S.trader==='Admin'?8:7}" class="empty-state">No customers yet</td></tr>`}
           </tbody></table></div></div>
 
@@ -2203,6 +2229,28 @@ function render(){
               return items.length?items.map(p=>`<div style="margin-bottom:8px"><div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:3px"><span class="bold">${escapeHtml(p.product)}</span><span>${fmtN(p.vol)} MBF (${p.count} trades)</span></div><div class="limit-bar"><div class="limit-fill" style="width:${p.vol/maxVol*100}%"></div></div></div>`).join(''):'<div class="empty-state">No data</div>'
             })()}
           </div></div>
+          <!-- Offering History -->
+          <div class="panel" style="margin-top:12px"><div class="panel-header">OFFERING HISTORY <button class="btn btn-default btn-sm" style="float:right;padding:1px 8px;font-size:9px" onclick="S.quotesViewTab='offerings';S.offeringsTab='profiles';SS('offeringsTab','profiles');S.view='quotes';render()">Manage Profile</button></div><div class="panel-body" id="cust-offering-history-${selCust.id}">
+            <div style="color:var(--muted);font-size:11px">Loading...</div>
+          </div></div>
+          ${(()=>{
+            setTimeout(()=>{
+              fetch('/api/offerings/history/'+selCust.id+'?limit=10').then(r=>r.json()).then(offerings=>{
+                const el=document.getElementById('cust-offering-history-'+selCust.id);
+                if(!el)return;
+                if(!offerings.length){el.innerHTML='<div style="color:var(--muted);font-size:11px">No offerings sent yet. <a href="#" onclick="S.quotesViewTab=\'offerings\';S.offeringsTab=\'profiles\';SS(\'offeringsTab\',\'profiles\');S.view=\'quotes\';render();return false" style="color:var(--accent)">Set up a profile</a></div>';return;}
+                const stats={sent:0,approved:0,total:offerings.length};
+                offerings.forEach(o=>{if(o.status==='sent')stats.sent++;if(o.status==='approved')stats.approved++;});
+                el.innerHTML='<div style="margin-bottom:8px;font-size:10px;color:var(--muted)">'+stats.total+' offerings total, '+stats.approved+' approved, '+stats.sent+' sent</div>'+
+                  '<table style="width:100%;font-size:10px;border-collapse:collapse"><thead><tr style="border-bottom:1px solid var(--border)"><th style="text-align:left;padding:4px">Date</th><th style="text-align:left;padding:4px">Products</th><th style="text-align:center;padding:4px">Status</th><th style="text-align:right;padding:4px">Margin</th></tr></thead><tbody>'+
+                  offerings.map(o=>{
+                    const prods=(o.products||[]).filter(p=>!p.error);
+                    return'<tr style="border-bottom:1px solid var(--border)"><td style="padding:4px">'+new Date(o.generated_at).toLocaleDateString()+'</td><td style="padding:4px">'+prods.map(p=>p.product).join(', ')+'</td><td style="text-align:center;padding:4px"><span class="status-badge status-'+(o.status==='approved'?'approved':'draft')+'">'+o.status+'</span></td><td style="text-align:right;padding:4px">$'+Math.round(o.total_margin||0)+'/MBF</td></tr>';
+                  }).join('')+'</tbody></table>';
+              }).catch(()=>{});
+            },50);
+            return '';
+          })()}
         </div></div>
         `:''}
 
@@ -2244,7 +2292,7 @@ function render(){
               const lqColor=lqAge===null?'var(--muted)':lqAge<=3?'var(--positive)':lqAge<=7?'var(--warn,var(--accent))':'var(--negative)';
               const lqLabel=lq?(lqAge===0?'Today':lqAge===1?'Yesterday':lqAge+'d ago'):'Never';
               const lqTitle=lq?`${lq} (${m.quote_count||0} quotes)`:'No quotes on file';
-              return`<tr>${S.trader==='Admin'?`<td><span style="display:inline-block;width:18px;height:18px;border-radius:50%;background:${traderColor(m.trader||'Ian P')};color:var(--bg);font-size:9px;font-weight:700;text-align:center;line-height:18px" title="${escapeHtml(m.trader||'Ian P')}">${traderInitial(m.trader||'Ian P')}</span></td>`:''}<td class="bold">${escapeHtml(m.name||'')}</td><td style="font-size:10px">${locs.length?escapeHtml(locs.join(', ')):'—'}</td><td style="font-size:10px;color:${lqColor}" title="${escapeHtml(lqTitle)}">${lqLabel}</td><td class="right">${m._tradeCount}</td><td class="right">${fmtN(m._vol)} MBF</td><td style="white-space:nowrap"><button class="btn btn-default btn-sm" onclick="editMill('${escapeHtml(m.name||'')}')">Edit</button> <button class="btn btn-default btn-sm" onclick="deleteMill('${escapeHtml(m.name||'')}')" style="color:var(--negative)">×</button></td></tr>`;
+              return`<tr>${S.trader==='Admin'?`<td><span style="display:inline-block;width:18px;height:18px;border-radius:50%;background:${traderColor(m.trader||'Ian P')};color:var(--bg);font-size:9px;font-weight:700;text-align:center;line-height:18px" title="${escapeHtml(m.trader||'Ian P')}">${traderInitial(m.trader||'Ian P')}</span></td>`:''}<td class="bold">${escapeHtml(m.name||'')}</td><td style="font-size:10px">${locs.length?escapeHtml(locs.join(', ')):'—'}</td><td style="font-size:10px;color:${lqColor}" title="${escapeHtml(lqTitle)}">${lqLabel}</td><td class="right">${m._tradeCount}</td><td class="right">${fmtN(m._vol)} MBF</td><td style="white-space:nowrap">${typeof erOpenUnifiedByName==='function'?`<button class="btn btn-default btn-sm" onclick="erOpenUnifiedByName('${escapeHtml(m.name||'')}','mill')" title="Unified Entity View">🔗</button> `:''}<button class="btn btn-default btn-sm" onclick="editMill('${escapeHtml(m.name||'')}')">Edit</button> <button class="btn btn-default btn-sm" onclick="deleteMill('${escapeHtml(m.name||'')}')" style="color:var(--negative)">×</button></td></tr>`;
             }).join(''):`<tr><td colspan="${S.trader==='Admin'?7:6}" class="empty-state">No mills yet</td></tr>`}
           </tbody></table></div></div>`;
     }
@@ -2275,7 +2323,7 @@ function render(){
     const _miTabBar=_subTabBar('miTab',[{id:'intake',label:'Intake'},{id:'prices',label:'Prices'}],'prices');
     renderMiAggregated();
     const _mc=document.getElementById('content');
-    if(_mc)_mc.innerHTML=_miTabBar+_mc.innerHTML;
+    if(_mc)_mc.insertAdjacentHTML('afterbegin',_miTabBar);
   }
   else if(S.view==='trading'&&S.tradingTab==='pnl'){
     const _tTabBar=_subTabBar('tradingTab',[{id:'blotter',label:'Blotter'},{id:'pnl',label:'P&L'}],'pnl');
@@ -2397,6 +2445,183 @@ function render(){
       renderPnLBarChart(labels,data);
     },10);
   }
+  else if(S.view==='intelligence'){
+    const _iTabBar=_subTabBar('intelligenceTab',[{id:'regime',label:'Regime'},{id:'signals',label:'Spread Signals'},{id:'millmoves',label:'Mill Moves'}],S.intelligenceTab||'regime');
+    const _iTab=S.intelligenceTab||'regime';
+    const intelRegion=S.intelRegion||'west';
+
+    if(_iTab==='regime'){
+      // Regime Detection Tab
+      const regimeKey=`regime_${intelRegion}`;
+      const regimeData=window._intelCache?.[regimeKey];
+
+      if(regimeData){
+        const r=regimeData;
+        const regimeColors={Rally:'#22c55e',Topping:'#eab308',Decline:'#ef4444',Bottoming:'#3b82f6',Choppy:'#6b7280',Unknown:'#9ca3af'};
+        const regimeBg={Rally:'rgba(34,197,94,0.1)',Topping:'rgba(234,179,8,0.1)',Decline:'rgba(239,68,68,0.1)',Bottoming:'rgba(59,130,246,0.1)',Choppy:'rgba(107,114,128,0.1)',Unknown:'rgba(156,163,175,0.1)'};
+        const rc=regimeColors[r.regime]||'#6b7280';
+        const rb=regimeBg[r.regime]||'rgba(107,114,128,0.1)';
+
+        const rocArrow=v=>v>0?`<span style="color:#22c55e">▲ +${v}%</span>`:`<span style="color:#ef4444">▼ ${v}%</span>`;
+        const chgFmt=v=>v>0?`<span class="positive bold">+$${Math.abs(v)}</span>`:`<span class="negative bold">-$${Math.abs(v)}</span>`;
+
+        // Mini sparkline from priceHistory
+        let sparkSVG='';
+        if(r.priceHistory&&r.priceHistory.length>1){
+          const ph=r.priceHistory;
+          const minP=Math.min(...ph.map(p=>p.price));
+          const maxP=Math.max(...ph.map(p=>p.price));
+          const range=maxP-minP||1;
+          const w=280,h=60;
+          const pts=ph.map((p,i)=>`${(i/(ph.length-1))*w},${h-((p.price-minP)/range)*h}`).join(' ');
+          sparkSVG=`<svg width="${w}" height="${h}" style="margin-top:8px"><polyline points="${pts}" fill="none" stroke="${rc}" stroke-width="2"/><circle cx="${w}" cy="${h-((ph[ph.length-1].price-minP)/range)*h}" r="3" fill="${rc}"/></svg>`;
+        }
+
+        const regionBtns=['west','central','east'].map(rg=>
+          `<button class="btn ${intelRegion===rg?'btn-primary':'btn-default'} btn-sm" onclick="S.intelRegion='${rg}';SS('intelRegion','${rg}');if(window._intelCache)delete window._intelCache['regime_${rg}'];render()">${rg.charAt(0).toUpperCase()+rg.slice(1)}</button>`
+        ).join('');
+
+        c.innerHTML=_iTabBar+`
+          <div style="display:flex;gap:6px;margin-bottom:16px">${regionBtns}</div>
+          <div class="card" style="margin-bottom:16px;border-left:4px solid ${rc}">
+            <div class="card-header"><span class="card-title">MARKET REGIME</span><span style="color:var(--muted);font-size:11px">${r.product} · ${r.region} · ${r.currentDate||''}</span></div>
+            <div style="padding:16px">
+              <div style="display:flex;align-items:center;gap:16px;margin-bottom:16px">
+                <span style="background:${rb};color:${rc};font-weight:700;font-size:24px;padding:8px 20px;border-radius:8px;border:2px solid ${rc}">${r.regime}</span>
+                <div>
+                  <div style="font-size:12px;color:var(--muted)">Confidence</div>
+                  <div style="display:flex;align-items:center;gap:8px">
+                    <div style="width:120px;height:8px;background:var(--border);border-radius:4px;overflow:hidden"><div style="width:${r.confidence}%;height:100%;background:${rc};border-radius:4px"></div></div>
+                    <span style="font-weight:600">${r.confidence}%</span>
+                  </div>
+                </div>
+                <div style="margin-left:auto;text-align:right">
+                  <div style="font-size:24px;font-weight:700">$${r.currentPrice}</div>
+                  <div style="font-size:11px;color:var(--muted)">${r.product} ${r.region}</div>
+                </div>
+              </div>
+              <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:16px">
+                <div class="card" style="padding:12px;text-align:center"><div style="font-size:11px;color:var(--muted)">2-Week</div><div style="font-size:16px;font-weight:600">${rocArrow(r.roc['2wk'])}</div><div style="font-size:13px">${chgFmt(r.changes['2wk'])}/MBF</div></div>
+                <div class="card" style="padding:12px;text-align:center"><div style="font-size:11px;color:var(--muted)">4-Week</div><div style="font-size:16px;font-weight:600">${rocArrow(r.roc['4wk'])}</div><div style="font-size:13px">${chgFmt(r.changes['4wk'])}/MBF</div></div>
+                <div class="card" style="padding:12px;text-align:center"><div style="font-size:11px;color:var(--muted)">8-Week</div><div style="font-size:16px;font-weight:600">${rocArrow(r.roc['8wk'])}</div><div style="font-size:13px">${chgFmt(r.changes['8wk'])}/MBF</div></div>
+              </div>
+              ${sparkSVG?`<div style="margin-bottom:16px">${sparkSVG}<div style="font-size:10px;color:var(--muted)">Last 20 data points</div></div>`:''}
+              <div style="background:${rb};padding:12px;border-radius:6px;margin-bottom:8px"><strong>Context:</strong> ${r.context}</div>
+              <div style="background:var(--bg);padding:12px;border-radius:6px;border:1px solid var(--border)"><strong>Trading Bias:</strong> ${r.tradingBias}</div>
+            </div>
+          </div>`;
+      } else {
+        // Fetch regime data
+        if(!window._intelCache)window._intelCache={};
+        c.innerHTML=_iTabBar+`<div style="display:flex;gap:6px;margin-bottom:16px">${['west','central','east'].map(rg=>`<button class="btn ${intelRegion===rg?'btn-primary':'btn-default'} btn-sm" onclick="S.intelRegion='${rg}';SS('intelRegion','${rg}');render()">${rg.charAt(0).toUpperCase()+rg.slice(1)}</button>`).join('')}</div><div class="card"><div style="padding:40px;text-align:center;color:var(--muted)">Loading regime data...</div></div>`;
+        fetch(`/api/intelligence/regime?region=${intelRegion}&product=2x4%232`)
+          .then(r=>r.json()).then(data=>{
+            if(!window._intelCache)window._intelCache={};
+            window._intelCache[`regime_${intelRegion}`]=data;
+            render();
+          }).catch(e=>console.error('Regime fetch error:',e));
+      }
+    }
+    else if(_iTab==='signals'){
+      // Spread Signals Tab
+      const sigKey=`signals_${intelRegion}`;
+      const sigData=window._intelCache?.[sigKey];
+
+      if(sigData){
+        const regionBtns=['west','central','east'].map(rg=>
+          `<button class="btn ${intelRegion===rg?'btn-primary':'btn-default'} btn-sm" onclick="S.intelRegion='${rg}';SS('intelRegion','${rg}');if(window._intelCache)delete window._intelCache['signals_${rg}'];render()">${rg.charAt(0).toUpperCase()+rg.slice(1)}</button>`
+        ).join('');
+
+        let sigHTML='';
+        if(sigData.signals&&sigData.signals.length){
+          sigHTML=sigData.signals.map(s=>{
+            const isOpp=s.reversionProb&&s.reversionProb>=60;
+            const border=isOpp?'border-left:4px solid #22c55e':'border-left:4px solid var(--border)';
+            const pctBar=`<div style="width:100%;height:6px;background:var(--border);border-radius:3px;margin:4px 0"><div style="width:${s.percentile}%;height:100%;background:${s.percentile<=10?'#3b82f6':s.percentile>=90?'#ef4444':'#6b7280'};border-radius:3px"></div></div>`;
+            return `<div class="card" style="${border};margin-bottom:12px">
+              <div style="padding:14px">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+                  <span style="font-weight:700;font-size:14px">${s.spread}</span>
+                  <span style="font-size:11px;padding:2px 8px;border-radius:4px;background:${isOpp?'rgba(34,197,94,0.1)':'var(--bg)'};color:${isOpp?'#22c55e':'var(--muted)'}">${s.category}</span>
+                </div>
+                <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:8px;font-size:12px">
+                  <div><span style="color:var(--muted)">Current</span><br><strong>${s.current>=0?'+':''}$${s.current}</strong></div>
+                  <div><span style="color:var(--muted)">Avg</span><br>$${s.avg}</div>
+                  <div><span style="color:var(--muted)">WAvg</span><br>$${s.wavg}</div>
+                  <div><span style="color:var(--muted)">Percentile</span><br><strong>${s.percentile}th</strong></div>
+                </div>
+                ${pctBar}
+                ${s.reversionProb!=null?`<div style="font-size:13px;margin:8px 0"><strong>Reversion Probability:</strong> <span style="color:${s.reversionProb>=60?'#22c55e':'var(--muted)'}; font-weight:700">${s.reversionProb}%</span> <span style="color:var(--muted);font-size:11px">(within 4 weeks)</span></div>`:''}
+                <div style="font-size:12px;color:var(--muted);margin-top:6px">${s.context}</div>
+                <div style="font-size:12px;margin-top:4px;color:var(--text)">${s.actionable}</div>
+              </div>
+            </div>`;
+          }).join('');
+        } else {
+          sigHTML='<div class="card"><div style="padding:40px;text-align:center;color:var(--muted)">No extreme spread signals currently.<br><span style="font-size:12px">Signals appear when spreads hit ≤10th or ≥90th percentile.</span></div></div>';
+        }
+
+        c.innerHTML=_iTabBar+`
+          <div style="display:flex;gap:6px;margin-bottom:16px">${regionBtns}</div>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+            <div style="font-size:12px;color:var(--muted)">${sigData.signalCount} signal${sigData.signalCount!==1?'s':''} · Regime: <strong>${sigData.regime||'Unknown'}</strong> · As of ${sigData.asOf||''}</div>
+          </div>
+          ${sigHTML}`;
+      } else {
+        if(!window._intelCache)window._intelCache={};
+        c.innerHTML=_iTabBar+`<div style="display:flex;gap:6px;margin-bottom:16px">${['west','central','east'].map(rg=>`<button class="btn ${intelRegion===rg?'btn-primary':'btn-default'} btn-sm" onclick="S.intelRegion='${rg}';SS('intelRegion','${rg}');render()">${rg.charAt(0).toUpperCase()+rg.slice(1)}</button>`).join('')}</div><div class="card"><div style="padding:40px;text-align:center;color:var(--muted)">Loading spread signals...</div></div>`;
+        fetch(`/api/intelligence/spread-signals?region=${intelRegion}&type=all`)
+          .then(r=>r.json()).then(data=>{
+            if(!window._intelCache)window._intelCache={};
+            window._intelCache[`signals_${intelRegion}`]=data;
+            render();
+          }).catch(e=>console.error('Signals fetch error:',e));
+      }
+    }
+    else if(_iTab==='millmoves'){
+      // Mill Moves Tab
+      const mmKey='millmoves';
+      const mmData=window._intelCache?.[mmKey];
+
+      if(mmData){
+        let tableHTML='';
+        if(mmData.changes&&mmData.changes.length){
+          tableHTML=`<div style="overflow-x:auto"><table><thead><tr><th>Date</th><th>Mill</th><th>Product</th><th class="right">Old</th><th class="right">New</th><th class="right">Change</th><th class="right">%</th></tr></thead><tbody>
+            ${mmData.changes.map(c=>{
+              const chg=c.change||0;
+              const cls=chg<0?'positive':chg>0?'negative':'';
+              return `<tr><td>${c.date}</td><td class="bold">${c.mill_name}</td><td>${c.product}</td><td class="right">$${c.old_price||'—'}</td><td class="right">$${c.new_price}</td><td class="right ${cls} bold">${chg>0?'+':''}$${chg}</td><td class="right ${cls}">${c.pct_change!=null?(chg>0?'+':'')+c.pct_change+'%':'—'}</td></tr>`;
+            }).join('')}
+          </tbody></table></div>`;
+        } else {
+          tableHTML='<div style="padding:40px;text-align:center;color:var(--muted)">No mill price changes recorded yet.<br><span style="font-size:12px">Changes are tracked automatically when mill quotes are submitted with different prices.</span></div>';
+        }
+
+        const sum=mmData.summary||{};
+        c.innerHTML=_iTabBar+`
+          <div class="card" style="margin-bottom:16px">
+            <div class="card-header"><span class="card-title">MILL PRICE CHANGES</span><span style="color:var(--muted);font-size:11px">Last ${mmData.days||30} days</span></div>
+            <div style="display:flex;gap:16px;padding:12px 16px;border-bottom:1px solid var(--border);font-size:13px">
+              <span><strong>${sum.total||0}</strong> changes</span>
+              <span style="color:#22c55e">▼ ${sum.down||0} decreases</span>
+              <span style="color:#ef4444">▲ ${sum.up||0} increases</span>
+              <span>Avg: <strong>${(sum.avgChange||0)>0?'+':''}$${sum.avgChange||0}</strong></span>
+            </div>
+            ${sum.mostActive&&sum.mostActive.length?`<div style="padding:8px 16px;font-size:11px;color:var(--muted)">Most active: ${sum.mostActive.map(m=>`<strong>${m.mill}</strong> (${m.count})`).join(', ')}</div>`:''}
+            ${tableHTML}
+          </div>`;
+      } else {
+        if(!window._intelCache)window._intelCache={};
+        c.innerHTML=_iTabBar+`<div class="card"><div style="padding:40px;text-align:center;color:var(--muted)">Loading mill moves...</div></div>`;
+        fetch('/api/intelligence/mill-moves?days=30')
+          .then(r=>r.json()).then(data=>{
+            if(!window._intelCache)window._intelCache={};
+            window._intelCache[mmKey]=data;
+            render();
+          }).catch(e=>console.error('Mill moves fetch error:',e));
+      }
+    }
+  }
   else if(S.view==='poanalysis'){
     renderPOAnalysis();
     setTimeout(renderPOCharts,10);
@@ -2514,8 +2739,13 @@ function render(){
           <input type="file" id="imp-file" accept=".json" style="display:none" onchange="impData(event)">
         </div>
         <div style="border-top:1px solid var(--border);padding-top:16px">
-          <button class="btn btn-danger" onclick="clearAll()">🗑️ Clear All Data</button>
+          <button class="btn btn-danger" onclick="if(confirm('⚠ This will permanently delete ALL trading data, customers, mills, and settings. This cannot be undone.\\n\\nAre you sure?'))clearAll()">🗑️ Clear All Data</button>
         </div>
+      </div></div>
+
+      <div class="card"><div class="card-header"><span class="card-title">🔗 ENTITY RESOLUTION</span></div><div class="card-body">
+        <div style="font-size:12px;color:var(--muted);margin-bottom:12px">Unified identity system — links mills and customers across CRM, Mill Intel, and trading data via fuzzy name matching.</div>
+        <div id="er-settings"><div class="spinner" style="margin:12px auto"></div></div>
       </div></div>
 
       <div class="card"><div class="card-header"><span class="card-title">KEYBOARD SHORTCUTS</span></div><div class="card-body">
@@ -2527,6 +2757,9 @@ function render(){
       </div></div>`;
   }
   
+  // Render entity resolution settings if on settings page
+  if(S.view==='settings'&&typeof renderEntityResolutionSettings==='function')setTimeout(renderEntityResolutionSettings,10);
+
   // Draw charts after DOM update
   if(S.view==='analytics'&&S.analyticsTab==='charts')setTimeout(drawCharts,10);
   if(S.view==='dashboard'&&(!S.dashTab||S.dashTab==='overview')){
@@ -2587,4 +2820,342 @@ function editCell(td,field,ref){
 // Sort blotter columns (alias for toggleSort if not defined)
 function sortBlotter(field){
   if(typeof toggleSort==='function')toggleSort(field)
+}
+
+// ==================== AUTO-OFFERINGS ====================
+
+window._offeringsCache={pending:null,history:null,profiles:null};
+
+function renderOfferingsView(){
+  const tab=S.offeringsTab||'pending';
+  const tabBar=`<div style="display:flex;gap:4px;margin-bottom:12px">
+    <button class="btn ${tab==='pending'?'btn-info':'btn-default'} btn-sm" onclick="S.offeringsTab='pending';SS('offeringsTab','pending');render()">Pending Drafts</button>
+    <button class="btn ${tab==='profiles'?'btn-info':'btn-default'} btn-sm" onclick="S.offeringsTab='profiles';SS('offeringsTab','profiles');render()">Profiles</button>
+    <button class="btn ${tab==='history'?'btn-info':'btn-default'} btn-sm" onclick="S.offeringsTab='history';SS('offeringsTab','history');render()">History</button>
+    <button class="btn btn-primary btn-sm" style="margin-left:auto" onclick="offeringsGenerate()">&#x26A1; Generate Now</button>
+  </div>`;
+
+  if(tab==='pending') return tabBar+'<div id="offerings-pending">Loading...</div>'+_offeringsLoadPending();
+  if(tab==='profiles') return tabBar+'<div id="offerings-profiles">Loading...</div>'+_offeringsLoadProfiles();
+  if(tab==='history') return tabBar+'<div id="offerings-history">Loading...</div>'+_offeringsLoadHistory();
+  return tabBar;
+}
+
+function _offeringsLoadPending(){
+  setTimeout(()=>{
+    const trader=S.trader?'&trader='+encodeURIComponent(S.trader):'';
+    fetch('/api/offerings?status=draft'+trader).then(r=>r.json()).then(offerings=>{
+      const el=document.getElementById('offerings-pending');
+      if(!el)return;
+      if(!offerings.length){el.innerHTML='<div style="padding:40px;text-align:center;color:var(--muted)">No pending offerings. Click <b>Generate Now</b> or set up profiles.</div>';return;}
+      el.innerHTML=offerings.map(o=>{
+        const prods=o.products||[];
+        const validProds=prods.filter(p=>!p.error);
+        const expanded=window._offeringExpanded===o.id;
+        return`<div class="card" style="margin-bottom:8px">
+          <div class="card-header" style="cursor:pointer" onclick="window._offeringExpanded=${expanded?'null':o.id};render()">
+            <span class="card-title">${escapeHtml(o.customer_name)}</span>
+            <span style="font-size:10px;color:var(--muted)">${o.destination} &bull; ${validProds.length} products &bull; $${Math.round(o.total_margin||0)}/MBF avg margin &bull; ${new Date(o.generated_at).toLocaleDateString()}</span>
+          </div>
+          ${expanded?`<div style="padding:12px">
+            <table style="width:100%;font-size:11px;border-collapse:collapse">
+              <thead><tr style="border-bottom:2px solid var(--border)">
+                <th style="text-align:left;padding:4px">Product</th>
+                <th style="text-align:left;padding:4px">Mill</th>
+                <th style="text-align:right;padding:4px">FOB</th>
+                <th style="text-align:right;padding:4px">Freight</th>
+                <th style="text-align:right;padding:4px">Landed</th>
+                <th style="text-align:right;padding:4px">Margin</th>
+                <th style="text-align:right;padding:4px">Price</th>
+                <th style="text-align:left;padding:4px">Note</th>
+              </tr></thead>
+              <tbody>${prods.map((p,i)=>p.error?
+                `<tr><td style="padding:4px">${escapeHtml(p.product)}</td><td colspan="6" style="padding:4px;color:var(--negative)">${escapeHtml(p.error)}</td><td></td></tr>`:
+                `<tr style="border-bottom:1px solid var(--border)">
+                  <td style="padding:4px;font-weight:600">${escapeHtml(p.product)}</td>
+                  <td style="padding:4px">${escapeHtml(p.mill)}</td>
+                  <td style="text-align:right;padding:4px">$${p.fob}</td>
+                  <td style="text-align:right;padding:4px">$${p.freight}</td>
+                  <td style="text-align:right;padding:4px;font-weight:600">$${p.landed}</td>
+                  <td style="text-align:right;padding:4px;color:var(--accent)">$${Math.round(p.margin)}</td>
+                  <td style="text-align:right;padding:4px"><input type="number" value="${Math.round(p.price)}" style="width:65px;padding:2px 4px;text-align:right;font-size:11px;font-weight:700;border:1px solid var(--border);background:var(--bg);color:var(--text)" onchange="offeringsEditPrice(${o.id},${i},+this.value)"></td>
+                  <td style="padding:4px;font-size:9px;color:var(--muted)">${escapeHtml(p.seasonalNote||'')}</td>
+                </tr>`).join('')}</tbody>
+            </table>
+            <div style="margin-top:12px;display:flex;gap:8px;align-items:center">
+              <button class="btn btn-success btn-sm" onclick="offeringsApproveAndCopy(${o.id})">&#x2714; Approve & Copy</button>
+              <button class="btn btn-default btn-sm" onclick="offeringsSkip(${o.id})">Skip</button>
+              <input type="text" id="offering-notes-${o.id}" placeholder="Add notes..." value="${escapeHtml(o.edit_notes||'')}" style="flex:1;padding:4px 8px;font-size:11px;border:1px solid var(--border);background:var(--bg);color:var(--text)">
+            </div>
+          </div>`:''}
+        </div>`;
+      }).join('');
+    }).catch(e=>{
+      const el=document.getElementById('offerings-pending');
+      if(el)el.innerHTML='<div style="color:var(--negative);padding:12px">Error loading offerings: '+escapeHtml(String(e))+'</div>';
+    });
+  },0);
+  return '';
+}
+
+function _offeringsLoadProfiles(){
+  setTimeout(()=>{
+    const trader=S.trader?'?trader='+encodeURIComponent(S.trader):'';
+    fetch('/api/offerings/profiles'+trader).then(r=>r.json()).then(profiles=>{
+      const el=document.getElementById('offerings-profiles');
+      if(!el)return;
+      const customers=myCustomers().filter(c=>c.type!=='mill');
+      let html=`<div style="margin-bottom:12px">
+        <button class="btn btn-primary btn-sm" onclick="offeringsShowNewProfile()">+ New Profile</button>
+      </div>
+      <div id="offerings-new-profile-form" style="display:none;margin-bottom:16px"></div>`;
+
+      if(!profiles.length){
+        html+='<div style="padding:30px;text-align:center;color:var(--muted)">No offering profiles configured. Create one to start auto-generating offerings.</div>';
+      } else {
+        html+=`<table style="width:100%;font-size:11px;border-collapse:collapse">
+          <thead><tr style="border-bottom:2px solid var(--border)">
+            <th style="text-align:left;padding:6px">Customer</th>
+            <th style="text-align:left;padding:6px">Destination</th>
+            <th style="text-align:left;padding:6px">Products</th>
+            <th style="text-align:right;padding:6px">Margin</th>
+            <th style="text-align:center;padding:6px">Frequency</th>
+            <th style="text-align:center;padding:6px">Active</th>
+            <th style="text-align:center;padding:6px">Actions</th>
+          </tr></thead>
+          <tbody>${profiles.map(p=>`<tr style="border-bottom:1px solid var(--border)">
+            <td style="padding:6px;font-weight:600">${escapeHtml(p.customer_name)}</td>
+            <td style="padding:6px">${escapeHtml(p.destination)}</td>
+            <td style="padding:6px;font-size:10px">${(p.products||[]).join(', ')}</td>
+            <td style="text-align:right;padding:6px">$${p.margin_target}/MBF</td>
+            <td style="text-align:center;padding:6px"><span class="status-badge status-${p.active?'approved':'cancelled'}">${p.frequency}${p.frequency!=='daily'?' ('+['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][p.day_of_week]+')':''}</span></td>
+            <td style="text-align:center;padding:6px">${p.active?'<span style="color:var(--positive)">&#10003;</span>':'<span style="color:var(--negative)">&#10007;</span>'}</td>
+            <td style="text-align:center;padding:6px">
+              <button class="btn btn-default btn-sm" style="padding:1px 6px;font-size:10px" onclick="offeringsEditProfile(${p.id})">Edit</button>
+              <button class="btn btn-default btn-sm" style="padding:1px 6px;font-size:10px" onclick="offeringsToggleProfile(${p.id},${p.active?0:1})">${p.active?'Pause':'Activate'}</button>
+              <button class="btn btn-danger btn-sm" style="padding:1px 6px;font-size:10px" onclick="offeringsDeleteProfile(${p.id})">&#x2715;</button>
+            </td>
+          </tr>`).join('')}</tbody>
+        </table>`;
+      }
+      el.innerHTML=html;
+    }).catch(e=>{
+      const el=document.getElementById('offerings-profiles');
+      if(el)el.innerHTML='<div style="color:var(--negative);padding:12px">Error: '+escapeHtml(String(e))+'</div>';
+    });
+  },0);
+  return '';
+}
+
+function _offeringsLoadHistory(){
+  setTimeout(()=>{
+    const trader=S.trader?'&trader='+encodeURIComponent(S.trader):'';
+    fetch('/api/offerings?limit=30'+trader).then(r=>r.json()).then(offerings=>{
+      const el=document.getElementById('offerings-history');
+      if(!el)return;
+      if(!offerings.length){el.innerHTML='<div style="padding:30px;text-align:center;color:var(--muted)">No offering history yet.</div>';return;}
+      el.innerHTML=`<table style="width:100%;font-size:11px;border-collapse:collapse">
+        <thead><tr style="border-bottom:2px solid var(--border)">
+          <th style="text-align:left;padding:6px">Date</th>
+          <th style="text-align:left;padding:6px">Customer</th>
+          <th style="text-align:left;padding:6px">Products</th>
+          <th style="text-align:center;padding:6px">Status</th>
+          <th style="text-align:right;padding:6px">Avg Margin</th>
+        </tr></thead>
+        <tbody>${offerings.map(o=>{
+          const prods=(o.products||[]).filter(p=>!p.error);
+          const statusClass=o.status==='approved'?'approved':o.status==='sent'?'confirmed':o.status==='draft'?'draft':'cancelled';
+          return`<tr style="border-bottom:1px solid var(--border);cursor:pointer" onclick="window._offeringExpanded=${window._offeringExpanded===o.id?'null':o.id};S.offeringsTab='pending';SS('offeringsTab','pending');render()">
+            <td style="padding:6px">${new Date(o.generated_at).toLocaleDateString()}</td>
+            <td style="padding:6px;font-weight:600">${escapeHtml(o.customer_name)}</td>
+            <td style="padding:6px;font-size:10px">${prods.map(p=>p.product).join(', ')}</td>
+            <td style="text-align:center;padding:6px"><span class="status-badge status-${statusClass}">${o.status}</span></td>
+            <td style="text-align:right;padding:6px">$${Math.round(o.total_margin||0)}/MBF</td>
+          </tr>`;
+        }).join('')}</tbody>
+      </table>`;
+    }).catch(e=>{
+      const el=document.getElementById('offerings-history');
+      if(el)el.innerHTML='<div style="color:var(--negative);padding:12px">Error: '+escapeHtml(String(e))+'</div>';
+    });
+  },0);
+  return '';
+}
+
+// --- Offering Actions ---
+
+function offeringsGenerate(){
+  fetch('/api/offerings/generate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({force:true})})
+    .then(r=>r.json()).then(d=>{
+      if(d.error){showToast('Error: '+d.error,'danger');return;}
+      showToast(`Generated ${d.generated} offering(s)`,'success');
+      S.offeringsTab='pending';SS('offeringsTab','pending');
+      render();
+    }).catch(e=>showToast('Error: '+e,'danger'));
+}
+
+function offeringsEditPrice(offeringId,productIdx,newPrice){
+  fetch('/api/offerings/'+offeringId).then(r=>r.json()).then(o=>{
+    const prods=o.products||[];
+    if(prods[productIdx]){
+      const p=prods[productIdx];
+      p.margin=newPrice-p.landed;
+      p.price=newPrice;
+    }
+    return fetch('/api/offerings/'+offeringId,{method:'PUT',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({products:prods})});
+  }).then(r=>r.json()).then(()=>{render();}).catch(e=>showToast('Error: '+e,'danger'));
+}
+
+function offeringsApproveAndCopy(offeringId){
+  const notesEl=document.getElementById('offering-notes-'+offeringId);
+  const notes=notesEl?notesEl.value:'';
+  fetch('/api/offerings/'+offeringId).then(r=>r.json()).then(o=>{
+    // Build clipboard text
+    const prods=(o.products||[]).filter(p=>!p.error);
+    let txt=o.customer_name+' — '+o.destination+'\n';
+    txt+='Date: '+new Date().toLocaleDateString()+'\n\n';
+    txt+='Product\tPrice\n';
+    prods.forEach(p=>{txt+=p.product+'\t$'+Math.round(p.price)+'\n';});
+    if(notes)txt+='\nNotes: '+notes+'\n';
+    navigator.clipboard.writeText(txt);
+
+    // Mark approved
+    return fetch('/api/offerings/'+offeringId+'/approve',{method:'PUT',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({notes:notes})});
+  }).then(r=>r.json()).then(()=>{
+    showToast('Offering approved & copied to clipboard','success');
+    window._offeringExpanded=null;
+    render();
+  }).catch(e=>showToast('Error: '+e,'danger'));
+}
+
+function offeringsSkip(offeringId){
+  fetch('/api/offerings/'+offeringId,{method:'PUT',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({status:'skipped'})})
+    .then(r=>r.json()).then(()=>{showToast('Offering skipped');render();})
+    .catch(e=>showToast('Error: '+e,'danger'));
+}
+
+// --- Profile Management ---
+
+function offeringsShowNewProfile(){
+  const form=document.getElementById('offerings-new-profile-form');
+  if(!form)return;
+  if(form.style.display!=='none'){form.style.display='none';return;}
+  const customers=myCustomers().filter(c=>c.type!=='mill');
+  const allProducts=['2x4#2','2x6#2','2x8#2','2x10#2','2x12#2','2x4 Stud','2x6 Stud','2x4#3','2x6#3'];
+  const packages={'Studs #2':['2x4#2','2x6#2'],'Full #2':['2x4#2','2x6#2','2x8#2','2x10#2','2x12#2'],'Full Line':allProducts};
+
+  form.style.display='block';
+  form.innerHTML=`<div class="card"><div class="card-header"><span class="card-title">New Offering Profile</span></div>
+    <div style="padding:12px;display:grid;grid-template-columns:1fr 1fr;gap:12px;font-size:11px">
+      <div>
+        <label style="font-weight:600;margin-bottom:4px;display:block">Customer</label>
+        <select id="op-customer" style="width:100%;padding:6px;font-size:11px;border:1px solid var(--border);background:var(--bg);color:var(--text)" onchange="offeringsProfileCustomerChanged()">
+          <option value="">Select...</option>
+          ${customers.map(c=>`<option value="${c.id}" data-name="${escapeHtml(c.name)}" data-dest="${escapeHtml(c.locations?.[0]||c.destination||'')}">${escapeHtml(c.name)}</option>`).join('')}
+        </select>
+      </div>
+      <div>
+        <label style="font-weight:600;margin-bottom:4px;display:block">Destination</label>
+        <input id="op-dest" type="text" placeholder="City, ST" style="width:100%;padding:6px;font-size:11px;border:1px solid var(--border);background:var(--bg);color:var(--text)">
+      </div>
+      <div>
+        <label style="font-weight:600;margin-bottom:4px;display:block">Products</label>
+        <div style="margin-bottom:6px;display:flex;gap:4px;flex-wrap:wrap">
+          ${Object.keys(packages).map(k=>`<button class="btn btn-default" style="padding:1px 6px;font-size:9px" onclick="offeringsQuickSelect('${k}')">${k}</button>`).join('')}
+        </div>
+        <div id="op-products" style="display:flex;flex-wrap:wrap;gap:4px">
+          ${allProducts.map(p=>`<label style="display:inline-flex;align-items:center;gap:2px;font-size:10px"><input type="checkbox" value="${p}" class="op-prod-cb"> ${p}</label>`).join('')}
+        </div>
+      </div>
+      <div>
+        <label style="font-weight:600;margin-bottom:4px;display:block">Margin Target ($/MBF)</label>
+        <input id="op-margin" type="number" value="25" style="width:80px;padding:6px;font-size:11px;border:1px solid var(--border);background:var(--bg);color:var(--text)">
+        <div style="margin-top:12px">
+          <label style="font-weight:600;margin-bottom:4px;display:block">Frequency</label>
+          <select id="op-freq" style="padding:6px;font-size:11px;border:1px solid var(--border);background:var(--bg);color:var(--text)">
+            <option value="daily">Daily</option>
+            <option value="weekly" selected>Weekly</option>
+            <option value="biweekly">Biweekly</option>
+          </select>
+          <select id="op-dow" style="padding:6px;font-size:11px;margin-left:4px;border:1px solid var(--border);background:var(--bg);color:var(--text)">
+            <option value="1">Monday</option><option value="2">Tuesday</option><option value="3">Wednesday</option><option value="4">Thursday</option><option value="5">Friday</option>
+          </select>
+        </div>
+        <div style="margin-top:12px">
+          <label style="font-weight:600;margin-bottom:4px;display:block">Notes</label>
+          <input id="op-notes" type="text" placeholder="Optional notes" style="width:100%;padding:6px;font-size:11px;border:1px solid var(--border);background:var(--bg);color:var(--text)">
+        </div>
+      </div>
+    </div>
+    <div style="padding:8px 12px;display:flex;gap:8px;border-top:1px solid var(--border)">
+      <button class="btn btn-primary btn-sm" onclick="offeringsSaveProfile()">Save Profile</button>
+      <button class="btn btn-default btn-sm" onclick="document.getElementById('offerings-new-profile-form').style.display='none'">Cancel</button>
+    </div>
+  </div>`;
+}
+
+function offeringsProfileCustomerChanged(){
+  const sel=document.getElementById('op-customer');
+  const opt=sel?.selectedOptions[0];
+  if(opt){
+    const dest=opt.getAttribute('data-dest')||'';
+    const destInput=document.getElementById('op-dest');
+    if(destInput)destInput.value=dest;
+  }
+}
+
+function offeringsQuickSelect(pkg){
+  const packages={'Studs #2':['2x4#2','2x6#2'],'Full #2':['2x4#2','2x6#2','2x8#2','2x10#2','2x12#2'],'Full Line':['2x4#2','2x6#2','2x8#2','2x10#2','2x12#2','2x4 Stud','2x6 Stud','2x4#3','2x6#3']};
+  const prods=packages[pkg]||[];
+  document.querySelectorAll('.op-prod-cb').forEach(cb=>{cb.checked=prods.includes(cb.value);});
+}
+
+function offeringsSaveProfile(){
+  const sel=document.getElementById('op-customer');
+  const opt=sel?.selectedOptions[0];
+  if(!opt||!opt.value){showToast('Select a customer','danger');return;}
+  const dest=document.getElementById('op-dest')?.value?.trim();
+  if(!dest){showToast('Destination required','danger');return;}
+  const products=Array.from(document.querySelectorAll('.op-prod-cb:checked')).map(cb=>cb.value);
+  if(!products.length){showToast('Select at least one product','danger');return;}
+
+  const body={
+    customer_id:+opt.value,
+    customer_name:opt.getAttribute('data-name'),
+    destination:dest,
+    products:products,
+    margin_target:+(document.getElementById('op-margin')?.value||25),
+    frequency:document.getElementById('op-freq')?.value||'weekly',
+    day_of_week:+(document.getElementById('op-dow')?.value||1),
+    notes:document.getElementById('op-notes')?.value||'',
+    trader:S.trader||'Ian P'
+  };
+
+  fetch('/api/offerings/profiles',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
+    .then(r=>r.json()).then(d=>{
+      if(d.error){showToast('Error: '+d.error,'danger');return;}
+      showToast('Profile created','success');
+      render();
+    }).catch(e=>showToast('Error: '+e,'danger'));
+}
+
+function offeringsToggleProfile(pid,active){
+  fetch('/api/offerings/profiles/'+pid,{method:'PUT',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({active:!!active})})
+    .then(r=>r.json()).then(()=>{showToast(active?'Profile activated':'Profile paused');render();})
+    .catch(e=>showToast('Error: '+e,'danger'));
+}
+
+function offeringsDeleteProfile(pid){
+  if(!confirm('Delete this offering profile?'))return;
+  fetch('/api/offerings/profiles/'+pid,{method:'DELETE'})
+    .then(r=>r.json()).then(()=>{showToast('Profile deleted');render();})
+    .catch(e=>showToast('Error: '+e,'danger'));
+}
+
+function offeringsEditProfile(pid){
+  showToast('Edit via new profile form — delete old and create new','info');
 }

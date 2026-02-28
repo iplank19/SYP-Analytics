@@ -103,7 +103,7 @@ async function _saveBuyInner(id){
   const origin=document.getElementById('m-origin').value;
   const orderNum=document.getElementById('m-orderNum').value;
 
-  // Save mill to CRM if new (company-level)
+  // Save mill to CRM if new (company-level) + entity resolution
   const parseOriginToLoc=(o)=>{
     if(!o)return null;
     const parts=o.split(',').map(s=>s.trim());
@@ -113,6 +113,8 @@ async function _saveBuyInner(id){
     const loc=parseOriginToLoc(origin);
     const locs=loc?[loc]:[];
     S.mills.push({name:mill,origin:origin,locations:locs,addedDate:today()});
+    // Fire-and-forget entity resolution (non-blocking)
+    if(typeof resolveEntity==='function')resolveEntity(mill,'mill','trade_entry').catch(()=>{});
   }else if(mill&&origin){
     // Add origin to mill's locations if new
     const existingMill=S.mills.find(m=>m.name===mill);
@@ -194,9 +196,10 @@ async function _saveSellInner(id){
   const customer=normalizeCustomerName(document.getElementById('m-cust').value);
   const destination=document.getElementById('m-dest').value;
 
-  // Save customer to CRM if new
+  // Save customer to CRM if new + entity resolution
   if(customer&&!S.customers.find(c=>c.name===customer)){
     S.customers.push({name:customer,destination:destination,addedDate:today()});
+    if(typeof resolveEntity==='function')resolveEntity(customer,'customer','trade_entry').catch(()=>{});
   }else if(customer&&destination){
     // Update destination if customer exists
     const existing=S.customers.find(c=>c.name===customer);

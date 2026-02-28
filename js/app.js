@@ -341,6 +341,9 @@ async function init(){
   render();
   updateNotificationBadge();
 
+  // Refresh mill quotes from server (picks up intake skill uploads)
+  if(typeof refreshMillQuotesFromServer==='function')refreshMillQuotesFromServer().catch(e=>console.warn('Mill quote refresh:',e));
+
   // Seed PO history from server if empty (fire-and-forget)
   if(typeof seedPOHistory==='function')seedPOHistory().catch(e=>console.warn('PO seed:',e));
 

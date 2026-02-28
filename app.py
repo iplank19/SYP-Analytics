@@ -20,6 +20,7 @@ import gzip
 import csv
 import statistics
 from collections import defaultdict
+from entity_resolution import EntityResolver
 
 try:
     import jwt
@@ -288,12 +289,103 @@ def init_crm_db():
             updated_at TEXT DEFAULT (datetime('now'))
         );
         CREATE INDEX IF NOT EXISTS idx_credit_customer ON credit_limits(customer_name);
+
+        -- Offering profiles: configured customer offering preferences
+        CREATE TABLE IF NOT EXISTS offering_profiles (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            customer_id INTEGER NOT NULL,
+            customer_name TEXT NOT NULL,
+            destination TEXT NOT NULL,
+            products TEXT NOT NULL,
+            margin_target REAL DEFAULT 25,
+            frequency TEXT DEFAULT 'weekly',
+            preferred_mills TEXT DEFAULT '',
+            day_of_week INTEGER DEFAULT 1,
+            active INTEGER DEFAULT 1,
+            notes TEXT DEFAULT '',
+            trader TEXT NOT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (customer_id) REFERENCES customers(id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_offering_profiles_customer ON offering_profiles(customer_id);
+        CREATE INDEX IF NOT EXISTS idx_offering_profiles_trader ON offering_profiles(trader);
+
+        -- Offerings: generated draft offerings for review/approval
+        CREATE TABLE IF NOT EXISTS offerings (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            profile_id INTEGER NOT NULL,
+            customer_id INTEGER NOT NULL,
+            customer_name TEXT NOT NULL,
+            destination TEXT NOT NULL,
+            status TEXT DEFAULT 'draft',
+            products TEXT NOT NULL,
+            margin_target REAL,
+            total_margin REAL,
+            generated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            approved_at DATETIME,
+            approved_by TEXT,
+            sent_at DATETIME,
+            expires_at DATETIME,
+            edit_notes TEXT DEFAULT '',
+            trader TEXT NOT NULL,
+            FOREIGN KEY (profile_id) REFERENCES offering_profiles(id),
+            FOREIGN KEY (customer_id) REFERENCES customers(id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_offerings_status ON offerings(status);
+        CREATE INDEX IF NOT EXISTS idx_offerings_customer ON offerings(customer_id);
+        CREATE INDEX IF NOT EXISTS idx_offerings_trader ON offerings(trader);
+        CREATE INDEX IF NOT EXISTS idx_offerings_profile ON offerings(profile_id);
     ''')
     # Add locations column if missing (migration)
     try:
         conn.execute("ALTER TABLE mills ADD COLUMN locations TEXT DEFAULT '[]'")
     except:
         pass
+
+    # ── Entity Resolution tables (migration-safe) ──────────────────
+    conn.executescript('''
+        CREATE TABLE IF NOT EXISTS entity_canonical (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            type TEXT NOT NULL CHECK(type IN ('mill','customer')),
+            canonical_name TEXT NOT NULL,
+            canonical_id TEXT NOT NULL UNIQUE,
+            normalized_key TEXT,
+            metadata TEXT DEFAULT '{}',
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS idx_ec_type_key ON entity_canonical(type, normalized_key);
+
+        CREATE TABLE IF NOT EXISTS entity_alias (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            canonical_id TEXT NOT NULL REFERENCES entity_canonical(canonical_id),
+            variant TEXT NOT NULL,
+            variant_normalized TEXT,
+            source TEXT DEFAULT 'manual',
+            score REAL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(canonical_id, variant)
+        );
+        CREATE INDEX IF NOT EXISTS idx_ea_variant ON entity_alias(variant_normalized);
+        CREATE INDEX IF NOT EXISTS idx_ea_canonical ON entity_alias(canonical_id);
+
+        CREATE TABLE IF NOT EXISTS entity_review (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            input_name TEXT NOT NULL,
+            entity_type TEXT NOT NULL,
+            candidates TEXT,
+            resolved_id TEXT,
+            source_context TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+    ''')
+    # Add canonical_id columns to existing tables (migration-safe)
+    for tbl in ('customers', 'mills'):
+        try:
+            conn.execute(f"ALTER TABLE {tbl} ADD COLUMN canonical_id TEXT")
+        except:
+            pass
     conn.commit()
     conn.close()
 
@@ -606,6 +698,23 @@ def extract_company_name(mill_name):
             return canonical
     return name
 
+def normalize_mill_name(name):
+    """Title-case mill names while preserving known abbreviations."""
+    if not name:
+        return name
+    # Known abbreviations to preserve uppercase
+    _PRESERVE = {'GP', 'WM', 'LLC', 'INC', 'CO', 'LP', 'LTD', 'FP', 'TEX', 'SC', 'NC', 'AL', 'GA', 'AR', 'MS', 'FL', 'TX', 'LA', 'OK', 'VA'}
+    words = name.strip().split()
+    result = []
+    for w in words:
+        upper = w.upper().rstrip('.,')
+        if upper in _PRESERVE:
+            result.append(w.upper().rstrip('.,') + w[len(upper):])  # Keep trailing punctuation
+        else:
+            result.append(w.capitalize())
+    return ' '.join(result)
+
+
 # Customer alias mapping (mirrors _CUSTOMER_ALIASES in state.js)
 CUSTOMER_ALIASES = {
     'power truss': 'Power Truss and Lumber', 'power truss and lumber': 'Power Truss and Lumber',
@@ -776,6 +885,26 @@ def init_mi_db():
             key TEXT PRIMARY KEY,
             value TEXT
         );
+
+        CREATE TABLE IF NOT EXISTS mill_price_changes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            mill_id INTEGER NOT NULL,
+            mill_name TEXT NOT NULL,
+            product TEXT NOT NULL,
+            length TEXT DEFAULT 'RL',
+            old_price REAL,
+            new_price REAL NOT NULL,
+            change REAL,
+            pct_change REAL,
+            date TEXT NOT NULL,
+            prev_date TEXT,
+            source TEXT DEFAULT 'manual',
+            trader TEXT DEFAULT '',
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (mill_id) REFERENCES mills(id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_mpc_mill_product ON mill_price_changes(mill_name, product);
+        CREATE INDEX IF NOT EXISTS idx_mpc_date ON mill_price_changes(date);
     ''')
     # Add locations column if missing (migration)
     try:
@@ -794,10 +923,20 @@ def init_mi_db():
         conn.execute("CREATE INDEX IF NOT EXISTS idx_rl_product_region ON rl_prices(product, region)")
     except:
         pass
+    # Add canonical_id to MI tables (migration-safe)
+    for tbl in ('mills', 'mill_quotes'):
+        col = 'canonical_id' if tbl == 'mills' else 'canonical_mill_id'
+        try:
+            conn.execute(f"ALTER TABLE {tbl} ADD COLUMN {col} TEXT")
+        except:
+            pass
     conn.commit()
     conn.close()
 
 init_mi_db()
+
+# ── Entity Resolution engine ──────────────────────────────────────
+_entity_resolver = EntityResolver(CRM_DB_PATH, MILL_COMPANY_ALIASES)
 
 # Sync CRM mills → MI mills table on startup (keeps JOINs working)
 def sync_crm_mills_to_mi():
@@ -2177,8 +2316,9 @@ def create_mill():
         name = (data.get('name') or '').strip()
         if not name:
             return jsonify({'error': 'name is required'}), 400
-        # Use extract_company_name to canonicalize
+        # Use extract_company_name to canonicalize, then normalize casing
         company = extract_company_name(name) if name else name
+        company = normalize_mill_name(company)
         conn = get_crm_db()
         # Check if company already exists
         existing = conn.execute("SELECT * FROM mills WHERE UPPER(name)=?", (company.upper(),)).fetchone()
@@ -2363,6 +2503,151 @@ def rename_mill(id):
         return jsonify({'error': str(e)}), 500
 
 # ==================== END CRM API ====================
+
+# ==================== ENTITY RESOLUTION API ====================
+
+@app.route('/api/entity/resolve', methods=['POST'])
+def entity_resolve():
+    """Resolve a name to a canonical entity (fuzzy match)."""
+    try:
+        data = request.get_json()
+        name = (data or {}).get('name', '').strip()
+        entity_type = (data or {}).get('type', 'mill')
+        context = (data or {}).get('context', 'manual')
+        if not name:
+            return jsonify({'error': 'name is required'}), 400
+        result = _entity_resolver.resolve(name, entity_type, context)
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/entity/search', methods=['GET'])
+def entity_search():
+    """Search entities by fuzzy match."""
+    try:
+        q = request.args.get('q', '').strip()
+        entity_type = request.args.get('type', 'mill')
+        limit = int(request.args.get('limit', '10'))
+        if not q:
+            return jsonify([])
+        results = _entity_resolver.search(q, entity_type, limit)
+        return jsonify(results)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/entity/review', methods=['GET'])
+def entity_review_list():
+    """Get pending review items."""
+    try:
+        reviews = _entity_resolver.get_pending_reviews()
+        return jsonify(reviews)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/entity/review/<int:review_id>', methods=['POST'])
+def entity_review_submit(review_id):
+    """Submit a review decision."""
+    try:
+        data = request.get_json()
+        choice = (data or {}).get('choice', '')
+        create_new = (data or {}).get('create_new', False)
+        result = _entity_resolver.submit_review(
+            review_id,
+            chosen_canonical_id=choice if choice and choice != 'NEW' else None,
+            create_new=create_new or choice == 'NEW'
+        )
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/entity/link', methods=['POST'])
+def entity_link():
+    """Manually link a variant name to a canonical entity."""
+    try:
+        data = request.get_json()
+        canonical_id = (data or {}).get('canonical_id', '')
+        variant = (data or {}).get('variant', '').strip()
+        if not canonical_id or not variant:
+            return jsonify({'error': 'canonical_id and variant required'}), 400
+        result = _entity_resolver.link_alias(canonical_id, variant)
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/entity/<canonical_id>/unified', methods=['GET', 'POST'])
+def entity_unified(canonical_id):
+    """Unified view: all data for one entity across all systems."""
+    try:
+        trades_data = None
+        if request.method == 'POST':
+            trades_data = request.get_json()
+        result = _entity_resolver.get_unified_view(
+            canonical_id, mi_db_path=MI_DB_PATH, trades_data=trades_data
+        )
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/entity/merge', methods=['POST'])
+def entity_merge():
+    """Merge two entities into one."""
+    try:
+        data = request.get_json()
+        source_id = (data or {}).get('source_id', '')
+        target_id = (data or {}).get('target_id', '')
+        if not source_id or not target_id:
+            return jsonify({'error': 'source_id and target_id required'}), 400
+        result = _entity_resolver.merge_entities(source_id, target_id)
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/entity/migrate', methods=['POST'])
+def entity_migrate():
+    """One-time migration: seed entities from existing data."""
+    try:
+        # Get MILL_DIRECTORY from state.js (we need to pass it from frontend or hardcode)
+        # For now, we use the server-side aliases + scan CRM/MI data
+        stats = _entity_resolver.migrate_existing(
+            mill_company_aliases=MILL_COMPANY_ALIASES,
+            mill_directory=None,  # Frontend will pass this
+            customer_aliases=CUSTOMER_ALIASES,
+            mi_db_path=MI_DB_PATH
+        )
+        return jsonify(stats)
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/entity/migrate-with-directory', methods=['POST'])
+def entity_migrate_with_directory():
+    """Migration with MILL_DIRECTORY from frontend."""
+    try:
+        data = request.get_json() or {}
+        mill_directory = data.get('mill_directory', {})
+        stats = _entity_resolver.migrate_existing(
+            mill_company_aliases=MILL_COMPANY_ALIASES,
+            mill_directory=mill_directory,
+            customer_aliases=CUSTOMER_ALIASES,
+            mi_db_path=MI_DB_PATH
+        )
+        return jsonify(stats)
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/entity/stats', methods=['GET'])
+def entity_stats():
+    """Get entity resolution statistics."""
+    try:
+        stats = _entity_resolver.get_stats()
+        return jsonify(stats)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+# ==================== END ENTITY RESOLUTION API ====================
 
 # ==================== FUTURES DATA PROXY ====================
 
@@ -3018,6 +3303,8 @@ def mi_submit_quotes():
     # This ensures uploaded quotes always show as "today" even if price unchanged
     today_date = datetime.now().strftime('%Y-%m-%d')
     cleared_combos = set()
+    # Capture old prices before deletion for mill_price_changes tracking
+    _old_prices = {}  # key: (MILL_UPPER, PROD_UPPER, LEN_UPPER) -> {price, date, mill_id}
     for q in quotes:
         mill_name = q.get('mill', '').strip()
         product = q.get('product', '').strip()
@@ -3026,6 +3313,15 @@ def mi_submit_quotes():
             key = (mill_name.upper(), product.upper(), length.upper())
             if key not in cleared_combos:
                 cleared_combos.add(key)
+                # Capture old price before deleting
+                old_row = conn.execute(
+                    """SELECT price, date, mill_id FROM mill_quotes
+                       WHERE UPPER(mill_name)=? AND UPPER(product)=? AND UPPER(COALESCE(length,'RL'))=?
+                       ORDER BY id DESC LIMIT 1""",
+                    (mill_name.upper(), product.upper(), length.upper() if length else 'RL')
+                ).fetchone()
+                if old_row:
+                    _old_prices[key] = {'price': old_row['price'], 'date': old_row['date'], 'mill_id': old_row['mill_id']}
                 deleted = conn.execute(
                     "DELETE FROM mill_quotes WHERE UPPER(mill_name)=? AND UPPER(product)=? AND UPPER(COALESCE(length,'RL'))=?",
                     (mill_name.upper(), product.upper(), length.upper() if length else 'RL')
@@ -3103,6 +3399,32 @@ def mi_submit_quotes():
              q.get('trader', 'Unknown'), q.get('source', 'manual'), q.get('raw_text', ''))
         )
         created.append(q)
+
+        # Track price changes for intelligence/mill-moves
+        length_val = q.get('length', 'RL')
+        combo_key = (mill_name.upper(), product.upper(), (length_val or 'RL').upper())
+        old_info = _old_prices.get(combo_key)
+        if old_info and abs(price_val - old_info['price']) > 0.001:
+            # Check if this exact change was already recorded (prevent duplicates from re-submissions)
+            existing_change = conn.execute(
+                """SELECT id FROM mill_price_changes
+                   WHERE mill_id=? AND product=? AND length=? AND new_price=? AND date=?
+                   ORDER BY id DESC LIMIT 1""",
+                (mill_id, product, length_val or 'RL', price_val, q.get('date', today_date))
+            ).fetchone()
+            if not existing_change:
+                change_val = round(price_val - old_info['price'], 2)
+                pct_val = round((change_val / old_info['price']) * 100, 2) if old_info['price'] else None
+                conn.execute(
+                    """INSERT INTO mill_price_changes (mill_id, mill_name, product, length,
+                       old_price, new_price, change, pct_change, date, prev_date, source, trader)
+                       VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    (mill_id, mill_name, product, length_val or 'RL',
+                     old_info['price'], price_val, change_val, pct_val,
+                     q.get('date', today_date), old_info['date'],
+                     q.get('source', 'manual'), q.get('trader', 'Unknown'))
+                )
+
     conn.commit()
     conn.close()
     invalidate_matrix_cache()  # Clear cached matrix data
@@ -3194,23 +3516,26 @@ def mi_quote_matrix():
     conn = get_mi_db()
 
     if detail == 'length':
-        sql = """
+        # Inner subquery also respects since filter to avoid stale data
+        inner_where = ""
+        inner_params = []
+        if filter_since:
+            inner_where = " WHERE date >= ?"
+            inner_params = [filter_since]
+        sql = f"""
             SELECT mq.mill_name, mq.product, mq.length, mq.price, mq.date, mq.volume,
                    mq.ship_window, mq.tls, mq.trader,
                    m.lat, m.lon, m.region, m.city, m.state
             FROM mill_quotes mq
             LEFT JOIN mills m ON mq.mill_id = m.id
             WHERE mq.id IN (
-                SELECT MAX(id) FROM mill_quotes GROUP BY mill_name, product, length
+                SELECT MAX(id) FROM mill_quotes{inner_where} GROUP BY mill_name, product, length
             )
         """
-        params = []
+        params = list(inner_params)
         if filter_product:
             sql += " AND mq.product = ?"
             params.append(filter_product)
-        if filter_since:
-            sql += " AND mq.date >= ?"
-            params.append(filter_since)
         sql += " ORDER BY mq.mill_name, mq.product, mq.length"
         rows = conn.execute(sql, params).fetchall()
         conn.close()
@@ -3271,19 +3596,21 @@ def mi_quote_matrix():
         set_cached_matrix(cache_key, result)
         return jsonify(result)
     else:
-        sql = """
+        inner_where2 = ""
+        inner_params2 = []
+        if filter_since:
+            inner_where2 = " WHERE date >= ?"
+            inner_params2 = [filter_since]
+        sql = f"""
             SELECT mq.mill_name, mq.product, mq.price, mq.date, mq.volume, mq.ship_window,
                    mq.tls, mq.trader, m.lat, m.lon, m.region, m.city, m.state
             FROM mill_quotes mq
             LEFT JOIN mills m ON mq.mill_id = m.id
             WHERE mq.id IN (
-                SELECT MAX(id) FROM mill_quotes GROUP BY mill_name, product
+                SELECT MAX(id) FROM mill_quotes{inner_where2} GROUP BY mill_name, product
             )
         """
-        params = []
-        if filter_since:
-            sql += " AND mq.date >= ?"
-            params.append(filter_since)
+        params = list(inner_params2)
         sql += " ORDER BY mq.mill_name, mq.product"
         rows = conn.execute(sql, params).fetchall()
         conn.close()
@@ -3998,8 +4325,9 @@ def rl_spreads():
         region = request.args.get('region', 'west')
         date_from = request.args.get('from', '')
         date_to = request.args.get('to', '')
+        exclude_covid = request.args.get('exclude_covid', '0') == '1'
 
-        cache_key = f"spreads_{region}_{date_from}_{date_to}"
+        cache_key = f"spreads_{region}_{date_from}_{date_to}_covid{int(exclude_covid)}"
         cached = get_rl_cached(cache_key)
         if cached is not None:
             return jsonify(cached)
@@ -4064,6 +4392,18 @@ def rl_spreads():
             }
 
         # For percentile rank, get all prices per product+length
+        # Only include "complete" dates (10+ rows) to avoid partial mid-week updates skewing averages
+        complete_dates_sql = "SELECT date FROM rl_prices WHERE region=?"
+        cd_params = [region]
+        if date_from:
+            complete_dates_sql += " AND date>=?"
+            cd_params.append(date_from)
+        if date_to:
+            complete_dates_sql += " AND date<=?"
+            cd_params.append(date_to)
+        complete_dates_sql += " GROUP BY date HAVING COUNT(*) >= 10"
+        complete_dates = set(r['date'] for r in conn.execute(complete_dates_sql, cd_params).fetchall())
+
         hist_sql = "SELECT date, product, length, price FROM rl_prices WHERE region=?"
         hist_params = [region]
         if date_from:
@@ -4076,6 +4416,8 @@ def rl_spreads():
         hist_rows = conn.execute(hist_sql, hist_params).fetchall()
         hist = {}
         for r in hist_rows:
+            if r['date'] not in complete_dates:
+                continue
             key = (r['product'], r['length'])
             if key not in hist:
                 hist[key] = {}
@@ -4083,10 +4425,52 @@ def rl_spreads():
 
         conn.close()
 
-        def pct_rank(key, spread_val):
-            """Compute percentile rank of a spread value within historical spread values."""
-            # For spreads we need to compute historical spreads, not just prices
-            return None  # We'll compute percentile from the spread arrays below
+        # COVID exclusion: remove dates between 2020-03-01 and 2022-12-31
+        COVID_START = '2020-03-01'
+        COVID_END = '2022-12-31'
+        if exclude_covid:
+            for key in hist:
+                hist[key] = {d: p for d, p in hist[key].items()
+                             if d < COVID_START or d > COVID_END}
+
+        def _weighted_avg(spreads_by_date, latest_dt):
+            """Recency-weighted average using exponential decay (half-life = 180 days)."""
+            import math
+            if not spreads_by_date:
+                return None
+            HALF_LIFE = 180  # days
+            decay = math.log(2) / HALF_LIFE
+            try:
+                latest_ord = datetime.strptime(latest_dt, '%Y-%m-%d').toordinal()
+            except Exception:
+                latest_ord = datetime.now().toordinal()
+            w_sum = 0.0
+            w_total = 0.0
+            for d, s in spreads_by_date:
+                try:
+                    d_ord = datetime.strptime(d, '%Y-%m-%d').toordinal()
+                except Exception:
+                    continue
+                age_days = latest_ord - d_ord
+                w = math.exp(-decay * age_days)
+                w_sum += w * s
+                w_total += w
+            return round(w_sum / w_total, 2) if w_total > 0 else None
+
+        def _compute_spread_stats(hist_a, hist_b, current_spread, latest_dt):
+            """Compute spread stats from two date-aligned price histories.
+            Returns (avg, weighted_avg, min, max, pct, n) tuple."""
+            common_dates = sorted(set(hist_a.keys()) & set(hist_b.keys()))
+            if common_dates:
+                hist_spreads = [(d, hist_a[d] - hist_b[d]) for d in common_dates]
+                vals = [s for _, s in hist_spreads]
+                avg_s = round(sum(vals) / len(vals), 2)
+                wavg_s = _weighted_avg(hist_spreads, latest_dt)
+                min_s = round(min(vals), 2)
+                max_s = round(max(vals), 2)
+                pct = round(sum(1 for v in vals if v <= current_spread) / len(vals) * 100)
+                return avg_s, wavg_s, min_s, max_s, pct, len(common_dates)
+            return None
 
         # Build length spreads (vs 16' base)
         length_spreads = []
@@ -4107,26 +4491,18 @@ def rl_spreads():
                 if not price:
                     continue
                 spread = round(price - base_price, 2)
-                # Historical spread stats — date-aligned
-                hist_base = hist.get(base_key, {})
-                hist_len = hist.get(key, {})
-                common_dates = set(hist_base.keys()) & set(hist_len.keys())
-                if common_dates:
-                    hist_spreads = [hist_len[d] - hist_base[d] for d in common_dates]
-                    avg_s = round(sum(hist_spreads) / len(hist_spreads), 2)
-                    min_s = round(min(hist_spreads), 2)
-                    max_s = round(max(hist_spreads), 2)
-                    pct = round(sum(1 for s in hist_spreads if s <= spread) / len(hist_spreads) * 100)
+                stats = _compute_spread_stats(hist.get(key, {}), hist.get(base_key, {}), spread, latest_date)
+                if stats:
+                    avg_s, wavg_s, min_s, max_s, pct, n = stats
                 else:
                     a_data = agg.get(key, {})
                     b_data = base_agg
                     avg_s = round(a_data.get('avg', price) - b_data.get('avg', base_price), 2) if a_data and b_data else spread
-                    min_s = spread
-                    max_s = spread
-                    pct = 50
+                    wavg_s = avg_s
+                    min_s = spread; max_s = spread; pct = 50; n = 0
                 length_spreads.append({
                     'product': prod, 'length': ln, 'base': base_price, 'price': price,
-                    'spread': spread, 'avg': avg_s, 'min': min_s, 'max': max_s, 'pct': pct, 'n': len(common_dates)
+                    'spread': spread, 'avg': avg_s, 'wavg': wavg_s, 'min': min_s, 'max': max_s, 'pct': pct, 'n': n
                 })
 
         # Build dimension spreads (vs 2x4 base)
@@ -4148,26 +4524,18 @@ def rl_spreads():
                 if not price:
                     continue
                 spread = round(price - base_price, 2)
-                # Historical spread stats — date-aligned
-                hist_dim = hist.get(key, {})
-                hist_base_dim = hist.get(base_key, {})
-                common_dates = set(hist_dim.keys()) & set(hist_base_dim.keys())
-                if common_dates:
-                    hist_spreads = [hist_dim[d] - hist_base_dim[d] for d in common_dates]
-                    avg_s = round(sum(hist_spreads) / len(hist_spreads), 2)
-                    min_s = round(min(hist_spreads), 2)
-                    max_s = round(max(hist_spreads), 2)
-                    pct = round(sum(1 for s in hist_spreads if s <= spread) / len(hist_spreads) * 100)
+                stats = _compute_spread_stats(hist.get(key, {}), hist.get(base_key, {}), spread, latest_date)
+                if stats:
+                    avg_s, wavg_s, min_s, max_s, pct, n = stats
                 else:
                     a_data = agg.get(key, {})
                     b_data = agg.get(base_key, {})
                     avg_s = round(a_data.get('avg', price) - b_data.get('avg', base_price), 2) if a_data and b_data else spread
-                    min_s = spread
-                    max_s = spread
-                    pct = 50
+                    wavg_s = avg_s
+                    min_s = spread; max_s = spread; pct = 50; n = 0
                 dimension_spreads.append({
                     'length': ln, 'dim': dim, 'base': base_price, 'price': price,
-                    'spread': spread, 'avg': avg_s, 'min': min_s, 'max': max_s, 'pct': pct, 'n': len(common_dates)
+                    'spread': spread, 'avg': avg_s, 'wavg': wavg_s, 'min': min_s, 'max': max_s, 'pct': pct, 'n': n
                 })
 
         # Build grade spreads (#1 vs #2)
@@ -4179,26 +4547,18 @@ def rl_spreads():
                 if not p1 or not p2:
                     continue
                 premium = round(p1 - p2, 2)
-                # Historical grade premium stats — date-aligned
-                hist_g1 = hist.get((dim + '#1', ln), {})
-                hist_g2 = hist.get((dim + '#2', ln), {})
-                common_dates = set(hist_g1.keys()) & set(hist_g2.keys())
-                if common_dates:
-                    hist_prems = [hist_g1[d] - hist_g2[d] for d in common_dates]
-                    avg_prem = round(sum(hist_prems) / len(hist_prems), 2)
-                    min_p = round(min(hist_prems), 2)
-                    max_p = round(max(hist_prems), 2)
-                    pct = round(sum(1 for p in hist_prems if p <= premium) / len(hist_prems) * 100)
+                stats = _compute_spread_stats(hist.get((dim + '#1', ln), {}), hist.get((dim + '#2', ln), {}), premium, latest_date)
+                if stats:
+                    avg_prem, wavg_prem, min_p, max_p, pct, n = stats
                 else:
                     a1 = agg.get((dim + '#1', ln), {})
                     a2 = agg.get((dim + '#2', ln), {})
                     avg_prem = round(a1.get('avg', p1) - a2.get('avg', p2), 2) if a1 and a2 else premium
-                    min_p = premium
-                    max_p = premium
-                    pct = 50
+                    wavg_prem = avg_prem
+                    min_p = premium; max_p = premium; pct = 50; n = 0
                 grade_spreads.append({
                     'dim': dim, 'length': ln, 'p1': p1, 'p2': p2,
-                    'premium': premium, 'avg': avg_prem, 'min': min_p, 'max': max_p, 'pct': pct, 'n': len(common_dates)
+                    'premium': premium, 'avg': avg_prem, 'wavg': wavg_prem, 'min': min_p, 'max': max_p, 'pct': pct, 'n': n
                 })
 
         # Week-over-week changes
@@ -4219,6 +4579,7 @@ def rl_spreads():
             'latest_date': latest_date,
             'prev_date': prev_date,
             'region': region,
+            'exclude_covid': exclude_covid,
             'length_spreads': length_spreads,
             'dimension_spreads': dimension_spreads,
             'grade_spreads': grade_spreads,
@@ -4549,6 +4910,7 @@ def forecast_shortterm():
             'forecast': forecast,
             'actuals': actuals,
             'seasonalOutlook': outlook,
+            'dataPoints': len(prices),
             'method': 'Holt exponential smoothing + seasonal adjustment'
         }
         set_rl_cache(cache_key, result)
@@ -4578,14 +4940,18 @@ def forecast_pricing():
 
         recommendations = []
 
+        # Only consider quotes from the last 2 days (today + yesterday) for active quoting
+        max_age_days = int(data.get('maxAgeDays', 2))
+        quote_cutoff = (datetime.now() - timedelta(days=max_age_days)).strftime('%Y-%m-%d')
+
         for product in products:
-            # 1. Get best mill costs from mill_quotes
+            # 1. Get best mill costs from mill_quotes (only recent)
             conn = get_mi_db()
             mill_rows = conn.execute("""
                 SELECT mill_name, price, date FROM mill_quotes
-                WHERE product=? AND price > 0
+                WHERE product=? AND price > 0 AND date >= ?
                 ORDER BY date DESC
-            """, (product,)).fetchall()
+            """, (product, quote_cutoff)).fetchall()
             conn.close()
 
             # Deduplicate: latest price per mill
@@ -4598,7 +4964,7 @@ def forecast_pricing():
             if not seen_mills:
                 recommendations.append({
                     'product': product,
-                    'error': 'No mill pricing available'
+                    'error': f'No mill pricing available within {max_age_days} days'
                 })
                 continue
 
@@ -4865,6 +5231,331 @@ def create_audit_entry():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+
+# ── Intelligence Endpoints ──────────────────────────────────────────────────
+
+@app.route('/api/intelligence/mill-moves', methods=['GET'])
+def intel_mill_moves():
+    """Recent mill price changes from the mill_price_changes table."""
+    try:
+        days = int(request.args.get('days', 30))
+        product = request.args.get('product', '').strip()
+        mill = request.args.get('mill', '').strip()
+        conn = get_mi_db()
+        cutoff = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d')
+        sql = "SELECT * FROM mill_price_changes WHERE date >= ?"
+        params = [cutoff]
+        if product:
+            sql += " AND UPPER(product)=?"
+            params.append(product.upper())
+        if mill:
+            sql += " AND UPPER(mill_name) LIKE ?"
+            params.append(f"%{mill.upper()}%")
+        sql += " ORDER BY date DESC, mill_name"
+        rows = conn.execute(sql, params).fetchall()
+        conn.close()
+        changes = [dict(r) for r in rows]
+        # Summary stats
+        total = len(changes)
+        up_count = sum(1 for c in changes if (c.get('change') or 0) > 0)
+        down_count = sum(1 for c in changes if (c.get('change') or 0) < 0)
+        avg_change = round(sum(c.get('change', 0) or 0 for c in changes) / total, 2) if total else 0
+        # Most active mills
+        mill_counts = {}
+        for c in changes:
+            mn = c.get('mill_name', '')
+            mill_counts[mn] = mill_counts.get(mn, 0) + 1
+        most_active = sorted(mill_counts.items(), key=lambda x: -x[1])[:5]
+        return jsonify({
+            'changes': changes,
+            'summary': {
+                'total': total,
+                'up': up_count,
+                'down': down_count,
+                'avgChange': avg_change,
+                'mostActive': [{'mill': m, 'count': c} for m, c in most_active]
+            },
+            'days': days
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/intelligence/regime', methods=['GET'])
+def intel_regime():
+    """Market regime detection using ROC on RL benchmark prices."""
+    try:
+        region = request.args.get('region', 'west').strip()
+        product = request.args.get('product', '2x4#2').strip()
+        cache_key = f"regime_{region}_{product}"
+        cached = get_rl_cached(cache_key)
+        if cached:
+            return jsonify(cached)
+
+        conn = get_mi_db()
+        # Get last 90 days of RL prices (need buffer for 8-week ROC)
+        cutoff = (datetime.now() - timedelta(days=120)).strftime('%Y-%m-%d')
+        rows = conn.execute(
+            """SELECT date, price FROM rl_prices
+               WHERE region=? AND product=? AND length='RL' AND date>=?
+               ORDER BY date ASC""",
+            (region, product, cutoff)
+        ).fetchall()
+        conn.close()
+
+        if len(rows) < 5:
+            return jsonify({'error': 'Not enough RL data for regime detection', 'regime': 'Unknown', 'confidence': 0})
+
+        prices = [(r['date'], r['price']) for r in rows]
+        current_price = prices[-1][1]
+        current_date = prices[-1][0]
+
+        # Calculate ROC at 3 horizons (approximate trading days)
+        def _get_price_at_offset(prices_list, offset_days):
+            target_date = (datetime.strptime(prices_list[-1][0], '%Y-%m-%d') - timedelta(days=offset_days)).strftime('%Y-%m-%d')
+            # Find closest date at or before target
+            best = None
+            for d, p in prices_list:
+                if d <= target_date:
+                    best = p
+            return best
+
+        p_2wk = _get_price_at_offset(prices, 14)
+        p_4wk = _get_price_at_offset(prices, 28)
+        p_8wk = _get_price_at_offset(prices, 56)
+
+        roc_2wk = round(((current_price - p_2wk) / p_2wk) * 100, 2) if p_2wk else 0
+        roc_4wk = round(((current_price - p_4wk) / p_4wk) * 100, 2) if p_4wk else 0
+        roc_8wk = round(((current_price - p_8wk) / p_8wk) * 100, 2) if p_8wk else 0
+
+        chg_2wk = round(current_price - p_2wk, 2) if p_2wk else 0
+        chg_4wk = round(current_price - p_4wk, 2) if p_4wk else 0
+        chg_8wk = round(current_price - p_8wk, 2) if p_8wk else 0
+
+        # Classify regime
+        if roc_2wk > 2 and roc_4wk > 3:
+            regime = 'Rally'
+            confidence = min(100, int(40 + abs(roc_2wk) * 8 + abs(roc_4wk) * 5))
+            bias = f"Prices up ${chg_4wk}/MBF over 4 weeks. Momentum supports higher prices near-term."
+            trading = "Favor buying on dips — strong upward momentum."
+        elif roc_2wk < 1 and roc_4wk > 2:
+            regime = 'Topping'
+            confidence = min(100, int(35 + abs(roc_4wk - roc_2wk) * 10))
+            bias = f"Momentum fading — 2wk change slowing to {roc_2wk}% while 4wk still +{roc_4wk}%."
+            trading = "Consider locking in sales at current levels. Upside may be limited."
+        elif roc_2wk < -2 and roc_4wk < -2:
+            regime = 'Decline'
+            confidence = min(100, int(40 + abs(roc_2wk) * 8 + abs(roc_4wk) * 5))
+            bias = f"Prices down ${abs(chg_4wk)}/MBF over 4 weeks. Downward pressure continues."
+            trading = "Delay purchases if possible. Consider selling inventory at current levels."
+        elif roc_2wk > -1 and roc_4wk < -2:
+            regime = 'Bottoming'
+            confidence = min(100, int(35 + abs(roc_4wk - roc_2wk) * 10))
+            bias = f"Decline losing steam — 2wk change recovering to {roc_2wk}% while 4wk still {roc_4wk}%."
+            trading = "Watch for buying opportunities. Market may be finding a floor."
+        else:
+            regime = 'Choppy'
+            confidence = max(20, int(50 - abs(roc_2wk) * 5 - abs(roc_4wk) * 3))
+            bias = f"No clear trend — 2wk {'+' if roc_2wk >= 0 else ''}{roc_2wk}%, 4wk {'+' if roc_4wk >= 0 else ''}{roc_4wk}%."
+            trading = "Range-bound market. Trade tactically around spread opportunities."
+
+        confidence = max(10, min(95, confidence))
+
+        result = {
+            'regime': regime,
+            'confidence': confidence,
+            'roc': {'2wk': roc_2wk, '4wk': roc_4wk, '8wk': roc_8wk},
+            'changes': {'2wk': chg_2wk, '4wk': chg_4wk, '8wk': chg_8wk},
+            'currentPrice': current_price,
+            'currentDate': current_date,
+            'product': product,
+            'region': region,
+            'context': bias,
+            'tradingBias': trading,
+            'priceHistory': [{'date': d, 'price': p} for d, p in prices[-20:]]  # Last 20 data points
+        }
+        set_rl_cache(cache_key, result)
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/intelligence/spread-signals', methods=['GET'])
+def intel_spread_signals():
+    """Spread mean-reversion signals — flags extreme percentile spreads with reversion probability."""
+    try:
+        region = request.args.get('region', 'west').strip()
+        spread_type = request.args.get('type', 'all').strip()  # dimension, length, grade, all
+        cache_key = f"spread_signals_{region}_{spread_type}"
+        cached = get_rl_cached(cache_key)
+        if cached:
+            return jsonify(cached)
+
+        conn = get_mi_db()
+        try:
+            # Get current and 5-year historical RL data for this region
+            five_yr_ago = (datetime.now() - timedelta(days=5*365)).strftime('%Y-%m-%d')
+            rows = conn.execute(
+                """SELECT date, product, length, price FROM rl_prices
+                   WHERE region=? AND date>=? ORDER BY date""",
+                (region, five_yr_ago)
+            ).fetchall()
+        finally:
+            conn.close()
+
+        # Filter to complete dates only (≥10 rows per date)
+        from collections import Counter
+        date_counts = Counter(r['date'] for r in rows)
+        complete_dates = set(d for d, c in date_counts.items() if c >= 10)
+
+        # Build lookup: (product, length) -> {date: price}
+        hist = {}
+        for r in rows:
+            if r['date'] not in complete_dates:
+                continue
+            key = (r['product'], r['length'])
+            if key not in hist:
+                hist[key] = {}
+            hist[key][r['date']] = r['price']
+
+        # Get latest date
+        all_dates = sorted(complete_dates)
+        if not all_dates:
+            return jsonify({'signals': [], 'signalCount': 0, 'region': region})
+        latest_dt = all_dates[-1]
+
+        # Get current regime for context
+        regime_data = None
+        try:
+            regime_cache = get_rl_cached(f"regime_{region}_2x4#2")
+            if regime_cache:
+                regime_data = regime_cache
+        except Exception:
+            pass
+        current_regime = regime_data['regime'] if regime_data else 'Unknown'
+
+        signals = []
+        EXTREME_LOW = 10
+        EXTREME_HIGH = 90
+
+        def _check_spread(name, key_a, key_b, spread_category):
+            """Check if a spread is at extreme percentile and compute reversion probability."""
+            if key_a not in hist or key_b not in hist:
+                return
+            hist_a = hist[key_a]
+            hist_b = hist[key_b]
+            # Current spread
+            if latest_dt not in hist_a or latest_dt not in hist_b:
+                return
+            current = round(hist_a[latest_dt] - hist_b[latest_dt], 2)
+
+            # Historical spreads on common dates
+            common = sorted(set(hist_a.keys()) & set(hist_b.keys()))
+            if len(common) < 20:
+                return
+            hist_vals = [(d, hist_a[d] - hist_b[d]) for d in common]
+            vals = [v for _, v in hist_vals]
+            avg_s = round(sum(vals) / len(vals), 2)
+            pct = round(sum(1 for v in vals if v <= current) / len(vals) * 100)
+
+            if pct > EXTREME_LOW and pct < EXTREME_HIGH:
+                return  # Not extreme — no signal
+
+            # Compute reversion probability: how often did extreme spreads revert toward mean within 4 weeks?
+            bucket_low = 0 if pct <= EXTREME_LOW else 90
+            bucket_high = 10 if pct <= EXTREME_LOW else 100
+            revert_count = 0
+            total_instances = 0
+            for i, (d, s) in enumerate(hist_vals):
+                # Check if this historical point was in the same percentile bucket
+                rank = sum(1 for v in vals if v <= s) / len(vals) * 100
+                if rank >= bucket_low and rank <= bucket_high:
+                    total_instances += 1
+                    # Look ahead ~4 weeks (20 trading days ≈ 4-5 data points in weekly data)
+                    look_ahead = min(i + 5, len(hist_vals) - 1)
+                    if look_ahead > i:
+                        future_s = hist_vals[look_ahead][1]
+                        # Did it revert toward mean?
+                        if pct <= EXTREME_LOW and future_s > s:  # Was low, moved up
+                            revert_count += 1
+                        elif pct >= EXTREME_HIGH and future_s < s:  # Was high, moved down
+                            revert_count += 1
+
+            reversion_prob = round((revert_count / total_instances) * 100) if total_instances > 5 else None
+
+            direction = 'narrow' if abs(current) > abs(avg_s) else 'widen'
+            if pct <= EXTREME_LOW:
+                context = f"{name} spread is at {pct}th percentile (historically low)."
+                if reversion_prob:
+                    context += f" {reversion_prob}% chance of reverting within 4 weeks."
+                actionable = f"Spread likely to {direction}. Watch for mean-reversion opportunity."
+            else:
+                context = f"{name} spread is at {pct}th percentile (historically high)."
+                if reversion_prob:
+                    context += f" {reversion_prob}% chance of reverting within 4 weeks."
+                actionable = f"Spread likely to {direction}. Consider position adjustment."
+
+            # Weighted avg
+            import math
+            HALF_LIFE = 180
+            decay_c = math.log(2) / HALF_LIFE
+            latest_ord = datetime.strptime(latest_dt, '%Y-%m-%d').toordinal()
+            w_sum = 0.0; w_total = 0.0
+            for d, s in hist_vals:
+                try:
+                    age = latest_ord - datetime.strptime(d, '%Y-%m-%d').toordinal()
+                    w = math.exp(-decay_c * age)
+                    w_sum += w * s; w_total += w
+                except Exception:
+                    pass
+            wavg = round(w_sum / w_total, 2) if w_total > 0 else avg_s
+
+            signals.append({
+                'spread': name,
+                'category': spread_category,
+                'current': current,
+                'avg': avg_s,
+                'wavg': wavg,
+                'percentile': pct,
+                'direction': direction,
+                'reversionProb': reversion_prob,
+                'regime': current_regime,
+                'context': context,
+                'actionable': actionable,
+                'n': len(common)
+            })
+
+        # Check dimension spreads (vs 2x4)
+        if spread_type in ('dimension', 'all'):
+            for dim in ['2x6', '2x8', '2x10', '2x12']:
+                _check_spread(f"{dim} vs 2x4", (f"{dim}#2", 'RL'), ('2x4#2', 'RL'), 'dimension')
+
+        # Check length spreads (vs 16')
+        if spread_type in ('length', 'all'):
+            for prod in ['2x4#2', '2x6#2']:
+                for ln in ['8', '10', '12', '14', '20']:
+                    if (prod, ln) in hist and (prod, '16') in hist:
+                        _check_spread(f"{prod} {ln}' vs 16'", (prod, ln), (prod, '16'), 'length')
+
+        # Check grade spreads (#1 vs #2)
+        if spread_type in ('grade', 'all'):
+            for dim in ['2x4', '2x6', '2x8', '2x10', '2x12']:
+                _check_spread(f"{dim}#1 vs {dim}#2", (f"{dim}#1", 'RL'), (f"{dim}#2", 'RL'), 'grade')
+
+        # Sort by extremity (most extreme percentile first)
+        signals.sort(key=lambda s: min(s['percentile'], 100 - s['percentile']))
+
+        result = {
+            'signals': signals,
+            'signalCount': len(signals),
+            'region': region,
+            'regime': current_regime,
+            'asOf': latest_dt
+        }
+        set_rl_cache(cache_key, result)
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+# ── End Intelligence Endpoints ─────────────────────────────────────────────
 
 @app.route('/api/audit/log', methods=['GET'])
 
@@ -5496,6 +6187,555 @@ def freight_variance():
         return jsonify({'error': str(e)}), 500
 
 
+# ==================== AUTO-OFFERING SYSTEM ====================
+
+def _compute_offering_products(profile, destination):
+    """Generate offering line items for a profile using best-cost sourcing + freight + seasonal adjustment."""
+    products = json.loads(profile['products']) if isinstance(profile['products'], str) else profile['products']
+    preferred = json.loads(profile['preferred_mills']) if profile['preferred_mills'] else []
+    margin_target = float(profile['margin_target'] or 25)
+    result_products = []
+
+    # Only consider quotes from the last 2 days (today + yesterday)
+    quote_cutoff = (datetime.now() - timedelta(days=2)).strftime('%Y-%m-%d')
+
+    for product in products:
+        # 1. Get latest mill quotes for this product (only recent)
+        conn = get_mi_db()
+        mill_rows = conn.execute("""
+            SELECT mill_name, price, date FROM mill_quotes
+            WHERE product=? AND price > 0 AND date >= ?
+            ORDER BY date DESC
+        """, (product, quote_cutoff)).fetchall()
+        conn.close()
+
+        # Deduplicate: latest price per mill
+        seen_mills = {}
+        for r in mill_rows:
+            mill = r['mill_name']
+            if mill not in seen_mills:
+                seen_mills[mill] = {'mill': mill, 'fob': float(r['price']), 'date': r['date']}
+
+        if not seen_mills:
+            result_products.append({'product': product, 'error': 'No pricing available within 30 days'})
+            continue
+
+        # 2. If preferred mills set, filter to those (but fall back to all if none match)
+        if preferred:
+            preferred_matches = {k: v for k, v in seen_mills.items()
+                                 if any(p.lower() in k.lower() for p in preferred)}
+            if preferred_matches:
+                seen_mills = preferred_matches
+
+        # 3. Calculate freight for each mill
+        candidates = []
+        for mill_name, mill_data in seen_mills.items():
+            origin = ''
+            dir_entry = MILL_DIRECTORY.get(mill_name)
+            if dir_entry:
+                origin = f"{dir_entry[0]}, {dir_entry[1]}"
+            else:
+                for k, v in MILL_DIRECTORY.items():
+                    if mill_name.startswith(k.split(' - ')[0]):
+                        origin = f"{v[0]}, {v[1]}"
+                        break
+
+            if not origin or not destination:
+                continue
+
+            try:
+                freight_per_mbf = 0
+                miles = None
+                mi_conn = get_mi_db()
+                lane = mi_conn.execute(
+                    "SELECT miles FROM lanes WHERE origin=? AND destination=?",
+                    (origin, destination)
+                ).fetchone()
+                mi_conn.close()
+
+                if lane:
+                    miles = float(lane['miles'])
+                else:
+                    try:
+                        coords_o = geocode_location(origin)
+                        coords_d = geocode_location(destination)
+                        if coords_o and coords_d:
+                            miles = get_distance(coords_o, coords_d)
+                    except Exception:
+                        pass
+
+                if miles:
+                    base = 450
+                    rate = 2.25
+                    mbf_per_tl = 23
+                    freight_per_mbf = round((base + miles * rate) / mbf_per_tl)
+                else:
+                    freight_per_mbf = 20
+            except Exception:
+                freight_per_mbf = 20
+
+            landed = mill_data['fob'] + freight_per_mbf
+            candidates.append({
+                'mill': mill_name,
+                'fob': mill_data['fob'],
+                'freight': freight_per_mbf,
+                'landed': landed,
+                'date': mill_data['date']
+            })
+
+        if not candidates:
+            result_products.append({'product': product, 'error': 'Could not calculate freight'})
+            continue
+
+        candidates.sort(key=lambda c: c['landed'])
+        best = candidates[0]
+
+        # 4. Seasonal margin adjustment
+        seasonal_adj = 0
+        seasonal_note = ''
+        try:
+            mi_conn = get_mi_db()
+            cutoff_5y = (datetime.now() - timedelta(days=365 * 5)).strftime('%Y-%m-%d')
+            s_rows = mi_conn.execute(
+                "SELECT date, price FROM rl_prices WHERE product=? AND region='west' AND length='RL' AND date>=?",
+                (product, cutoff_5y)
+            ).fetchall()
+            mi_conn.close()
+
+            if s_rows:
+                current_month = datetime.now().month
+                month_prices = [float(r['price']) for r in s_rows if int(r['date'][5:7]) == current_month]
+                if month_prices:
+                    latest = float(s_rows[-1]['price'])
+                    pct = round(sum(1 for p in month_prices if p <= latest) / len(month_prices) * 100)
+                    if pct < 30:
+                        seasonal_adj = -5
+                        seasonal_note = f"Below seasonal norm ({pct}th %ile) — tighter margin"
+                    elif pct > 70:
+                        seasonal_adj = 5
+                        seasonal_note = f"Above seasonal norm ({pct}th %ile) — wider margin"
+                    else:
+                        seasonal_note = f"Near seasonal norm ({pct}th %ile)"
+        except Exception:
+            pass
+
+        adjusted_margin = margin_target + seasonal_adj
+        recommended_sell = best['landed'] + adjusted_margin
+
+        # Build alternatives list (top 3 after best)
+        alts = []
+        for c in candidates[1:4]:
+            alts.append({'mill': c['mill'], 'fob': c['fob'], 'freight': c['freight'],
+                         'landed': c['landed'], 'diff': round(c['landed'] - best['landed'])})
+
+        result_products.append({
+            'product': product,
+            'mill': best['mill'],
+            'fob': best['fob'],
+            'freight': best['freight'],
+            'landed': best['landed'],
+            'margin': adjusted_margin,
+            'price': recommended_sell,
+            'seasonalNote': seasonal_note,
+            'quoteDate': best['date'],
+            'alternatives': alts
+        })
+
+    return result_products
+
+
+# --- Offering Profile CRUD ---
+
+@app.route('/api/offerings/profiles', methods=['GET'])
+def list_offering_profiles():
+    """List all offering profiles, optionally filtered by trader."""
+    try:
+        conn = get_crm_db()
+        trader = request.args.get('trader', '')
+        if trader:
+            rows = conn.execute('SELECT * FROM offering_profiles WHERE trader=? ORDER BY customer_name', (trader,)).fetchall()
+        else:
+            rows = conn.execute('SELECT * FROM offering_profiles ORDER BY customer_name').fetchall()
+        conn.close()
+
+        profiles = []
+        for r in rows:
+            d = dict(r)
+            d['products'] = json.loads(d['products']) if d['products'] else []
+            d['preferred_mills'] = json.loads(d['preferred_mills']) if d['preferred_mills'] else []
+            profiles.append(d)
+
+        return jsonify(profiles)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/offerings/profiles', methods=['POST'])
+def create_offering_profile():
+    """Create a new offering profile for a customer."""
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'JSON body required'}), 400
+
+        required = ['customer_id', 'customer_name', 'destination', 'products', 'trader']
+        for f in required:
+            if not data.get(f):
+                return jsonify({'error': f'{f} required'}), 400
+
+        products_json = json.dumps(data['products']) if isinstance(data['products'], list) else data['products']
+        preferred_json = json.dumps(data.get('preferred_mills', [])) if isinstance(data.get('preferred_mills', []), list) else data.get('preferred_mills', '[]')
+
+        conn = get_crm_db()
+        cur = conn.execute("""
+            INSERT INTO offering_profiles (customer_id, customer_name, destination, products, margin_target,
+                frequency, preferred_mills, day_of_week, active, notes, trader)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            data['customer_id'], data['customer_name'], data['destination'], products_json,
+            float(data.get('margin_target', 25)), data.get('frequency', 'weekly'),
+            preferred_json, int(data.get('day_of_week', 1)),
+            1 if data.get('active', True) else 0, data.get('notes', ''), data['trader']
+        ))
+        conn.commit()
+        profile_id = cur.lastrowid
+        conn.close()
+
+        return jsonify({'id': profile_id, 'message': 'Profile created'})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/offerings/profiles/<int:pid>', methods=['PUT'])
+def update_offering_profile(pid):
+    """Update an existing offering profile."""
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'JSON body required'}), 400
+
+        conn = get_crm_db()
+        existing = conn.execute('SELECT * FROM offering_profiles WHERE id=?', (pid,)).fetchone()
+        if not existing:
+            conn.close()
+            return jsonify({'error': 'Profile not found'}), 404
+
+        fields = []
+        vals = []
+        for col in ['customer_name', 'destination', 'notes', 'frequency', 'trader']:
+            if col in data:
+                fields.append(f'{col}=?')
+                vals.append(data[col])
+        if 'products' in data:
+            fields.append('products=?')
+            vals.append(json.dumps(data['products']) if isinstance(data['products'], list) else data['products'])
+        if 'preferred_mills' in data:
+            fields.append('preferred_mills=?')
+            vals.append(json.dumps(data['preferred_mills']) if isinstance(data['preferred_mills'], list) else data['preferred_mills'])
+        if 'margin_target' in data:
+            fields.append('margin_target=?')
+            vals.append(float(data['margin_target']))
+        if 'day_of_week' in data:
+            fields.append('day_of_week=?')
+            vals.append(int(data['day_of_week']))
+        if 'active' in data:
+            fields.append('active=?')
+            vals.append(1 if data['active'] else 0)
+
+        if fields:
+            fields.append("updated_at=datetime('now')")
+            vals.append(pid)
+            conn.execute(f"UPDATE offering_profiles SET {', '.join(fields)} WHERE id=?", vals)
+            conn.commit()
+
+        conn.close()
+        return jsonify({'message': 'Profile updated'})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/offerings/profiles/<int:pid>', methods=['DELETE'])
+def delete_offering_profile(pid):
+    """Delete an offering profile."""
+    try:
+        conn = get_crm_db()
+        conn.execute('DELETE FROM offering_profiles WHERE id=?', (pid,))
+        conn.commit()
+        conn.close()
+        return jsonify({'message': 'Profile deleted'})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+# --- Offering Generation ---
+
+@app.route('/api/offerings/generate', methods=['POST'])
+def generate_offerings():
+    """Generate draft offerings for due profiles (or specific profile_id)."""
+    try:
+        data = request.get_json() or {}
+        profile_id = data.get('profile_id')
+        force = data.get('force', False)  # bypass schedule check
+
+        conn = get_crm_db()
+
+        if profile_id:
+            profiles = conn.execute('SELECT * FROM offering_profiles WHERE id=? AND active=1', (profile_id,)).fetchall()
+        else:
+            profiles = conn.execute('SELECT * FROM offering_profiles WHERE active=1').fetchall()
+
+        now = datetime.now()
+        today_dow = now.weekday()  # 0=Mon
+        generated = []
+
+        for profile in profiles:
+            p = dict(profile)
+
+            # Check if schedule is due (skip if force=True)
+            if not force and not profile_id:
+                freq = p.get('frequency', 'weekly')
+                target_dow = p.get('day_of_week', 1)
+
+                if freq == 'daily':
+                    pass  # always due
+                elif freq == 'weekly':
+                    if today_dow != target_dow:
+                        continue
+                elif freq == 'biweekly':
+                    if today_dow != target_dow:
+                        continue
+                    # Check if we already generated this week
+                    week_start = (now - timedelta(days=today_dow)).strftime('%Y-%m-%d')
+                    existing = conn.execute(
+                        "SELECT COUNT(*) FROM offerings WHERE profile_id=? AND generated_at>=?",
+                        (p['id'], week_start)
+                    ).fetchone()[0]
+                    if existing > 0:
+                        continue
+
+            # Check if we already have a draft for this profile today
+            today_str = now.strftime('%Y-%m-%d')
+            existing_today = conn.execute(
+                "SELECT COUNT(*) FROM offerings WHERE profile_id=? AND status='draft' AND DATE(generated_at)=?",
+                (p['id'], today_str)
+            ).fetchone()[0]
+            if existing_today > 0 and not force:
+                continue
+
+            # Generate offering products
+            result_products = _compute_offering_products(p, p['destination'])
+
+            # Calculate total margin
+            total_margin = sum(item.get('margin', 0) for item in result_products if 'error' not in item)
+
+            # Set expiration: 3 days from now
+            expires = (now + timedelta(days=3)).strftime('%Y-%m-%d %H:%M:%S')
+
+            # Insert offering
+            cur = conn.execute("""
+                INSERT INTO offerings (profile_id, customer_id, customer_name, destination, status,
+                    products, margin_target, total_margin, expires_at, trader)
+                VALUES (?, ?, ?, ?, 'draft', ?, ?, ?, ?, ?)
+            """, (
+                p['id'], p['customer_id'], p['customer_name'], p['destination'],
+                json.dumps(result_products), p['margin_target'], total_margin,
+                expires, p['trader']
+            ))
+            conn.commit()
+
+            generated.append({
+                'offering_id': cur.lastrowid,
+                'customer': p['customer_name'],
+                'products_count': len([x for x in result_products if 'error' not in x]),
+                'total_margin': total_margin
+            })
+
+        conn.close()
+        return jsonify({'generated': len(generated), 'offerings': generated})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+# --- Offering Management ---
+
+@app.route('/api/offerings', methods=['GET'])
+def list_offerings():
+    """List offerings with optional filters."""
+    try:
+        conn = get_crm_db()
+        status = request.args.get('status', '')
+        customer_id = request.args.get('customer_id', '')
+        trader = request.args.get('trader', '')
+        limit_n = int(request.args.get('limit', 50))
+
+        sql = 'SELECT * FROM offerings WHERE 1=1'
+        params = []
+
+        if status:
+            sql += ' AND status=?'
+            params.append(status)
+        if customer_id:
+            sql += ' AND customer_id=?'
+            params.append(int(customer_id))
+        if trader:
+            sql += ' AND trader=?'
+            params.append(trader)
+
+        sql += ' ORDER BY generated_at DESC LIMIT ?'
+        params.append(limit_n)
+
+        rows = conn.execute(sql, params).fetchall()
+        conn.close()
+
+        offerings = []
+        for r in rows:
+            d = dict(r)
+            d['products'] = json.loads(d['products']) if isinstance(d['products'], str) else d['products']
+            offerings.append(d)
+
+        return jsonify(offerings)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/offerings/<int:oid>', methods=['GET'])
+def get_offering(oid):
+    """Get a single offering by ID."""
+    try:
+        conn = get_crm_db()
+        row = conn.execute('SELECT * FROM offerings WHERE id=?', (oid,)).fetchone()
+        conn.close()
+        if not row:
+            return jsonify({'error': 'Offering not found'}), 404
+        d = dict(row)
+        d['products'] = json.loads(d['products']) if isinstance(d['products'], str) else d['products']
+        return jsonify(d)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/offerings/<int:oid>', methods=['PUT'])
+def update_offering(oid):
+    """Update an offering (edit prices, notes, status)."""
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'JSON body required'}), 400
+
+        conn = get_crm_db()
+        existing = conn.execute('SELECT * FROM offerings WHERE id=?', (oid,)).fetchone()
+        if not existing:
+            conn.close()
+            return jsonify({'error': 'Offering not found'}), 404
+
+        fields = []
+        vals = []
+
+        if 'products' in data:
+            products = data['products']
+            fields.append('products=?')
+            vals.append(json.dumps(products) if isinstance(products, list) else products)
+            # Recalculate total margin
+            if isinstance(products, list):
+                total_margin = sum(item.get('margin', 0) for item in products if isinstance(item, dict) and 'error' not in item)
+                fields.append('total_margin=?')
+                vals.append(total_margin)
+
+        if 'status' in data:
+            fields.append('status=?')
+            vals.append(data['status'])
+            if data['status'] == 'approved':
+                fields.append("approved_at=datetime('now')")
+                fields.append('approved_by=?')
+                vals.append(data.get('approved_by', 'Ian'))
+            elif data['status'] == 'sent':
+                fields.append("sent_at=datetime('now')")
+
+        if 'edit_notes' in data:
+            fields.append('edit_notes=?')
+            vals.append(data['edit_notes'])
+
+        if fields:
+            vals.append(oid)
+            # Build SET clause carefully (some fields have no placeholder)
+            set_parts = []
+            final_vals = []
+            for f, v in zip(fields, vals[:-1]):
+                set_parts.append(f)
+                if '=?' in f:
+                    final_vals.append(v)
+            final_vals.append(oid)
+            conn.execute(f"UPDATE offerings SET {', '.join(set_parts)} WHERE id=?", final_vals)
+            conn.commit()
+
+        conn.close()
+        return jsonify({'message': 'Offering updated'})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/offerings/<int:oid>/approve', methods=['PUT'])
+def approve_offering(oid):
+    """Quick-approve an offering."""
+    try:
+        data = request.get_json() or {}
+        conn = get_crm_db()
+        existing = conn.execute('SELECT * FROM offerings WHERE id=?', (oid,)).fetchone()
+        if not existing:
+            conn.close()
+            return jsonify({'error': 'Offering not found'}), 404
+
+        conn.execute("""
+            UPDATE offerings SET status='approved', approved_at=datetime('now'),
+                approved_by=?, edit_notes=?
+            WHERE id=?
+        """, (data.get('approved_by', 'Ian'), data.get('notes', ''), oid))
+        conn.commit()
+        conn.close()
+        return jsonify({'message': 'Offering approved'})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/offerings/history/<int:customer_id>', methods=['GET'])
+def offering_history(customer_id):
+    """Get offering history for a specific customer."""
+    try:
+        conn = get_crm_db()
+        limit_n = int(request.args.get('limit', 20))
+        rows = conn.execute(
+            'SELECT * FROM offerings WHERE customer_id=? ORDER BY generated_at DESC LIMIT ?',
+            (customer_id, limit_n)
+        ).fetchall()
+        conn.close()
+
+        offerings = []
+        for r in rows:
+            d = dict(r)
+            d['products'] = json.loads(d['products']) if isinstance(d['products'], str) else d['products']
+            offerings.append(d)
+
+        return jsonify(offerings)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/offerings/pending-count', methods=['GET'])
+def offerings_pending_count():
+    """Get count of pending draft offerings."""
+    try:
+        conn = get_crm_db()
+        trader = request.args.get('trader', '')
+        if trader:
+            cnt = conn.execute("SELECT COUNT(*) FROM offerings WHERE status='draft' AND trader=?", (trader,)).fetchone()[0]
+        else:
+            cnt = conn.execute("SELECT COUNT(*) FROM offerings WHERE status='draft'").fetchone()[0]
+        conn.close()
+        return jsonify({'count': cnt})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 # ==================== ENHANCED DASHBOARD ====================
 
 @app.route('/api/dashboard/summary', methods=['GET'])
@@ -5616,6 +6856,76 @@ def dashboard_summary():
         })
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+
+# ==================== OFFERING SCHEDULER ====================
+import threading
+
+def _offering_scheduler_loop():
+    """Background thread: runs daily at 6 AM to generate offerings for due profiles."""
+    import time as _time
+    while True:
+        try:
+            now = datetime.now()
+            # Next 6 AM
+            target = now.replace(hour=6, minute=0, second=0, microsecond=0)
+            if now >= target:
+                target += timedelta(days=1)
+            wait_seconds = (target - now).total_seconds()
+            _time.sleep(wait_seconds)
+
+            # Generate offerings for all due profiles
+            with app.app_context():
+                conn = get_crm_db()
+                profiles = conn.execute('SELECT * FROM offering_profiles WHERE active=1').fetchall()
+                today_dow = datetime.now().weekday()
+                today_str = datetime.now().strftime('%Y-%m-%d')
+
+                for profile in profiles:
+                    p = dict(profile)
+                    freq = p.get('frequency', 'weekly')
+                    target_dow = p.get('day_of_week', 1)
+
+                    if freq == 'daily':
+                        pass
+                    elif freq == 'weekly' and today_dow != target_dow:
+                        continue
+                    elif freq == 'biweekly' and today_dow != target_dow:
+                        continue
+
+                    # Skip if already generated today
+                    existing = conn.execute(
+                        "SELECT COUNT(*) FROM offerings WHERE profile_id=? AND DATE(generated_at)=?",
+                        (p['id'], today_str)
+                    ).fetchone()[0]
+                    if existing > 0:
+                        continue
+
+                    result_products = _compute_offering_products(p, p['destination'])
+                    total_margin = sum(item.get('margin', 0) for item in result_products if 'error' not in item)
+                    expires = (datetime.now() + timedelta(days=3)).strftime('%Y-%m-%d %H:%M:%S')
+
+                    conn.execute("""
+                        INSERT INTO offerings (profile_id, customer_id, customer_name, destination, status,
+                            products, margin_target, total_margin, expires_at, trader)
+                        VALUES (?, ?, ?, ?, 'draft', ?, ?, ?, ?, ?)
+                    """, (
+                        p['id'], p['customer_id'], p['customer_name'], p['destination'],
+                        json.dumps(result_products), p['margin_target'], total_margin,
+                        expires, p['trader']
+                    ))
+
+                conn.commit()
+                conn.close()
+                print(f"[Scheduler] Generated offerings at {datetime.now()}")
+        except Exception as e:
+            print(f"[Scheduler] Error: {e}")
+            import time as _time
+            _time.sleep(3600)  # retry in 1 hour on error
+
+# Start scheduler thread
+_scheduler_thread = threading.Thread(target=_offering_scheduler_loop, daemon=True)
+_scheduler_thread.start()
 
 
 if __name__ == '__main__':

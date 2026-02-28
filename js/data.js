@@ -551,6 +551,43 @@ async function syncMillQuotesToMillIntel(){
   }
 }
 
+// Pull latest mill quotes FROM server → S.millQuotes (reverse sync)
+// Ensures client-side quote builder sees data added via API/intake skill
+async function refreshMillQuotesFromServer(){
+  try{
+    const cutoff=new Date(Date.now()-2*24*60*60*1000).toISOString().slice(0,10);
+    const res=await fetch('/api/mi/quotes/latest?since='+cutoff);
+    if(!res.ok)return;
+    const serverQuotes=await res.json();
+    if(!serverQuotes.length)return;
+    // Build a lookup of what we already have (by mill+product+date)
+    const existing=new Set((S.millQuotes||[]).map(q=>`${q.mill||q.mill_name}|${q.product}|${q.date}`));
+    let added=0;
+    for(const sq of serverQuotes){
+      const key=`${sq.mill_name}|${sq.product}|${sq.date}`;
+      if(!existing.has(key)){
+        S.millQuotes.push({
+          id:sq.id,mill:sq.mill_name,product:sq.product,price:sq.price,
+          length:sq.length||'RL',volume:sq.volume||0,tls:sq.tls||0,
+          shipWindow:sq.ship_window||'prompt',date:sq.date,
+          trader:sq.trader||'',city:sq.city||'',state:sq.state||'',
+          region:sq.region||'',source:sq.source||'api'
+        });
+        existing.add(key);
+        added++;
+      }
+    }
+    if(added){
+      normalizeMillQuotes();
+      SS('millQuotes',S.millQuotes);
+      await dbSet('millQuotes',S.millQuotes);
+      _dbg(`Refreshed ${added} mill quotes from server`);
+    }
+  }catch(e){
+    _dbg('Mill quotes refresh error:',e.message);
+  }
+}
+
 // Load from IndexedDB first, fall back to localStorage
 async function loadAllLocal(){
   await initDB();

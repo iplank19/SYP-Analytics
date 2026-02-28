@@ -3,10 +3,19 @@
 
 const MI_API = '';
 
-async function miApiGet(path) {
-  const res = await fetch(MI_API + path);
-  if (!res.ok) throw new Error(`API error: ${res.status}`);
-  return res.json();
+async function miApiGet(path, timeoutMs = 15000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(MI_API + path, {signal: controller.signal});
+    clearTimeout(timer);
+    if (!res.ok) throw new Error(`API error: ${res.status}`);
+    return res.json();
+  } catch(e) {
+    clearTimeout(timer);
+    if (e.name === 'AbortError') throw new Error('Request timed out — server may be slow or unavailable');
+    throw e;
+  }
 }
 
 async function miApiPost(path, data) {

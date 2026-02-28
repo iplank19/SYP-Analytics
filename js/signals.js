@@ -245,7 +245,7 @@ function generateSeasonalSignals(){
             region,
             strength,
             price:current,
-            reason:`${product} at ${pctRank}th percentile for ${monthNames[month]} in ${region} (seasonal index: ${idx.toFixed(2)}). Below seasonal norm — buying opportunity.`,
+            reason:`${product} at ${typeof ordinal==='function'?ordinal(pctRank):pctRank+'th'} percentile for ${monthNames[month]} in ${region} (seasonal index: ${idx.toFixed(2)}). Below seasonal norm — buying opportunity.`,
             timestamp:new Date().toISOString()
           });
         }
@@ -260,7 +260,7 @@ function generateSeasonalSignals(){
             region,
             strength,
             price:current,
-            reason:`${product} at ${pctRank}th percentile for ${monthNames[month]} in ${region} (seasonal index: ${idx.toFixed(2)}). Above seasonal norm — consider selling.`,
+            reason:`${product} at ${typeof ordinal==='function'?ordinal(pctRank):pctRank+'th'} percentile for ${monthNames[month]} in ${region} (seasonal index: ${idx.toFixed(2)}). Above seasonal norm — consider selling.`,
             timestamp:new Date().toISOString()
           });
         }
