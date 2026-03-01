@@ -22,6 +22,18 @@ import statistics
 from collections import defaultdict
 from entity_resolution import EntityResolver
 
+
+def business_day_cutoff(biz_days):
+    """Return a date string N business days ago (Mon-Fri only)."""
+    d = datetime.now()
+    count = 0
+    while count < biz_days:
+        d -= timedelta(days=1)
+        if d.weekday() < 5:  # Mon=0 .. Fri=4
+            count += 1
+    return d.strftime('%Y-%m-%d')
+
+
 try:
     import jwt
 except ImportError:
@@ -35,7 +47,7 @@ ALLOWED_ORIGINS = [
     os.environ.get('ALLOWED_ORIGINS', 'http://localhost:5000,http://localhost:5001').split(',')
 ]
 # In production (Heroku), ALLOWED_ORIGINS env var should include the app domain
-CORS(app, origins=ALLOWED_ORIGINS, supports_credentials=True)
+CORS(app, origins=ALLOWED_ORIGINS + ['https://trade.fctg.com'], supports_credentials=True)
 
 # --- JWT Auth configuration ---
 JWT_SECRET = os.environ.get('JWT_SECRET', secrets.token_hex(32))
@@ -2649,6 +2661,57 @@ def entity_stats():
 
 # ==================== END ENTITY RESOLUTION API ====================
 
+# ==================== TRADE CENTRAL SYNC ====================
+
+_tc_staging = {'data': None, 'timestamp': 0}
+
+@app.route('/api/tc-import', methods=['POST', 'OPTIONS'])
+def tc_import_receive():
+    """Receive TC order data (POST from TC tab or SYP tab).
+    Stores in server memory for the SYP tab to retrieve."""
+    if request.method == 'OPTIONS':
+        # Handle CORS preflight
+        resp = app.make_default_options_response()
+        resp.headers['Access-Control-Allow-Origin'] = '*'
+        resp.headers['Access-Control-Allow-Methods'] = 'POST, OPTIONS'
+        resp.headers['Access-Control-Allow-Headers'] = 'Content-Type'
+        return resp
+
+    try:
+        data = request.get_json(force=True)
+        if not isinstance(data, list):
+            return jsonify({'error': 'Expected array of orders'}), 400
+        _tc_staging['data'] = data
+        _tc_staging['timestamp'] = time.time()
+        return jsonify({
+            'status': 'ok',
+            'count': len(data),
+            'message': f'Received {len(data)} TC orders. Fetch from /api/tc-import to retrieve.'
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/tc-import', methods=['GET'])
+def tc_import_retrieve():
+    """Retrieve staged TC data (called by SYP Analytics tab)."""
+    if not _tc_staging['data']:
+        return jsonify({'error': 'No TC data staged. POST data first.'}), 404
+    age = time.time() - _tc_staging['timestamp']
+    return jsonify({
+        'data': _tc_staging['data'],
+        'count': len(_tc_staging['data']),
+        'age_seconds': round(age)
+    })
+
+@app.route('/api/tc-import', methods=['DELETE'])
+def tc_import_clear():
+    """Clear staged TC data."""
+    _tc_staging['data'] = None
+    _tc_staging['timestamp'] = 0
+    return jsonify({'status': 'cleared'})
+
+# ==================== END TRADE CENTRAL SYNC ====================
+
 # ==================== FUTURES DATA PROXY ====================
 
 # CME SYP futures months: F=Jan, H=Mar, K=May, N=Jul, U=Sep, X=Nov
@@ -4940,9 +5003,9 @@ def forecast_pricing():
 
         recommendations = []
 
-        # Only consider quotes from the last 2 days (today + yesterday) for active quoting
+        # Only consider quotes from the last 2 business days for active quoting
         max_age_days = int(data.get('maxAgeDays', 2))
-        quote_cutoff = (datetime.now() - timedelta(days=max_age_days)).strftime('%Y-%m-%d')
+        quote_cutoff = business_day_cutoff(max_age_days)
 
         for product in products:
             # 1. Get best mill costs from mill_quotes (only recent)
@@ -5383,7 +5446,7 @@ def intel_spread_signals():
     """Spread mean-reversion signals — flags extreme percentile spreads with reversion probability."""
     try:
         region = request.args.get('region', 'west').strip()
-        spread_type = request.args.get('type', 'all').strip()  # dimension, length, grade, all
+        spread_type = request.args.get('type', 'all').strip()  # dimension, length, grade, zone, all
         cache_key = f"spread_signals_{region}_{spread_type}"
         cached = get_rl_cached(cache_key)
         if cached:
@@ -5539,6 +5602,57 @@ def intel_spread_signals():
         if spread_type in ('grade', 'all'):
             for dim in ['2x4', '2x6', '2x8', '2x10', '2x12']:
                 _check_spread(f"{dim}#1 vs {dim}#2", (f"{dim}#1", 'RL'), (f"{dim}#2", 'RL'), 'grade')
+
+        # Check cross-zone (inter-region) spreads
+        if spread_type in ('zone', 'all'):
+            # Load data for the other two regions
+            other_regions = [r for r in ['west', 'central', 'east'] if r != region]
+            zone_hist = {region: hist}  # reuse already-loaded data for primary region
+            for oreg in other_regions:
+                conn2 = get_mi_db()
+                try:
+                    orows = conn2.execute(
+                        """SELECT date, product, length, price FROM rl_prices
+                           WHERE region=? AND date>=? ORDER BY date""",
+                        (oreg, five_yr_ago)
+                    ).fetchall()
+                finally:
+                    conn2.close()
+                oh = {}
+                for r in orows:
+                    if r['date'] not in complete_dates:
+                        continue
+                    key = (r['product'], r['length'])
+                    if key not in oh:
+                        oh[key] = {}
+                    oh[key][r['date']] = r['price']
+                zone_hist[oreg] = oh
+
+            # Build cross-zone spread checks for key products
+            zone_products = ['2x4#2', '2x6#2', '2x4#3', '2x6#3', '2x10#2', '2x4 MSR', '2x6 MSR']
+            zone_pairs = [('west', 'central'), ('west', 'east'), ('central', 'east')]
+
+            # Save/restore hist for _check_spread since it reads from outer `hist`
+            orig_hist = hist
+            for prod in zone_products:
+                for reg_a, reg_b in zone_pairs:
+                    h_a = zone_hist.get(reg_a, {})
+                    h_b = zone_hist.get(reg_b, {})
+                    key_a = (prod, 'RL')
+                    key_b = (prod, 'RL')
+                    if key_a not in h_a or key_b not in h_b:
+                        continue
+                    # Merge into hist temporarily so _check_spread can read them
+                    fake_a = (f"_zone_{reg_a}_{prod}", 'RL')
+                    fake_b = (f"_zone_{reg_b}_{prod}", 'RL')
+                    hist[fake_a] = h_a[key_a]
+                    hist[fake_b] = h_b[key_b]
+                    label = f"{prod} {reg_a.title()} vs {reg_b.title()}"
+                    _check_spread(label, fake_a, fake_b, 'zone')
+                    # Clean up
+                    del hist[fake_a]
+                    del hist[fake_b]
+            hist = orig_hist
 
         # Sort by extremity (most extreme percentile first)
         signals.sort(key=lambda s: min(s['percentile'], 100 - s['percentile']))
@@ -6196,8 +6310,8 @@ def _compute_offering_products(profile, destination):
     margin_target = float(profile['margin_target'] or 25)
     result_products = []
 
-    # Only consider quotes from the last 2 days (today + yesterday)
-    quote_cutoff = (datetime.now() - timedelta(days=2)).strftime('%Y-%m-%d')
+    # Only consider quotes from the last 2 business days
+    quote_cutoff = business_day_cutoff(2)
 
     for product in products:
         # 1. Get latest mill quotes for this product (only recent)

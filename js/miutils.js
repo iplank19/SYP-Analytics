@@ -1,6 +1,24 @@
 // SYP Analytics - Mill Intel Utilities
 // Functions unique to Mill Intel (not already in SYP utils)
 
+// Business-day age: count only Mon-Fri between a date and today
+function businessDayAge(dateStr) {
+  if (!dateStr) return 999;
+  const d = new Date(dateStr + 'T12:00:00'); // noon to avoid TZ issues
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 12);
+  if (d >= today) return 0;
+  let count = 0;
+  const cursor = new Date(d);
+  cursor.setDate(cursor.getDate() + 1);
+  while (cursor <= today) {
+    const dow = cursor.getDay();
+    if (dow !== 0 && dow !== 6) count++;
+    cursor.setDate(cursor.getDate() + 1);
+  }
+  return count;
+}
+
 const MI_MILL_CITIES = {
   'gordo':'AL','fulton':'AL','axis':'AL','nauvoo':'AL','carrollton':'AL','salem':'AL',
   'lafayette':'AL','spanish fort':'AL','eufaula':'AL','talladega':'AL','frisco city':'AL',
@@ -196,15 +214,15 @@ function miInferMillCity(millName) {
 
 function miAgeLabel(dateStr) {
   if (!dateStr) return '—';
-  const age = Math.floor((new Date() - new Date(dateStr)) / (1000 * 60 * 60 * 24));
+  const age = businessDayAge(dateStr);
   if (age === 0) return 'Today';
   if (age === 1) return 'Yesterday';
-  return age + 'd ago';
+  return age + 'bd ago';
 }
 
 function miAgeColor(dateStr) {
   if (!dateStr) return 'var(--muted)';
-  const age = Math.floor((new Date() - new Date(dateStr)) / (1000 * 60 * 60 * 24));
+  const age = businessDayAge(dateStr);
   if (age === 0) return 'var(--positive)';
   if (age <= 2) return 'var(--text)';
   if (age <= 5) return 'var(--warn)';
@@ -266,7 +284,7 @@ function formatProductHeader(product) {
 // Age badge background color
 function miAgeBadgeBg(dateStr) {
   if (!dateStr) return 'transparent';
-  const age = Math.floor((new Date() - new Date(dateStr)) / (1000 * 60 * 60 * 24));
+  const age = businessDayAge(dateStr);
   if (age === 0) return 'rgba(166,227,161,0.15)';   // positive bg
   if (age === 1) return 'rgba(249,226,175,0.2)';    // warn bg
   return 'rgba(243,139,168,0.15)';                   // negative bg
@@ -275,7 +293,7 @@ function miAgeBadgeBg(dateStr) {
 // Age badge text color
 function miAgeBadgeColor(dateStr) {
   if (!dateStr) return 'var(--muted)';
-  const age = Math.floor((new Date() - new Date(dateStr)) / (1000 * 60 * 60 * 24));
+  const age = businessDayAge(dateStr);
   if (age === 0) return 'var(--positive)';
   if (age === 1) return 'var(--warn)';
   return 'var(--negative)';

@@ -320,66 +320,94 @@ function generateSpreadSignals(){
   if(!config?.enabled)return[];
 
   const signals=[];
-  const products=['2x4#2','2x6#2','2x4#3','2x6#3'];
   const threshold=config.threshold||10;
-
   const latestRL=S.rl.length?S.rl[S.rl.length-1]:null;
   if(!latestRL)return signals;
 
-  products.forEach(product=>{
+  // ── Cross-zone spreads: same product across regions ──
+  const zonePairs=[['west','central'],['west','east'],['central','east']];
+  const zoneProducts=['2x4#2','2x6#2','2x4#3','2x6#3','2x10#2','2x4 MSR','2x6 MSR'];
+
+  zoneProducts.forEach(product=>{
     const normProd=(product||'').replace(/\s+/g,'');
-    const westPrice=latestRL.west?.[normProd]||latestRL.west?.[normProd+'#2'];
-    const centralPrice=latestRL.central?.[normProd]||latestRL.central?.[normProd+'#2'];
-    const eastPrice=latestRL.east?.[normProd]||latestRL.east?.[normProd+'#2'];
+    zonePairs.forEach(([regA,regB])=>{
+      const priceA=latestRL[regA]?.[normProd]||latestRL[regA]?.[product];
+      const priceB=latestRL[regB]?.[normProd]||latestRL[regB]?.[product];
+      if(!priceA||!priceB)return;
 
-    if(!westPrice||!centralPrice||!eastPrice)return;
+      const spread=priceA-priceB;
 
-    // Calculate spreads
-    const westCentralSpread=westPrice-centralPrice;
-    const westEastSpread=westPrice-eastPrice;
-    const centralEastSpread=centralPrice-eastPrice;
+      // Compute historical stats from S.rl (up to 52 weeks)
+      const recent=S.rl.slice(-52);
+      const histSpreads=recent.map(r=>{
+        const a=r[regA]?.[normProd]||r[regA]?.[product];
+        const b=r[regB]?.[normProd]||r[regB]?.[product];
+        return(a&&b)?a-b:null;
+      }).filter(v=>v!==null);
 
-    // Compute historical average spreads from RL data, fallback to defaults
-    let avgWestCentral=15;
-    let avgWestEast=25;
-    if(S.rl.length>=4){
-      const recent=S.rl.slice(-12);
-      const wcSpreads=recent.map(r=>(r.west?.[normProd]||0)-(r.central?.[normProd]||0)).filter(v=>v!==0);
-      const weSpreads=recent.map(r=>(r.west?.[normProd]||0)-(r.east?.[normProd]||0)).filter(v=>v!==0);
-      if(wcSpreads.length>=3)avgWestCentral=wcSpreads.reduce((a,b)=>a+b,0)/wcSpreads.length;
-      if(weSpreads.length>=3)avgWestEast=weSpreads.reduce((a,b)=>a+b,0)/weSpreads.length;
-    }
+      if(histSpreads.length<8)return;
 
-    // Check for unusual spreads
-    if(Math.abs(westCentralSpread-avgWestCentral)>threshold){
-      const isWide=westCentralSpread>avgWestCentral+threshold;
+      const avg=histSpreads.reduce((a,b)=>a+b,0)/histSpreads.length;
+      const sorted=[...histSpreads].sort((a,b)=>a-b);
+      const pctRank=Math.round(sorted.filter(v=>v<=spread).length/sorted.length*100);
+      const stdDev=Math.sqrt(histSpreads.map(v=>(v-avg)**2).reduce((a,b)=>a+b,0)/histSpreads.length);
+      const zScore=stdDev>0?(spread-avg)/stdDev:0;
+
+      // Reversion probability: how often did extreme spreads revert within ~4 weeks?
+      let revertCount=0,totalExtreme=0;
+      const isLow=pctRank<=15,isHigh=pctRank>=85;
+      if(isLow||isHigh){
+        histSpreads.forEach((s,i)=>{
+          const rank=sorted.filter(v=>v<=s).length/sorted.length*100;
+          if((isLow&&rank<=15)||(isHigh&&rank>=85)){
+            totalExtreme++;
+            const lookAhead=Math.min(i+4,histSpreads.length-1);
+            if(lookAhead>i){
+              const future=histSpreads[lookAhead];
+              if(isLow&&future>s)revertCount++;
+              if(isHigh&&future<s)revertCount++;
+            }
+          }
+        });
+      }
+      const revertProb=totalExtreme>=5?Math.round(revertCount/totalExtreme*100):null;
+
+      // Only signal if spread is at extreme percentile or deviates significantly
+      const isExtreme=pctRank<=15||pctRank>=85;
+      const isSignificant=Math.abs(spread-avg)>threshold;
+      if(!isExtreme&&!isSignificant)return;
+
+      const regALabel=regA.charAt(0).toUpperCase()+regA.slice(1);
+      const regBLabel=regB.charAt(0).toUpperCase()+regB.slice(1);
+      const wider=spread>avg;
+      const direction=wider?'sell':'buy';
+      const strength=Math.abs(zScore)>=2?'strong':Math.abs(zScore)>=1?'moderate':'weak';
+
+      let reason=`${product} ${regALabel}→${regBLabel} $${spread.toFixed(0)} vs avg $${Math.round(avg)} (${pctRank}th pctl).`;
+      if(isExtreme){
+        const action=wider?'narrow':'widen';
+        reason+=revertProb?` ${revertProb}% chance to ${action} within 4wk.`:` Historically ${isLow?'low':'high'} — likely to ${action}.`;
+      }
+
       signals.push({
         type:'spread',
-        direction:isWide?'sell':'buy',
+        subtype:'zone',
+        direction,
         product,
-        region:'west',
-        strength:Math.abs(westCentralSpread-avgWestCentral)>threshold*2?'strong':'moderate',
-        price:westPrice,
-        spread:westCentralSpread,
-        reason:`West-Central spread $${westCentralSpread.toFixed(0)} vs avg $${avgWestCentral}. ${isWide?'West overpriced':'West underpriced'} relative to Central.`,
+        region:regA,
+        regionB:regB,
+        strength,
+        price:priceA,
+        priceB:priceB,
+        spread:Math.round(spread),
+        avg:Math.round(avg),
+        percentile:pctRank,
+        zScore:Math.round(zScore*10)/10,
+        revertProb,
+        reason,
         timestamp:new Date().toISOString()
       });
-    }
-
-    if(Math.abs(westEastSpread-avgWestEast)>threshold){
-      const isWide=westEastSpread>avgWestEast+threshold;
-      signals.push({
-        type:'spread',
-        direction:isWide?'sell':'buy',
-        product,
-        region:'west',
-        strength:Math.abs(westEastSpread-avgWestEast)>threshold*2?'strong':'moderate',
-        price:westPrice,
-        spread:westEastSpread,
-        reason:`West-East spread $${westEastSpread.toFixed(0)} vs avg $${avgWestEast}. ${isWide?'West overpriced':'West underpriced'} relative to East.`,
-        timestamp:new Date().toISOString()
-      });
-    }
+    });
   });
 
   return signals;

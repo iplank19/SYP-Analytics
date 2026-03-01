@@ -57,6 +57,125 @@ function getCustomerProductLengths(customerName){
   return[...combos].map(c=>{const[product,length]=c.split('|');return{product,length};});
 }
 
+// Generate a customer product template from sell history with smart inference
+function generateCustomerTemplate(customerName){
+  if(!customerName||!S.sells)return null;
+  const custSells=S.sells.filter(s=>s.customer===customerName&&s.status!=='cancelled');
+  const sellCount=custSells.length;
+  if(!sellCount)return null;
+
+  // Step 1: Extract known product×length combos
+  const known=new Set();
+  const knownProducts=new Set();
+  custSells.forEach(s=>{
+    const prods=s.product&&s.product.includes('/')?s.product.split('/').map(p=>p.trim()):[s.product];
+    prods.forEach(p=>{
+      if(!p)return;
+      // Normalize to MI_PRODUCTS format: "2x4 16' #2" → base="2x4#2", length="16"
+      const parsed=typeof parseProductString==='function'?parseProductString(p):null;
+      if(parsed&&parsed.base){
+        const base=parsed.base;
+        const len=parsed.length||s.length||'RL';
+        // Only track products that exist in MI_PRODUCTS
+        if(MI_PRODUCTS.includes(base)){
+          known.add(`${base}|${len}`);
+          knownProducts.add(base);
+        }
+      } else {
+        // Fallback: use raw product + length fields
+        const base=(s.product||'').replace(/\s+\d+['"]?$/,'').trim();
+        const len=s.length||'RL';
+        if(MI_PRODUCTS.includes(base)){
+          known.add(`${base}|${len}`);
+          knownProducts.add(base);
+        }
+      }
+    });
+  });
+
+  // Step 2: Classify volume tier
+  const tier=sellCount>=50?'high':sellCount>=10?'medium':'low';
+
+  // Step 3: Build grid with inference
+  const grid={};
+  MI_PRODUCTS.forEach(p=>{grid[p]={};});
+
+  // Mark known cells
+  known.forEach(k=>{
+    const[prod,len]=k.split('|');
+    if(grid[prod])grid[prod][len]='known';
+  });
+
+  // Step 3a: Length expansion (medium + low volume)
+  if(tier!=='high'){
+    knownProducts.forEach(prod=>{
+      QUOTE_LENGTHS.forEach(len=>{
+        if(!grid[prod][len])grid[prod][len]='inferred';
+      });
+    });
+  }
+
+  // Step 3b: Dimension gap-filling (low volume only)
+  if(tier==='low'){
+    // Group known products by grade
+    const grades=['#1','#2','#3','#4','MSR'];
+    const dims=['2x4','2x6','2x8','2x10','2x12'];
+    grades.forEach(grade=>{
+      const gradeProducts=MI_PRODUCTS.filter(p=>grade==='MSR'?p.includes('MSR'):p.includes(grade));
+      const knownInGrade=gradeProducts.filter(p=>knownProducts.has(p));
+      // If 3+ of 5 dimensions known in this grade, fill gaps
+      if(knownInGrade.length>=3){
+        gradeProducts.forEach(p=>{
+          if(!knownProducts.has(p)){
+            QUOTE_LENGTHS.forEach(len=>{
+              if(!grid[p][len])grid[p][len]='inferred';
+            });
+          }
+        });
+      }
+    });
+  }
+
+  // Clean empty product rows (no known or inferred)
+  MI_PRODUCTS.forEach(p=>{
+    const hasAny=QUOTE_LENGTHS.some(l=>grid[p][l]);
+    if(!hasAny)delete grid[p];
+  });
+
+  const today=new Date().toISOString().slice(0,10);
+  return{grid,generated:today,modified:today,sellCount,tier,locked:false};
+}
+
+// Regenerate templates for all customers (or a specific list)
+function regenerateAllTemplates(customerNames){
+  const names=customerNames||(S.customers||[]).map(c=>c.name);
+  if(!S.customerTemplates)S.customerTemplates={};
+  let generated=0,skipped=0;
+  names.forEach(name=>{
+    // Skip locked templates
+    if(S.customerTemplates[name]&&S.customerTemplates[name].locked){skipped++;return;}
+    const tpl=generateCustomerTemplate(name);
+    if(tpl){S.customerTemplates[name]=tpl;generated++;}
+  });
+  save('customerTemplates',S.customerTemplates);
+  return{generated,skipped,total:names.length};
+}
+
+// Apply a customer template grid to the quote matrix (returns grid in QUOTE_TEMPLATES format)
+function getCustomerTemplateGrid(customerName){
+  const tpl=S.customerTemplates&&S.customerTemplates[customerName];
+  if(!tpl||!tpl.grid)return null;
+  // Convert to boolean grid (same format as QUOTE_TEMPLATES.build())
+  const g={};
+  MI_PRODUCTS.forEach(p=>{
+    g[p]={};
+    QUOTE_LENGTHS.forEach(l=>{
+      g[p][l]=!!(tpl.grid[p]&&tpl.grid[p][l]);
+    });
+  });
+  return g;
+}
+
 // Built-in quote matrix templates
 const QUOTE_TEMPLATES={
   'All RL':{desc:'All products, RL only',build:()=>{
@@ -814,6 +933,7 @@ let S={
   miQuoteCustomer:'',
   miQuoteItems:[],
   quoteTemplates:LS('quoteTemplates',[]),
+  customerTemplates:LS('customerTemplates',{}),
   // Price Sheet
   priceSheet:LS('priceSheet',{customer:'',destination:'',products:[],margin:25,rows:[],lastBuilt:null}),
   psNewQuotesSince:null, // timestamp: set when mill quotes submitted, cleared when price sheet fetched

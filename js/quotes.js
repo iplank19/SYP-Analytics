@@ -2509,6 +2509,27 @@ function qeApplyTemplate(name) {
   }
 }
 
+// Apply customer product template to the BUILD matrix
+function qeApplyCustomerTemplate() {
+  if (!S.qbCustomer) { showToast('Select a customer first', 'warn'); return }
+  const grid = getCustomerTemplateGrid(S.qbCustomer)
+  if (!grid) { showToast('No template for ' + S.qbCustomer, 'warn'); return }
+  S.qeBuildTemplate = '__customer__'
+  MI_PRODUCTS.forEach(p => {
+    QUOTE_LENGTHS.forEach(l => {
+      const cb = document.getElementById(`qe-mx-${_qePid(p)}-${l}`)
+      if (cb) cb.checked = !!(grid[p] && grid[p][l])
+    })
+  })
+  qeUpdateMatrixHeaders()
+  // Auto-build if customer has destination
+  const selectedCustomer = myCustomers().find(c => c.name === S.qbCustomer)
+  const dest = S.qbCustomDest || selectedCustomer?.locations?.[0] || selectedCustomer?.destination || ''
+  if (dest && !(S.quoteItems || []).length) {
+    qeBuildFromMatrix()
+  }
+}
+
 // Convert matrix selections → S.quoteItems and auto-price
 async function qeBuildFromMatrix() {
   const combos = qeGetCheckedCombos()

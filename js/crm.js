@@ -444,3 +444,161 @@ async function saveQuickTouch(){
   }catch(e){showToast('Error: '+e.message,'negative')}
 }
 
+// ============================================================
+// CUSTOMER PRODUCT TEMPLATE MODAL
+// ============================================================
+
+function showCustomerTemplateModal(customerName){
+  if(!customerName)return;
+  // Generate template if none exists
+  if(!S.customerTemplates)S.customerTemplates={};
+  if(!S.customerTemplates[customerName]){
+    const tpl=generateCustomerTemplate(customerName);
+    if(tpl){
+      S.customerTemplates[customerName]=tpl;
+      save('customerTemplates',S.customerTemplates);
+    }
+  }
+  const tpl=S.customerTemplates[customerName];
+  const grid=tpl?tpl.grid:{};
+  const sellCount=tpl?tpl.sellCount:0;
+  const tier=tpl?tpl.tier:'none';
+  const generated=tpl?tpl.generated:'--';
+  const locked=tpl?tpl.locked:false;
+
+  const tierLabel=tier==='high'?'High volume':tier==='medium'?'Medium volume':tier==='low'?'Low volume':'No history';
+  const tierColor=tier==='high'?'var(--positive)':tier==='medium'?'var(--accent)':tier==='low'?'var(--warn)':'var(--muted)';
+
+  const gradeGroups=[
+    {label:'#1',products:MI_PRODUCTS.filter(p=>p.includes('#1'))},
+    {label:'#2',products:MI_PRODUCTS.filter(p=>p.includes('#2'))},
+    {label:'#3',products:MI_PRODUCTS.filter(p=>p.includes('#3'))},
+    {label:'#4',products:MI_PRODUCTS.filter(p=>p.includes('#4'))},
+    {label:'MSR',products:MI_PRODUCTS.filter(p=>p.includes('MSR'))},
+  ];
+
+  const colHeaders=QUOTE_LENGTHS.map(l=>
+    `<th style="text-align:center;padding:3px 4px;font-size:10px;font-weight:600;min-width:32px">${l==='RL'?'RL':l+"'"}</th>`
+  ).join('');
+
+  const matrixRows=gradeGroups.map(grp=>{
+    const groupHeader=`<tr><td colspan="${QUOTE_LENGTHS.length+1}" style="padding:6px 6px 2px;font-size:10px;font-weight:700;color:var(--muted);border-top:1px solid var(--border)">${grp.label}</td></tr>`;
+    const rows=grp.products.map(p=>{
+      const pid=p.replace(/[^a-zA-Z0-9]/g,'_');
+      const hasAny=QUOTE_LENGTHS.some(l=>grid[p]&&grid[p][l]);
+      const cells=QUOTE_LENGTHS.map(l=>{
+        const val=grid[p]&&grid[p][l];
+        const checked=!!val;
+        const isKnown=val==='known';
+        const isInferred=val==='inferred';
+        const bgColor=isKnown?'rgba(122,204,122,0.15)':isInferred?'rgba(232,200,74,0.12)':'transparent';
+        return`<td style="text-align:center;padding:3px;background:${bgColor}"><input type="checkbox" id="ctpl-${pid}-${l}" ${checked?'checked':''} style="accent-color:${isKnown?'var(--positive)':isInferred?'var(--warn)':'var(--text)'}"></td>`;
+      }).join('');
+      return`<tr style="${!hasAny?'opacity:0.4':''}"><td style="white-space:nowrap;padding:3px 6px;font-size:11px;font-weight:600">${typeof formatProductHeader==='function'?formatProductHeader(p):p}</td>${cells}</tr>`;
+    }).join('');
+    return groupHeader+rows;
+  }).join('');
+
+  document.getElementById('modal').innerHTML=`<div class="modal-overlay" onclick="closeModal()"><div class="modal" onclick="event.stopPropagation()" style="max-width:720px">
+    <div class="modal-header"><span class="modal-title">${escapeHtml(customerName)} — Product Template</span><button class="modal-close" onclick="closeModal()">×</button></div>
+    <div class="modal-body" style="padding:12px">
+      <div style="display:flex;gap:12px;align-items:center;margin-bottom:12px;font-size:11px;flex-wrap:wrap">
+        <span><strong>${sellCount}</strong> sells</span>
+        <span style="color:${tierColor};font-weight:600">${tierLabel}</span>
+        <span style="color:var(--muted)">Generated ${generated}</span>
+        <label style="margin-left:auto;display:flex;align-items:center;gap:4px;cursor:pointer"><input type="checkbox" id="ctpl-locked" ${locked?'checked':''} onchange="toggleTemplateLock('${escapeHtml(customerName)}')"> Lock</label>
+      </div>
+      <div style="display:flex;gap:8px;margin-bottom:8px;font-size:10px;color:var(--muted)">
+        <span><span style="display:inline-block;width:10px;height:10px;background:rgba(122,204,122,0.3);border:2px solid var(--positive);margin-right:2px"></span> From history</span>
+        <span><span style="display:inline-block;width:10px;height:10px;background:rgba(232,200,74,0.2);border:2px solid var(--warn);margin-right:2px"></span> Inferred</span>
+      </div>
+      <div style="overflow-x:auto;max-height:400px;overflow-y:auto">
+        <table style="font-size:11px;border-collapse:collapse;width:100%" id="ctpl-matrix">
+          <thead style="position:sticky;top:0;background:var(--panel);z-index:1"><tr><th style="text-align:left;padding:3px 6px;font-size:10px">PRODUCT</th>${colHeaders}</tr></thead>
+          <tbody>${matrixRows}</tbody>
+        </table>
+      </div>
+    </div>
+    <div class="modal-footer" style="display:flex;gap:8px;flex-wrap:wrap">
+      <button class="btn btn-default" onclick="regenerateCustomerTemplate('${escapeHtml(customerName)}')">Regenerate</button>
+      <button class="btn btn-default" onclick="clearCustomerTemplate('${escapeHtml(customerName)}')">Clear All</button>
+      <div style="flex:1"></div>
+      <button class="btn btn-primary" onclick="useTemplateInQuoteEngine('${escapeHtml(customerName)}')">Use in Quote Engine →</button>
+      <button class="btn btn-primary" onclick="saveCustomerTemplate('${escapeHtml(customerName)}')">Save</button>
+    </div>
+  </div></div>`;
+}
+
+function toggleTemplateLock(customerName){
+  if(!S.customerTemplates||!S.customerTemplates[customerName])return;
+  S.customerTemplates[customerName].locked=!S.customerTemplates[customerName].locked;
+  save('customerTemplates',S.customerTemplates);
+}
+
+function saveCustomerTemplate(customerName){
+  if(!S.customerTemplates)S.customerTemplates={};
+  if(!S.customerTemplates[customerName])S.customerTemplates[customerName]={grid:{},generated:new Date().toISOString().slice(0,10),sellCount:0,tier:'manual',locked:false};
+  const tpl=S.customerTemplates[customerName];
+  const grid={};
+  MI_PRODUCTS.forEach(p=>{
+    const pid=p.replace(/[^a-zA-Z0-9]/g,'_');
+    QUOTE_LENGTHS.forEach(l=>{
+      const cb=document.getElementById(`ctpl-${pid}-${l}`);
+      if(cb&&cb.checked){
+        if(!grid[p])grid[p]={};
+        grid[p][l]=tpl.grid[p]&&tpl.grid[p][l]||'manual';
+      }
+    });
+  });
+  tpl.grid=grid;
+  tpl.modified=new Date().toISOString().slice(0,10);
+  save('customerTemplates',S.customerTemplates);
+  showToast(`Template saved for ${customerName}`,'positive');
+  closeModal();
+  render();
+}
+
+function regenerateCustomerTemplate(customerName){
+  const tpl=generateCustomerTemplate(customerName);
+  if(tpl){
+    S.customerTemplates[customerName]=tpl;
+    save('customerTemplates',S.customerTemplates);
+    showToast(`Template regenerated for ${customerName}`,'positive');
+    showCustomerTemplateModal(customerName);
+  } else {
+    showToast('No sell history found','warn');
+  }
+}
+
+function clearCustomerTemplate(customerName){
+  MI_PRODUCTS.forEach(p=>{
+    const pid=p.replace(/[^a-zA-Z0-9]/g,'_');
+    QUOTE_LENGTHS.forEach(l=>{
+      const cb=document.getElementById(`ctpl-${pid}-${l}`);
+      if(cb)cb.checked=false;
+    });
+  });
+}
+
+function useTemplateInQuoteEngine(customerName){
+  saveCustomerTemplate(customerName);
+  S.qbCustomer=customerName;
+  save('qbCustomer',S.qbCustomer);
+  S.qeBuildTemplate='__customer__';
+  go('quotes');
+  S.quotesViewTab='build';
+  setTimeout(()=>{
+    const grid=getCustomerTemplateGrid(customerName);
+    if(grid){
+      MI_PRODUCTS.forEach(p=>{
+        QUOTE_LENGTHS.forEach(l=>{
+          const cb=document.getElementById(`qe-mx-${typeof _qePid==='function'?_qePid(p):p.replace(/[^a-zA-Z0-9]/g,'_')}-${l}`);
+          if(cb)cb.checked=!!(grid[p]&&grid[p][l]);
+        });
+      });
+      if(typeof qeUpdateMatrixHeaders==='function')qeUpdateMatrixHeaders();
+      showToast(`Applied ${customerName} template`,'positive');
+    }
+  },300);
+}
+

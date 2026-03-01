@@ -159,15 +159,15 @@ function miMatrixControls(products, colCount, totalCols, millCount, totalMills) 
     <select onchange="_miMatrixMaxAge=this.value;SS('miMatrixMaxAge',_miMatrixMaxAge);renderMiAggregated()" style="padding:4px 8px;font-size:11px;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:var(--radius)">
       <option value="99"${_miMatrixMaxAge==='99'?' selected':''}>All Ages</option>
       <option value="0"${_miMatrixMaxAge==='0'?' selected':''}>Today Only</option>
-      <option value="1"${_miMatrixMaxAge==='1'?' selected':''}>≤1 Day</option>
-      <option value="2"${effectiveMaxAge==='2'&&_miMatrixMaxAge!=='99'?' selected':''}>≤2 Days (default)</option>
-      <option value="3"${_miMatrixMaxAge==='3'?' selected':''}>≤3 Days</option>
+      <option value="1"${_miMatrixMaxAge==='1'?' selected':''}>≤1 Biz Day</option>
+      <option value="2"${effectiveMaxAge==='2'&&_miMatrixMaxAge!=='99'?' selected':''}>≤2 Biz Days (default)</option>
+      <option value="3"${_miMatrixMaxAge==='3'?' selected':''}>≤3 Biz Days</option>
       <option value="7"${_miMatrixMaxAge==='7'?' selected':''}>≤1 Week</option>
     </select>`;
   const ageLegend = `<span style="font-size:9px;display:flex;gap:8px;align-items:center">
     <span style="display:inline-block;width:14px;height:10px;background:var(--panel);border:1px solid var(--positive)"></span>Today
-    <span style="display:inline-block;width:14px;height:10px;background:rgba(242,186,49,0.25);border-bottom:2px solid var(--warn)"></span>1d old
-    <span style="color:var(--negative)">2d+ → archived</span>
+    <span style="display:inline-block;width:14px;height:10px;background:rgba(242,186,49,0.25);border-bottom:2px solid var(--warn)"></span>1bd old
+    <span style="color:var(--negative)">2bd+ → archived</span>
   </span>`;
   const densityBtns = `
     <button class="btn btn-sm ${_miMatrixDensity==='compact'?'btn-primary':'btn-default'}" onclick="_miMatrixDensity='compact';SS('miMatrixDensity','compact');renderMiAggregated()">◼</button>
@@ -257,10 +257,10 @@ async function miRenderGranularMatrix(el) {
       const prevProd = idx > 0 ? colProduct(columns[idx - 1]) : null;
       const gs = prod !== prevProd ? ' group-start' : '';
 
-      const age = d ? Math.floor((new Date() - new Date(d.date)) / (1000*60*60*24)) : null;
-      const maxAge = _miMatrixMaxAge !== '' ? parseInt(_miMatrixMaxAge, 10) : 2; // Default: auto-expire after 2 days
+      const age = d ? businessDayAge(d.date) : null;
+      const maxAge = _miMatrixMaxAge !== '' ? parseInt(_miMatrixMaxAge, 10) : 2; // Default: auto-expire after 2 business days
 
-      // Filter by max age - quotes older than 2 days are auto-hidden (still in log for data)
+      // Filter by max age - quotes older than 2 business days are auto-hidden (still in log for data)
       if (!d || age > maxAge) return `<td class="empty-cell${gs}"></td>`;
 
       // Apply portal margin if in portal mode
@@ -336,7 +336,7 @@ async function miRenderSummaryMatrix(el) {
   const bodyRows = mills.map(m => {
     const cells = products.map(p => {
       const d = matrix[m]?.[p];
-      const age = d ? Math.floor((new Date() - new Date(d.date)) / (1000*60*60*24)) : null;
+      const age = d ? businessDayAge(d.date) : null;
       const maxAge = _miMatrixMaxAge !== '' ? parseInt(_miMatrixMaxAge, 10) : null;
       if (!d || (maxAge !== null && age > maxAge)) return '<td style="text-align:center;color:var(--muted)">-</td>';
       const isBest = d.price === best_by_product[p];
@@ -467,7 +467,7 @@ async function miRenderAggLog() {
 
     // Separate active (0-2 days) from expired (3+ days) quotes
     const today = new Date();
-    const getAge = (dateStr) => Math.floor((today - new Date(dateStr)) / (1000*60*60*24));
+    const getAge = (dateStr) => businessDayAge(dateStr);
     const maxAge = _miMatrixMaxAge !== '' ? parseInt(_miMatrixMaxAge, 10) : 2;
 
     const activeQuotes = quotes.filter(q => getAge(q.date) <= maxAge);
@@ -498,8 +498,8 @@ async function miRenderAggLog() {
           <option value="30"${S.miFilterDays===30?' selected':''}>Last 30 days</option>
         </select>
         <span style="color:var(--muted);font-size:11px">${quotes.length} total submissions</span>
-        <span style="color:var(--positive);font-size:11px">● ${activeQuotes.length} active (≤${maxAge}d)</span>
-        <span style="color:var(--negative);font-size:11px">● ${expiredQuotes.length} expired (>${maxAge}d)</span>
+        <span style="color:var(--positive);font-size:11px">● ${activeQuotes.length} active (≤${maxAge}bd)</span>
+        <span style="color:var(--negative);font-size:11px">● ${expiredQuotes.length} expired (>${maxAge}bd)</span>
       </div>
 
       ${activeQuotes.length ? `

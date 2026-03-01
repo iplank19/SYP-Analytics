@@ -122,8 +122,8 @@ function renderBreadcrumbs(){
   const navItem=NAV.find(n=>n.id===S.view);
   if(!navItem){bc.innerHTML='';return}
   const subTabMap={
-    dashboard:{stateKey:'dashTab',tabs:{overview:'Overview',leaderboard:'Leaderboard'}},
-    trading:{stateKey:'tradingTab',tabs:{blotter:'Blotter',pnl:'P&L'}},
+    dashboard:null,
+    trading:null,
     quotes:null,
     millintel:{stateKey:'miTab',tabs:{intake:'Intake',prices:'Prices'}},
     analytics:{stateKey:'analyticsTab',tabs:{spreads:'Spreads',charts:'Charts',compare:'Compare',forecast:'Forecast',details:'Details'}},
@@ -184,8 +184,8 @@ function renderSkeleton(){
 // Backward-compat redirect map: old view IDs → {parent, stateKey, tab}
 const _VIEW_REDIRECTS={
   'blotter':{parent:'trading',stateKey:'tradingTab',tab:'blotter'},
-  'pnl-calendar':{parent:'trading',stateKey:'tradingTab',tab:'pnl'},
-  'leaderboard':{parent:'dashboard',stateKey:'dashTab',tab:'leaderboard'},
+  'pnl-calendar':{parent:'trading',stateKey:'tradingTab',tab:'blotter'},
+  'leaderboard':{parent:'dashboard',stateKey:null,tab:null},
   'insights':{parent:'analytics',stateKey:'analyticsTab',tab:'spreads'},
   'benchmark':{parent:'analytics',stateKey:'analyticsTab',tab:'spreads'},
   'risk':{parent:'analytics',stateKey:'analyticsTab',tab:'spreads'},
@@ -525,23 +525,14 @@ function render(){
 
   if(S.view==='dashboard'){
     const _dashTab=S.dashTab||'overview';
-    const _dashTabBar=_subTabBar('dashTab',[{id:'overview',label:'Overview'},{id:'leaderboard',label:'Leaderboard'}],_dashTab);
+    const _dashTabBar=''; // Single tab — overview only
     if(_dashTab==='overview'&&a&&!a.buys.length&&!a.sells.length){
       c.innerHTML=_dashTabBar+`<div class="panel"><div class="panel-body" style="padding:80px;text-align:center"><h2 style="margin-bottom:12px;color:var(--text)">Welcome, ${escapeHtml(S.trader)}!</h2><p style="margin-bottom:24px">${S.trader==='Admin'?'No department trades yet. Traders can add trades from their accounts.':'Start by adding your trades or importing Random Lengths data.'}</p><div style="display:flex;gap:12px;justify-content:center"><button class="btn btn-success" onclick="showBuyModal()">+ Add Buy</button><button class="btn btn-primary" onclick="showSellModal()">+ Add Sell</button><button class="btn btn-warn" onclick="go('details')">Import RL Data</button></div></div></div>`;
       return;
     }
-    if(_dashTab!=='leaderboard'){
-    // --- Dashboard overview sub-tab ---
+    {
+    // --- Dashboard overview ---
     // --- Dashboard data prep ---
-    const weeklyPerf=calcWeeklyPerformance(S.buys,S.sells);
-    const currWk=weeklyPerf[weeklyPerf.length-1]||{buyVol:0,sellVol:0,profit:0};
-    const prevWk=weeklyPerf[weeklyPerf.length-2]||{buyVol:0,sellVol:0,profit:0};
-    const wowDelta=(curr,prev)=>{
-      if(!prev||prev===0)return ''
-      const pct=((curr-prev)/Math.abs(prev)*100)
-      return `<div class="kpi-trend ${pct>=0?'positive':'negative'}">${pct>=0?'&#9650;':'&#9660;'} ${Math.abs(pct).toFixed(1)}% vs last week</div>`
-    }
-    // Stale data check
     const _now=new Date();
     const _latestRL=S.rl.length?new Date(S.rl[S.rl.length-1].date):null;
     const _latestBuy=a.buys.length?new Date(a.buys[0].date):null;
@@ -550,14 +541,8 @@ function render(){
     const rlStale=_latestRL?(_now-_latestRL)>7*86400000:false;
     const tradeStale=_latestTrade?(_now-_latestTrade)>14*86400000:false;
     const staleBadge='<span class="stale-badge"><span class="stale-dot"></span>Data may be stale</span>';
-    // Market movers
     const movers=calcMarketMovers();
-    // Pending approvals count (sells without linked buy = unconfirmed)
     const pendingApprovals=S.sells.filter(s=>!s.delivered&&!s.linkedPO&&!s.orderNum).length;
-    // Inventory aging alert
-    const agingSummary=calcAgingSummary(a.buys);
-    const hasAgingAlert=agingSummary.old>0;
-    // Today's trades
     const todayStr=new Date().toISOString().split('T')[0];
     const todayTrades=S.buys.filter(b=>b.date===todayStr).length+S.sells.filter(s=>s.date===todayStr).length;
 
@@ -571,111 +556,72 @@ function render(){
     _sections['kpis']=`
       <div class="kpi-row">
         <div class="kpi-card">
-          <div class="kpi-label">Total P&L (MTD)</div>
-          <div class="kpi-value ${a.profit>=0?'positive':'negative'}">${fmt(Math.round(a.profit))}</div>
-          ${wowDelta(currWk.profit,prevWk.profit)}
+          <div class="kpi-label">Total Buys</div>
+          <div class="kpi-value">${a.buys.length}</div>
+          <div class="kpi-trend">Avg: ${a.buys.length?fmt(Math.round(a.buys.reduce((s,b)=>s+(b.price||0),0)/a.buys.length)):'-'}</div>
         </div>
         <div class="kpi-card">
-          <div class="kpi-label">Open Position Exposure</div>
-          <div class="kpi-value ${a.inv>0?'warn':a.inv<0?'negative':''}">${fmt(Math.round(Math.abs(a.inv)*a.avgB))}</div>
-          <div class="kpi-trend">${fmtN(a.inv)} MBF ${a.inv>0?'long':a.inv<0?'short':'flat'}</div>
+          <div class="kpi-label">Total Sells</div>
+          <div class="kpi-value accent">${a.sells.length}</div>
+          <div class="kpi-trend">Avg: ${a.sells.length?fmt(Math.round(a.sells.reduce((s,x)=>s+(x.price||0),0)/a.sells.length)):'-'}</div>
         </div>
         <div class="kpi-card">
           <div class="kpi-label">Today's Trades</div>
           <div class="kpi-value">${todayTrades}</div>
-          <div class="kpi-trend">Buy: ${fmtN(a.bVol)} / Sell: ${fmtN(a.sVol)} MBF</div>
+          <div class="kpi-trend">${fmtD(todayStr)}</div>
         </div>
         <div class="kpi-card">
-          <div class="kpi-label">Pending Approvals</div>
+          <div class="kpi-label">Unmatched Sells</div>
           <div class="kpi-value ${pendingApprovals>0?'warn':''}">${pendingApprovals}</div>
-          ${pendingApprovals>0?'<div class="kpi-trend warn">Unmatched sells need coverage</div>':'<div class="kpi-trend positive">All matched</div>'}
-        </div>
-        <div class="kpi-card">
-          <div class="kpi-label">Inventory Aging Alert</div>
-          <div class="kpi-value ${hasAgingAlert?'negative':'positive'}">${hasAgingAlert?fmtN(agingSummary.old)+' MBF':'Clear'}</div>
-          ${hasAgingAlert?'<div class="kpi-trend negative">'+fmtN(agingSummary.old)+' MBF over 30 days</div>':'<div class="kpi-trend positive">No stale inventory</div>'}
+          ${pendingApprovals>0?'<div class="kpi-trend warn">Sells without matched buy</div>':'<div class="kpi-trend positive">All matched</div>'}
         </div>
       </div>`;
 
-    // Sparkline KPIs (preserved original)
-    _sections['spark-kpis']=`
-      <div class="kpi-row" style="margin-top:4px">
-        <div class="kpi-card" style="flex:1"><div class="kpi-label">BUY VOL</div><div style="display:flex;align-items:center;gap:8px"><span class="kpi-value" style="font-size:16px">${fmtN(a.bVol)} MBF</span><canvas id="spark-bvol" class="kpi-spark" width="60" height="24"></canvas></div></div>
-        <div class="kpi-card" style="flex:1"><div class="kpi-label">SELL VOL</div><div style="display:flex;align-items:center;gap:8px"><span class="kpi-value" style="font-size:16px">${fmtN(a.sVol)} MBF</span><canvas id="spark-svol" class="kpi-spark" width="60" height="24"></canvas></div></div>
-        <div class="kpi-card" style="flex:1"><div class="kpi-label">MATCHED</div><div style="display:flex;align-items:center;gap:8px"><span class="kpi-value" style="font-size:16px">${fmtN(a.matchedVol)} MBF</span><canvas id="spark-mvol" class="kpi-spark" width="60" height="24"></canvas></div></div>
-        <div class="kpi-card" style="flex:1"><div class="kpi-label">MARGIN</div><div style="display:flex;align-items:center;gap:8px"><span class="kpi-value ${a.margin>=0?'positive':'negative'}" style="font-size:16px">${fmt(Math.round(a.margin))}</span><canvas id="spark-margin" class="kpi-spark" width="60" height="24"></canvas></div></div>
-        <div class="kpi-card" style="flex:1"><div class="kpi-label">PROFIT</div><div style="display:flex;align-items:center;gap:8px"><span class="kpi-value ${a.profit>=0?'positive':'negative'}" style="font-size:16px">${fmt(Math.round(a.profit))}</span><canvas id="spark-profit" class="kpi-spark" width="60" height="24"></canvas></div></div>
-      </div>`;
+    // Sparkline KPIs removed — no volume/margin data from TC
 
-    // Second row: P&L Chart + Position Summary
-    const topProducts=calcTopProducts(a.buys,a.sells);
+    // Second row: Price Trends + Trade Activity by Product
     _sections['charts-position']=`
       <div class="grid-2" style="margin-top:20px">
         <div class="panel"><div class="panel-header">PRICE TRENDS -- 2x4#2 ${rlStale?staleBadge:''}<div class="range-selector">${['1W','1M','3M','YTD'].map(r=>'<button class="range-btn '+(S.dashChartRange===r?'active':'')+'" onclick="S.dashChartRange=\''+r+'\';SS(\'dashChartRange\',\''+r+'\');renderDashboardCharts()">'+r+'</button>').join('')}</div></div><div class="panel-body">
           ${S.rl.length?'<div style="height:160px"><canvas id="dashboard-price-chart"></canvas></div>':'<div class="empty-state">No RL data yet</div>'}
         </div></div>
-        <div class="panel"><div class="panel-header">POSITION SUMMARY BY PRODUCT</div><div class="panel-body" style="padding:0">
+        <div class="panel"><div class="panel-header">TRADE COUNTS BY PRODUCT</div><div class="panel-body" style="padding:0">
           ${(()=>{
-            const dps=S.dashPosSort||{col:'product',dir:'asc'};
-            const dsi=c=>dps.col===c?(dps.dir==='asc'?'▲':'▼'):'';
-            const dsc=c=>'onclick="toggleDashPosSort(\''+c+'\')" style="cursor:pointer"';
-            const rows=[...topProducts.byVolume.slice(0,6)];
-            rows.sort((a,b)=>{
-              let va,vb;
-              if(dps.col==='product'){va=a.product||'';vb=b.product||'';return dps.dir==='asc'?va.localeCompare(vb):vb.localeCompare(va)}
-              if(dps.col==='buyVol'){va=a.buyVol||a.volume||0;vb=b.buyVol||b.volume||0}
-              else if(dps.col==='sellVol'){va=a.sellVol||0;vb=b.sellVol||0}
-              else if(dps.col==='net'){va=(a.buyVol||a.volume||0)-(a.sellVol||0);vb=(b.buyVol||b.volume||0)-(b.sellVol||0)}
-              else if(dps.col==='margin'){va=a.margin||0;vb=b.margin||0}
-              else{va=0;vb=0}
-              return dps.dir==='asc'?va-vb:vb-va;
-            });
-            return`<table class="data-table"><thead><tr><th ${dsc('product')} class="sortable">Product ${dsi('product')}</th><th class="right sortable" ${dsc('buyVol')}>Buy Vol ${dsi('buyVol')}</th><th class="right sortable" ${dsc('sellVol')}>Sell Vol ${dsi('sellVol')}</th><th class="right sortable" ${dsc('net')}>Net ${dsi('net')}</th><th class="right sortable" ${dsc('margin')}>Margin ${dsi('margin')}</th></tr></thead><tbody>`+
-            (rows.map(p=>`<tr>
-              <td class="bold">${escapeHtml(p.product||'')}</td>
-              <td class="right">${fmtN(p.buyVol||p.volume||0)} MBF</td>
-              <td class="right">${fmtN(p.sellVol||0)} MBF</td>
-              <td class="right ${(p.buyVol||p.volume||0)-(p.sellVol||0)>0?'warn':'negative'}">${fmtN((p.buyVol||p.volume||0)-(p.sellVol||0))} MBF</td>
-              <td class="right ${(p.margin||0)>=0?'positive':'negative'} bold">${p.margin!=null?fmt(Math.round(p.margin)):''}</td>
-            </tr>`).join('')||'<tr><td colspan="5" class="empty-state">No trades</td></tr>')+
+            const prodCounts={};
+            a.buys.forEach(b=>{const p=b.product||'Unknown';if(!prodCounts[p])prodCounts[p]={product:p,buys:0,sells:0};prodCounts[p].buys++});
+            a.sells.forEach(s=>{const p=s.product||'Unknown';if(!prodCounts[p])prodCounts[p]={product:p,buys:0,sells:0};prodCounts[p].sells++});
+            const rows=Object.values(prodCounts).sort((a,b)=>(b.buys+b.sells)-(a.buys+a.sells)).slice(0,8);
+            return'<table class="data-table"><thead><tr><th>Product</th><th class="right">Buys</th><th class="right">Sells</th><th class="right">Total</th></tr></thead><tbody>'+
+            (rows.map(p=>'<tr><td class="bold">'+escapeHtml(p.product)+'</td><td class="right">'+p.buys+'</td><td class="right">'+p.sells+'</td><td class="right bold">'+(p.buys+p.sells)+'</td></tr>').join('')||'<tr><td colspan="4" class="empty-state">No trades</td></tr>')+
             '</tbody></table>';
           })()}
         </div></div>
       </div>`;
 
-    // Third row: Activity Feed, Top Products chart, Aging Summary
-    const topCustomers=calcTopCustomers(a.sells);
+    // Third row: Activity Feed + Trader Breakdown
     _sections['activity-analytics']=`
-      <div class="grid-3" style="margin-top:20px">
+      <div class="grid-2" style="margin-top:20px">
         <div class="panel"><div class="panel-header">RECENT ACTIVITY ${tradeStale?staleBadge:''}</div><div class="panel-body" style="padding:0;max-height:320px;overflow-y:auto">
           ${(()=>{
             const feed=[
-              ...a.buys.slice(0,5).map(b=>({date:b.date,type:'buy',text:escapeHtml(b.product||'')+' @ '+fmt(b.price),sub:escapeHtml(b.mill||''),vol:fmtN(b.volume)+' MBF',shipped:b.shipped})),
-              ...a.sells.slice(0,5).map(s=>({date:s.date,type:'sell',text:escapeHtml(s.product||'')+' @ '+fmt(s.price)+' DLVD',sub:escapeHtml(s.customer||''),vol:fmtN(s.volume)+' MBF',delivered:s.delivered}))
+              ...a.buys.slice(0,5).map(b=>({date:b.date,type:'buy',text:escapeHtml(b.product||'')+' @ '+fmt(b.price),sub:escapeHtml(b.mill||'')})),
+              ...a.sells.slice(0,5).map(s=>({date:s.date,type:'sell',text:escapeHtml(s.product||'')+' @ '+fmt(s.price),sub:escapeHtml(s.customer||'')}))
             ].sort((x,y)=>new Date(y.date)-new Date(x.date)).slice(0,8)
-            return feed.length?feed.map(f=>`<div class="activity-item">
-              <div><div class="activity-main">${f.text}</div><div class="activity-sub">${f.sub} -- ${fmtD(f.date)}</div></div>
-              <div class="activity-right"><div class="activity-value ${f.type==='buy'?'positive':'accent'}">${f.vol}</div>
-              <span class="status-badge status-${f.type==='buy'?(f.shipped?'shipped':'pending'):(f.delivered?'delivered':'pending')}">${f.type==='buy'?(f.shipped?'Shipped':'Pending'):(f.delivered?'Delivered':'Pending')}</span></div>
-            </div>`).join(''):'<div class="empty-state">No trades yet</div>'
+            return feed.length?feed.map(f=>'<div class="activity-item"><div><div class="activity-main">'+f.text+'</div><div class="activity-sub">'+f.sub+' -- '+fmtD(f.date)+'</div></div><div class="activity-right"><span class="status-badge status-'+(f.type==='buy'?'pending':'active')+'">'+f.type.toUpperCase()+'</span></div></div>').join(''):'<div class="empty-state">No trades yet</div>'
           })()}
         </div></div>
-        <div class="panel"><div class="panel-header">TOP PRODUCTS BY VOLUME</div><div class="panel-body">
-          ${topProducts.byVolume.slice(0,5).map((p,i)=>{
-            const maxVol=topProducts.byVolume[0]?.volume||1
-            const pct=Math.max(5,(p.volume/maxVol)*100)
-            return`<div style="margin-bottom:10px"><div style="display:flex;justify-content:space-between;margin-bottom:3px;font-size:11px"><span class="bold">${escapeHtml(p.product||'')}</span><span>${fmtN(p.volume)} MBF</span></div><div class="limit-bar"><div class="limit-fill" style="width:${pct}%;background:var(--accent)"></div></div></div>`
-          }).join('')||'<div class="empty-state">No data</div>'}
-        </div></div>
-        <div class="panel"><div class="panel-header">INVENTORY AGING</div><div class="panel-body">
-          <div style="margin-bottom:12px"><div style="display:flex;justify-content:space-between;margin-bottom:4px"><span class="age-fresh" style="font-size:10px">0-7 days</span><span style="font-weight:600">${fmtN(agingSummary.fresh)} MBF</span></div><div class="limit-bar"><div class="limit-fill" style="width:${agingSummary.total?agingSummary.fresh/agingSummary.total*100:0}%;background:var(--positive)"></div></div></div>
-          <div style="margin-bottom:12px"><div style="display:flex;justify-content:space-between;margin-bottom:4px"><span class="age-week" style="font-size:10px">8-14 days</span><span style="font-weight:600">${fmtN(agingSummary.week)} MBF</span></div><div class="limit-bar"><div class="limit-fill" style="width:${agingSummary.total?agingSummary.week/agingSummary.total*100:0}%;background:var(--info)"></div></div></div>
-          <div style="margin-bottom:12px"><div style="display:flex;justify-content:space-between;margin-bottom:4px"><span class="age-old" style="font-size:10px">15-30 days</span><span style="font-weight:600">${fmtN(agingSummary.twoWeek)} MBF</span></div><div class="limit-bar"><div class="limit-fill" style="width:${agingSummary.total?agingSummary.twoWeek/agingSummary.total*100:0}%;background:var(--warn)"></div></div></div>
-          <div><div style="display:flex;justify-content:space-between;margin-bottom:4px"><span class="age-stale" style="font-size:10px">30+ days</span><span style="font-weight:600;color:var(--negative)">${fmtN(agingSummary.old)} MBF</span></div><div class="limit-bar"><div class="limit-fill" style="width:${agingSummary.total?agingSummary.old/agingSummary.total*100:0}%;background:var(--negative)"></div></div></div>
+        <div class="panel"><div class="panel-header">TRADES BY TRADER</div><div class="panel-body" style="padding:0">
+          ${(()=>{
+            const tc={};
+            a.buys.forEach(b=>{const t=b.trader||'Ian P';if(!tc[t])tc[t]={name:t,buys:0,sells:0};tc[t].buys++});
+            a.sells.forEach(s=>{const t=s.trader||'Ian P';if(!tc[t])tc[t]={name:t,buys:0,sells:0};tc[t].sells++});
+            const rows=Object.values(tc).sort((a,b)=>(b.buys+b.sells)-(a.buys+a.sells));
+            return rows.length?rows.map(t=>'<div class="activity-item" style="border-left:3px solid '+traderColor(t.name)+'"><div><div style="font-weight:500">'+escapeHtml(t.name)+'</div><div style="font-size:9px;color:var(--muted)">'+t.buys+' buys / '+t.sells+' sells</div></div><div style="font-weight:700">'+(t.buys+t.sells)+' trades</div></div>').join(''):'<div class="empty-state">No trades</div>';
+          })()}
         </div></div>
       </div>`;
 
-    // Fourth row: Market Movers + Leaderboard
+    // Fourth row: Market Movers + Top Customers
     _sections['market-movers']=`
       <div class="grid-2" style="margin-top:20px">
         ${movers.length?`<div class="panel"><div class="panel-header">MARKET MOVERS <span style="font-size:9px;color:var(--muted);margin-left:8px">Week-over-Week RL Changes</span></div>
@@ -683,48 +629,46 @@ function render(){
             ${movers.map(m=>'<div class="mover-item"><div><span class="mover-name">'+escapeHtml(m.product)+'</span><span class="mover-region"> ('+escapeHtml(m.region)+')</span></div><div><span class="mover-change '+(m.change>0?'positive':'negative')+'">'+(m.change>0?'&#9650;':'&#9660;')+' '+fmt(Math.abs(m.change))+'</span><span class="mover-pct '+(m.change>0?'positive':'negative')+'">'+(m.pct>0?'+':'')+m.pct.toFixed(1)+'%</span></div></div>').join('')}
           </div></div>`:`<div class="panel"><div class="panel-header">MARKET MOVERS</div><div class="panel-body"><div class="empty-state">Need 2+ weeks of RL data</div></div></div>`}
         <div class="panel"><div class="panel-header">TOP CUSTOMERS</div><div class="panel-body" style="padding:0">
-          ${topCustomers.slice(0,5).map((cu,i)=>'<div class="activity-item" style="padding:8px 12px"><div style="display:flex;align-items:center;gap:8px"><span style="color:'+(i===0?'gold':i===1?'silver':i===2?'#cd7f32':'var(--muted)')+';font-weight:700;width:18px">'+(i+1)+'</span><div><div style="font-weight:500">'+escapeHtml(cu.customer||'')+'</div><div style="font-size:9px;color:var(--muted)">'+cu.orders+' orders</div></div></div><div style="text-align:right"><div style="font-weight:600">'+fmtN(cu.volume)+' MBF</div><div style="font-size:9px;color:var(--positive)">'+fmt(cu.profit)+'</div></div></div>').join('')||'<div class="empty-state" style="padding:20px">No sales yet</div>'}
+          ${(()=>{
+            const cc={};
+            a.sells.forEach(s=>{const c=s.customer||'Unknown';if(!cc[c])cc[c]={customer:c,orders:0};cc[c].orders++});
+            const top=Object.values(cc).sort((a,b)=>b.orders-a.orders).slice(0,5);
+            return top.length?top.map((cu,i)=>'<div class="activity-item" style="padding:8px 12px"><div style="display:flex;align-items:center;gap:8px"><span style="color:'+(i===0?'gold':i===1?'silver':i===2?'#cd7f32':'var(--muted)')+';font-weight:700;width:18px">'+(i+1)+'</span><div><div style="font-weight:500">'+escapeHtml(cu.customer)+'</div></div></div><div style="font-weight:600">'+cu.orders+' orders</div></div>').join(''):'<div class="empty-state" style="padding:20px">No sales yet</div>';
+          })()}
         </div></div>
       </div>`;
 
-    // Region mix & info row
+    // Region mix by trade count
     _sections['info-row']=`
       <div class="grid-2" style="margin-top:20px">
-        <div class="panel"><div class="panel-header">POSITION vs MARKET</div><div class="panel-body">
-          <div style="display:flex;justify-content:space-between;margin-bottom:12px"><span style="color:var(--muted)">Avg vs Market</span><span style="font-size:18px;font-weight:700;color:${a.avgVsRL<=0?'var(--positive)':'var(--negative)'}">${a.avgVsRL<=0?'&#9660;':'&#9650;'} ${fmt(Math.abs(a.avgVsRL))}</span></div>
-          <div style="display:flex;justify-content:space-between"><span style="color:var(--muted)">Total Impact</span><span style="font-weight:600;color:${a.totVsRL<=0?'var(--positive)':'var(--negative)'}">${fmt(Math.abs(Math.round(a.totVsRL)))} ${a.totVsRL<=0?'saved':'over'}</span></div>
+        <div class="panel"><div class="panel-header">REGION MIX (by trade count)</div><div class="panel-body">
+          ${(()=>{
+            const rc={};let total=0;
+            a.buys.forEach(b=>{const r=b.region||'unknown';rc[r]=(rc[r]||0)+1;total++});
+            return total?['west','central','east'].map(r=>{const cnt=rc[r]||0;const pct=total?(cnt/total*100):0;return'<div style="margin-bottom:12px"><div style="display:flex;justify-content:space-between;margin-bottom:4px"><span style="text-transform:uppercase;font-size:10px">'+r+'</span><span style="color:var(--muted);font-size:10px">'+cnt+' trades ('+pct.toFixed(0)+'%)</span></div><div class="limit-bar"><div class="limit-fill" style="width:'+pct+'%"></div></div></div>'}).join(''):'<div class="empty-state">No buys yet</div>';
+          })()}
         </div></div>
-        <div class="panel"><div class="panel-header">REGION MIX</div><div class="panel-body">
-          ${a.bVol?REGIONS.map(r=>{const pct=a.bVol?(a.byReg[r].vol/a.bVol*100):0;return`<div style="margin-bottom:12px"><div style="display:flex;justify-content:space-between;margin-bottom:4px"><span style="text-transform:uppercase;font-size:10px">${r}</span><span style="color:var(--muted);font-size:10px">${fmtN(a.byReg[r].vol)} MBF (${pct.toFixed(0)}%)</span></div><div class="limit-bar"><div class="limit-fill" style="width:${pct}%"></div></div></div>`}).join(''):'<div class="empty-state">No buys yet</div>'}
+        <div class="panel"><div class="panel-header">TOP MILLS</div><div class="panel-body" style="padding:0">
+          ${(()=>{
+            const mc={};
+            a.buys.forEach(b=>{const m=b.mill||'Unknown';if(!mc[m])mc[m]={mill:m,orders:0};mc[m].orders++});
+            const top=Object.values(mc).sort((a,b)=>b.orders-a.orders).slice(0,5);
+            return top.length?top.map((m,i)=>'<div class="activity-item" style="padding:8px 12px"><div style="display:flex;align-items:center;gap:8px"><span style="color:'+(i===0?'gold':i===1?'silver':i===2?'#cd7f32':'var(--muted)')+';font-weight:700;width:18px">'+(i+1)+'</span><div style="font-weight:500">'+escapeHtml(m.mill)+'</div></div><div style="font-weight:600">'+m.orders+' orders</div></div>').join(''):'<div class="empty-state">No buys yet</div>';
+          })()}
         </div></div>
       </div>`;
 
-    // Weekly performance + profitability
-    _sections['advanced']=`
-      <div class="panel" style="margin-top:20px"><div class="panel-header">WEEKLY PERFORMANCE (Last 8 Weeks)</div><div class="panel-body">
-        ${weeklyPerf.length?(()=>{
-          const _now=new Date();
-          return'<div style="display:flex;gap:4px;align-items:flex-end;height:140px;padding:10px 0;border-bottom:1px solid var(--border)">'+weeklyPerf.map((w,i)=>{const maxVol=Math.max(...weeklyPerf.map(x=>x.buyVol+x.sellVol))||1;const buyH=Math.max(4,(w.buyVol/maxVol)*100);const sellH=Math.max(4,(w.sellVol/maxVol)*100);const weekIdx=7-i;const wEnd=new Date(_now);wEnd.setDate(wEnd.getDate()-weekIdx*7);const wStart=new Date(wEnd);wStart.setDate(wStart.getDate()-7);const ws=wStart.toISOString().split('T')[0];const we=wEnd.toISOString().split('T')[0];return'<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;cursor:pointer" onclick="drillDownWeek(\''+ws+'\',\''+we+'\')" title="Click to see trades"><div style="display:flex;gap:2px;align-items:flex-end;height:100px"><div style="width:14px;background:var(--positive);height:'+buyH+'px" title="Buy: '+fmtN(w.buyVol)+' MBF"></div><div style="width:14px;background:var(--accent);height:'+sellH+'px" title="Sell: '+fmtN(w.sellVol)+' MBF"></div></div><div style="font-size:8px;color:var(--muted);text-align:center">'+w.label+'</div><div style="font-size:9px;color:'+(w.profit>=0?'var(--positive)':'var(--negative)')+'">'+(w.profit>=0?'+':'')+Math.round(w.profit/1000)+'k</div></div>'}).join('')+'</div><div class="chart-legend" style="margin-top:8px"><div class="legend-item"><div style="width:10px;height:10px;background:var(--positive)"></div><span class="legend-text">Buys</span></div><div class="legend-item"><div style="width:10px;height:10px;background:var(--accent)"></div><span class="legend-text">Sells</span></div></div>';
-        })():'<div class="empty-state">Not enough data for weekly trends</div>'}
-      </div></div>
-      <div class="grid-2" style="margin-top:16px">
-        <div class="panel"><div class="panel-header">MOST PROFITABLE PRODUCTS</div><div class="panel-body" style="padding:0"><table class="data-table"><thead><tr><th>Product</th><th class="right">Margin</th><th class="right">Volume</th><th class="right">Profit</th></tr></thead><tbody>
-          ${topProducts.byProfit.slice(0,5).map(p=>'<tr><td class="bold">'+escapeHtml(p.product||'')+'</td><td class="right '+(p.margin>=0?'positive':'negative')+'">'+fmt(Math.round(p.margin))+'/MBF</td><td class="right">'+fmtN(p.volume)+' MBF</td><td class="right '+(p.profit>=0?'positive':'negative')+' bold">'+fmt(Math.round(p.profit))+'</td></tr>').join('')||'<tr><td colspan="4" class="empty-state">No matched trades</td></tr>'}
-        </tbody></table></div></div>
-        <div class="panel"><div class="panel-header">LEAST PROFITABLE PRODUCTS</div><div class="panel-body" style="padding:0"><table class="data-table"><thead><tr><th>Product</th><th class="right">Margin</th><th class="right">Volume</th><th class="right">Profit</th></tr></thead><tbody>
-          ${topProducts.byProfit.slice(-5).reverse().filter(p=>p.profit<topProducts.byProfit[0]?.profit).map(p=>'<tr><td class="bold">'+escapeHtml(p.product||'')+'</td><td class="right '+(p.margin>=0?'positive':'negative')+'">'+fmt(Math.round(p.margin))+'/MBF</td><td class="right">'+fmtN(p.volume)+' MBF</td><td class="right '+(p.profit>=0?'positive':'negative')+' bold">'+fmt(Math.round(p.profit))+'</td></tr>').join('')||'<tr><td colspan="4" class="empty-state">All products profitable!</td></tr>'}
-        </tbody></table></div></div>
-      </div>`;
+    // Advanced section removed — no volume/margin/profit data from TC
 
     // --- Assemble dashboard in saved order with drag-to-reorder ---
-    const _defaultOrder=['kpis','spark-kpis','charts-position','activity-analytics','market-movers','info-row','advanced'];
+    const _defaultOrder=['kpis','charts-position','activity-analytics','market-movers','info-row'];
     const _order=(S.dashboardOrder||_defaultOrder).filter(id=>_sections[id]!==undefined&&_sections[id]!=='');
     // Add any missing sections
     _defaultOrder.forEach(id=>{if(!_order.includes(id)&&_sections[id])_order.push(id);});
 
     // Widget toggle bar
     if(!S.dashboardHidden)S.dashboardHidden=[];
-    const _sectionLabels={kpis:'KPIs','spark-kpis':'Sparklines','charts-position':'Charts','activity-analytics':'Activity','market-movers':'Market','info-row':'Position','advanced':'Weekly'};
+    const _sectionLabels={kpis:'KPIs','charts-position':'Charts','activity-analytics':'Activity','market-movers':'Market','info-row':'Regions'};
     const _widgetBar='<div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:12px;align-items:center"><span style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;margin-right:4px">Widgets:</span>'+_defaultOrder.map(id=>{
       const hidden=S.dashboardHidden.includes(id);
       return'<button class="btn btn-sm '+(hidden?'btn-default':'btn-primary')+'" style="'+(hidden?'opacity:0.5':'')+'" onclick="toggleDashSection(\''+id+'\')">'+(_sectionLabels[id]||id)+'</button>';
@@ -732,268 +676,8 @@ function render(){
     const _visibleOrder=_order.filter(id=>!S.dashboardHidden.includes(id));
 
     c.innerHTML=_dashTabBar+_sections['stale-rl']+_widgetBar+_visibleOrder.map(id=>'<div class="dash-section" data-section="'+id+'" draggable="true" ondragstart="dashDragStart(event)" ondragover="dashDragOver(event)" ondrop="dashDrop(event)" ondragend="dashDragEnd(event)"><span class="dash-drag-handle" title="Drag to reorder">&#8942;&#8942;</span>'+_sections[id]+'</div>').join('')+'<div style="margin-top:16px;text-align:right"><button class="btn btn-info" onclick="exportPDF()">Export PDF</button></div>';
+    // Leaderboard removed — TC import doesn't include volume/freight data
     }
-    else {
-    // Enhanced Department Leaderboard with time periods, achievements, goals
-    const period=S.leaderboardPeriod||'30d';
-    const r=getLeaderboardRange(period);
-    const inR=d=>new Date(d)>=r.start&&new Date(d)<=r.end;
-    const allBuys=S.buys.filter(b=>inR(b.date));
-    const allSells=S.sells.filter(s=>inR(s.date));
-
-    // Calculate detailed stats per trader using helper function
-    const traderStats=TRADERS.map(t=>{
-      const buys=allBuys.filter(b=>b.trader===t||(!b.trader&&t==='Ian P'));
-      const sells=allSells.filter(s=>s.trader===t||(!s.trader&&t==='Ian P'));
-      const stats=calcTraderStats(t,buys,sells);
-      // Check for new achievements
-      checkAchievements(t,stats);
-      return stats;
-    });
-
-    // Sort by different metrics
-    const byVolume=[...traderStats].sort((a,b)=>b.totalVol-a.totalVol);
-    const byMargin=[...traderStats].sort((a,b)=>b.margin-a.margin);
-    const byProfit=[...traderStats].sort((a,b)=>b.profit-a.profit);
-    const byTrades=[...traderStats].sort((a,b)=>b.trades-a.trades);
-
-    // Department totals
-    const deptStats={
-      buyVol:traderStats.reduce((s,t)=>s+t.buyVol,0),
-      sellVol:traderStats.reduce((s,t)=>s+t.sellVol,0),
-      profit:traderStats.reduce((s,t)=>s+t.profit,0),
-      trades:traderStats.reduce((s,t)=>s+t.trades,0),
-      matchedSells:traderStats.reduce((s,t)=>s+t.matchedSells,0)
-    };
-
-    // Current trader's stats and achievements
-    const myStats=traderStats.find(t=>t.name===S.trader)||traderStats[0];
-    const myAchievements=S.achievements.filter(a=>a.trader===S.trader);
-    const myGoals=S.traderGoals[S.trader]||{};
-
-    // Period labels
-    const periodLabels={today:'Today',week:'This Week',month:'This Month',quarter:'This Quarter',ytd:'Year to Date','7d':'Last 7 Days','30d':'Last 30 Days','90d':'Last 90 Days',all:'All Time'};
-
-    c.innerHTML=_dashTabBar+`
-      <!-- Time Period Tabs -->
-      <div style="display:flex;gap:4px;margin-bottom:16px;flex-wrap:wrap">
-        ${['today','week','month','quarter','ytd','30d','90d','all'].map(p=>`
-          <button class="btn ${period===p?'btn-primary':'btn-default'} btn-sm" onclick="S.leaderboardPeriod='${p}';SS('leaderboardPeriod','${p}');render()">${periodLabels[p]}</button>
-        `).join('')}
-      </div>
-
-      <!-- Department KPIs -->
-      <div class="kpi-grid" style="margin-bottom:16px">
-        <div class="kpi"><div class="kpi-value">${fmtN(deptStats.sellVol)}</div><div class="kpi-label">DEPT SELL VOL (MBF)</div></div>
-        <div class="kpi"><div class="kpi-value ${deptStats.profit>=0?'positive':'negative'}">${fmt(deptStats.profit,0)}</div><div class="kpi-label">DEPT MATCHED PROFIT</div></div>
-        <div class="kpi"><div class="kpi-value">${deptStats.matchedSells}</div><div class="kpi-label">MATCHED SELLS</div></div>
-        <div class="kpi"><div class="kpi-value">${fmtN(deptStats.buyVol)}</div><div class="kpi-label">DEPT BUY VOL (MBF)</div></div>
-      </div>
-
-      ${S.trader!=='Admin'?`
-      <!-- Personal Scorecard -->
-      <div class="card" style="margin-bottom:16px;border-color:${traderColor(S.trader)}">
-        <div class="card-header" style="background:linear-gradient(90deg,${traderColor(S.trader)}22,transparent)">
-          <span class="card-title" style="color:${traderColor(S.trader)}">📊 YOUR SCORECARD - ${S.trader}</span>
-          <span style="font-size:10px;color:var(--muted)">${periodLabels[period]}</span>
-        </div>
-        <div class="card-body">
-          <div class="grid-2" style="gap:20px">
-            <div>
-              <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:16px">
-                <div style="text-align:center;padding:12px;background:var(--panel-alt)">
-                  <div style="font-size:20px;font-weight:700">${fmtN(myStats.sellVol)}</div>
-                  <div style="font-size:9px;color:var(--muted)">SELL VOL (MBF)</div>
-                  ${myGoals.volume?`<div style="margin-top:4px"><div class="progress-bar"><div class="progress-fill accent" style="width:${Math.min(100,myStats.sellVol/myGoals.volume*100)}%"></div></div><div style="font-size:8px;color:var(--muted)">${Math.round(myStats.sellVol/myGoals.volume*100)}% of ${myGoals.volume} goal</div></div>`:''}
-                </div>
-                <div style="text-align:center;padding:12px;background:var(--panel-alt)">
-                  <div style="font-size:20px;font-weight:700;color:${myStats.profit>=0?'var(--positive)':'var(--negative)'}">${fmt(myStats.profit,0)}</div>
-                  <div style="font-size:9px;color:var(--muted)">MATCHED PROFIT</div>
-                  ${myGoals.profit?`<div style="margin-top:4px"><div class="progress-bar"><div class="progress-fill accent" style="width:${Math.min(100,myStats.profit/myGoals.profit*100)}%"></div></div><div style="font-size:8px;color:var(--muted)">${Math.round(myStats.profit/myGoals.profit*100)}% of ${fmt(myGoals.profit,0)} goal</div></div>`:''}
-                </div>
-                <div style="text-align:center;padding:12px;background:var(--panel-alt)">
-                  <div style="font-size:20px;font-weight:700;color:${myStats.margin>=0?'var(--positive)':'var(--negative)'}">${fmt(myStats.margin)}</div>
-                  <div style="font-size:9px;color:var(--muted)">MARGIN/MBF</div>
-                </div>
-              </div>
-              <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px">
-                <div style="text-align:center;padding:8px;background:var(--bg)">
-                  <div style="font-size:14px;font-weight:600">${myStats.matchedSells}</div>
-                  <div style="font-size:8px;color:var(--muted)">MATCHED SELLS</div>
-                </div>
-                <div style="text-align:center;padding:8px;background:var(--bg)">
-                  <div style="font-size:14px;font-weight:600">${myStats.customerCount}</div>
-                  <div style="font-size:8px;color:var(--muted)">CUSTOMERS</div>
-                </div>
-                <div style="text-align:center;padding:8px;background:var(--bg)">
-                  <div style="font-size:14px;font-weight:600;color:var(--accent)">${fmt(myStats.bestProfit,0)}</div>
-                  <div style="font-size:8px;color:var(--muted)">BEST TRADE</div>
-                </div>
-              </div>
-            </div>
-            <div>
-              <div style="font-size:10px;color:var(--muted);margin-bottom:8px">YOUR ACHIEVEMENTS (${myAchievements.length}/${ACHIEVEMENTS.length})</div>
-              <div style="display:flex;flex-wrap:wrap;gap:6px">
-                ${ACHIEVEMENTS.map(ach=>{
-                  const earned=myAchievements.find(a=>a.id===ach.id);
-                  return`<div title="${ach.name}: ${ach.desc}" style="padding:6px 10px;background:${earned?'var(--panel-alt)':'var(--bg)'};border:1px solid ${earned?'var(--accent)':'var(--border)'};opacity:${earned?1:0.4};cursor:help">
-                    <span style="font-size:14px">${ach.icon}</span>
-                    <span style="font-size:9px;margin-left:4px;color:${earned?'var(--accent)':'var(--muted)'}">${ach.name}</span>
-                  </div>`;
-                }).join('')}
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-      `:''}
-
-      <!-- Leaderboard Cards -->
-      <div class="grid-2" style="margin-bottom:16px">
-        <div class="card">
-          <div class="card-header"><span class="card-title positive">🏆 VOLUME LEADERS</span></div>
-          <div class="card-body" style="padding:0">
-            ${byVolume.map((t,i)=>`
-              <div class="activity-item" style="border-left:3px solid ${traderColor(t.name)}">
-                <div style="display:flex;align-items:center;gap:12px">
-                  <span style="font-size:16px;font-weight:700;color:${i===0?'gold':i===1?'silver':i===2?'#cd7f32':'var(--muted)'};width:24px">${i+1}</span>
-                  <div>
-                    <div style="font-weight:600">${escapeHtml(t.name)}${t.name===S.trader?' ⭐':''}</div>
-                    <div style="font-size:10px;color:var(--muted)">B:${fmtN(t.buyVol)} S:${fmtN(t.sellVol)}</div>
-                  </div>
-                </div>
-                <span style="font-weight:700;font-size:14px">${fmtN(t.totalVol)} MBF</span>
-              </div>`).join('')}
-          </div>
-        </div>
-
-        <div class="card">
-          <div class="card-header"><span class="card-title accent">💰 SALES PROFIT LEADERS</span></div>
-          <div class="card-body" style="padding:0">
-            ${byProfit.filter(t=>t.matchedSells>0).map((t,i)=>`
-              <div class="activity-item" style="border-left:3px solid ${traderColor(t.name)}">
-                <div style="display:flex;align-items:center;gap:12px">
-                  <span style="font-size:16px;font-weight:700;color:${i===0?'gold':i===1?'silver':i===2?'#cd7f32':'var(--muted)'};width:24px">${i+1}</span>
-                  <div>
-                    <div style="font-weight:600">${escapeHtml(t.name)}${t.name===S.trader?' ⭐':''}</div>
-                    <div style="font-size:10px;color:var(--muted)">${fmt(t.margin)}/MBF on ${fmtN(t.matchedVol)} MBF</div>
-                  </div>
-                </div>
-                <span style="font-weight:700;font-size:14px;color:${t.profit>=0?'var(--positive)':'var(--negative)'}">${fmt(t.profit,0)}</span>
-              </div>`).join('')||'<div class="empty-state">No matched sells yet</div>'}
-          </div>
-        </div>
-      </div>
-
-      <!-- Detailed Table -->
-      <div class="card">
-        <div class="card-header"><span class="card-title">📋 SALES BREAKDOWN</span></div>
-        <div class="card-body" style="overflow-x:auto">
-          <table style="font-size:11px">
-            <thead>
-              <tr>
-                <th>Trader</th>
-                <th class="right">Buy Vol</th>
-                <th class="right">Sell Vol</th>
-                <th class="right">Matched</th>
-                <th class="right">Margin/MBF</th>
-                <th class="right">Profit</th>
-                <th class="right">Best Trade</th>
-                <th class="right">Customers</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${traderStats.map(t=>`
-                <tr style="border-left:3px solid ${traderColor(t.name)}${t.name===S.trader?';background:var(--panel-alt)':''}">
-                  <td class="bold">${escapeHtml(t.name)}${t.name===S.trader?' (you)':''}</td>
-                  <td class="right">${fmtN(t.buyVol)} <span style="color:var(--muted);font-size:9px">MBF</span></td>
-                  <td class="right">${fmtN(t.sellVol)} <span style="color:var(--muted);font-size:9px">MBF</span></td>
-                  <td class="right">${t.matchedSells>0?`${t.matchedSells} <span style="color:var(--muted);font-size:9px">(${fmtN(t.matchedVol)} MBF)</span>`:'—'}</td>
-                  <td class="right ${t.margin>=0?'positive':'negative'}">${t.matchedSells>0?fmt(t.margin)+'/M':'—'}</td>
-                  <td class="right ${t.profit>=0?'positive':'negative'} bold">${t.matchedSells>0?fmt(t.profit,0):'—'}</td>
-                  <td class="right accent">${t.bestProfit>0?fmt(t.bestProfit,0):'—'}</td>
-                  <td class="right">${t.customerCount}</td>
-                </tr>`).join('')}
-            </tbody>
-            <tfoot>
-              <tr style="font-weight:700;border-top:2px solid var(--border)">
-                <td>DEPARTMENT</td>
-                <td class="right">${fmtN(deptStats.buyVol)} MBF</td>
-                <td class="right">${fmtN(deptStats.sellVol)} MBF</td>
-                <td class="right">${deptStats.matchedSells}</td>
-                <td class="right">—</td>
-                <td class="right ${deptStats.profit>=0?'positive':'negative'}">${fmt(deptStats.profit,0)}</td>
-                <td class="right">—</td>
-                <td class="right">—</td>
-              </tr>
-            </tfoot>
-          </table>
-        </div>
-      </div>
-
-      ${S.trader==='Admin'?`
-      <!-- Admin Section: Goal Setting -->
-      <div class="card" style="margin-top:16px;border-color:var(--warn)">
-        <div class="card-header" style="background:linear-gradient(90deg,rgba(232,115,74,0.2),transparent)">
-          <span class="card-title warn">🔑 ADMIN: TEAM GOALS & MANAGEMENT</span>
-        </div>
-        <div class="card-body">
-          <div style="margin-bottom:16px">
-            <div style="font-size:11px;color:var(--muted);margin-bottom:8px">Set monthly goals for each trader:</div>
-            <table style="font-size:11px">
-              <thead><tr><th>Trader</th><th>Volume Goal (MBF)</th><th>Profit Goal ($)</th><th>Progress</th><th></th></tr></thead>
-              <tbody>
-                ${TRADERS.map(t=>{
-                  const goals=S.traderGoals[t]||{};
-                  const stats=traderStats.find(s=>s.name===t)||{totalVol:0,profit:0};
-                  const volPct=goals.volume?Math.round(stats.totalVol/goals.volume*100):0;
-                  const profitPct=goals.profit?Math.round(stats.profit/goals.profit*100):0;
-                  return`<tr style="border-left:3px solid ${traderColor(t)}">
-                    <td class="bold">${t}</td>
-                    <td><input type="number" id="goal-vol-${t}" value="${goals.volume||''}" placeholder="e.g. 500" style="width:80px"></td>
-                    <td><input type="number" id="goal-profit-${t}" value="${goals.profit||''}" placeholder="e.g. 25000" style="width:100px"></td>
-                    <td style="min-width:150px">
-                      ${goals.volume||goals.profit?`
-                        <div style="display:flex;gap:8px;align-items:center">
-                          ${goals.volume?`<div style="flex:1"><div class="progress-bar"><div class="progress-fill ${volPct>=100?'accent':'info'}" style="width:${Math.min(100,volPct)}%"></div></div><div style="font-size:8px">${volPct}% vol</div></div>`:''}
-                          ${goals.profit?`<div style="flex:1"><div class="progress-bar"><div class="progress-fill ${profitPct>=100?'accent':'info'}" style="width:${Math.min(100,profitPct)}%"></div></div><div style="font-size:8px">${profitPct}% profit</div></div>`:''}
-                        </div>
-                      `:'<span style="color:var(--muted)">No goals set</span>'}
-                    </td>
-                    <td><button class="btn btn-sm btn-primary" onclick="saveTraderGoal('${t}')">Save</button></td>
-                  </tr>`;
-                }).join('')}
-              </tbody>
-            </table>
-          </div>
-          <div style="display:flex;gap:8px;flex-wrap:wrap">
-            <button class="btn btn-default" onclick="exportLeaderboardReport()">📊 Export Report</button>
-            <button class="btn btn-default" onclick="showAllAchievements()">🏆 All Achievements</button>
-          </div>
-        </div>
-      </div>
-      `:''}
-
-      <!-- Achievement Showcase -->
-      <div class="card" style="margin-top:16px">
-        <div class="card-header"><span class="card-title warn">🏆 RECENT ACHIEVEMENTS</span></div>
-        <div class="card-body">
-          ${S.achievements.length?`
-            <div style="display:flex;flex-wrap:wrap;gap:8px">
-              ${S.achievements.slice(-12).reverse().map(a=>`
-                <div style="padding:8px 12px;background:var(--panel-alt);border:1px solid var(--border);display:flex;align-items:center;gap:8px">
-                  <span style="font-size:18px">${a.icon}</span>
-                  <div>
-                    <div style="font-size:11px;font-weight:600">${escapeHtml(a.name)}</div>
-                    <div style="font-size:9px;color:${traderColor(a.trader)}">${escapeHtml(a.trader)}</div>
-                  </div>
-                </div>
-              `).join('')}
-            </div>
-          `:'<div class="empty-state">No achievements earned yet. Keep trading!</div>'}
-        </div>
-      </div>`;
-    } // end leaderboard sub-tab
   } // end dashboard
   else if(S.view==='analytics'){
     const _aTabBar=_subTabBar('analyticsTab',[{id:'spreads',label:'Spreads'},{id:'charts',label:'Charts'},{id:'compare',label:'Compare'},{id:'forecast',label:'Forecast'},{id:'details',label:'Details'}],S.analyticsTab||'spreads');
@@ -1503,7 +1187,7 @@ function render(){
     }
   }
   else if(S.view==='trading'&&(!S.tradingTab||S.tradingTab==='blotter')){
-    const _tTabBar=_subTabBar('tradingTab',[{id:'blotter',label:'Blotter'},{id:'pnl',label:'P&L'}],S.tradingTab||'blotter');
+    const _tTabBar=''; // Single tab — blotter only
     // Blotter includes cancelled orders (shown grayed out) unlike analytics
     const r=getRange(),inR=d=>new Date(d)>=r.start&&new Date(d)<=r.end;
     const mP=p=>S.filters.prod==='all'||p===S.filters.prod;
@@ -1602,18 +1286,9 @@ function render(){
     // Calculate summary stats for footer
     const buyTotalVol=filteredBuys.reduce((s,b)=>s+(b.volume||0),0)
     const sellTotalVol=filteredSells.reduce((s,x)=>s+(x.volume||0),0)
-    const sellTotalProfit=filteredSells.reduce((s,x)=>{
-      const ord=String(x.orderNum||x.linkedPO||x.oc||'').trim()
-      const buy=ord?buyByOrder[ord]:null
-      if(!buy)return s
-      const sellFrtPerMBF=x.volume>0?(x.freight||0)/x.volume:0
-      const fob=(x.price||0)-sellFrtPerMBF
-      return s+(fob-buy.price)*(x.volume||0)
-    },0)
-    const avgMarginAll=sellTotalVol>0?sellTotalProfit/sellTotalVol:0
     const hasActiveFilters=!!(bf.search||bf.mill||bf.product||bf.customer||bf.showShorts||bf.noOrderNum);
-    const filteredEmptyBuys=hasActiveFilters&&myBuys.length?`<tr><td colspan="${S.trader==='Admin'?16:15}" class="empty-state">No buys match current filters <button class="btn btn-default btn-sm" onclick="clearBlotterFilters()" style="margin-left:8px">Clear Filters</button></td></tr>`:`<tr><td colspan="${S.trader==='Admin'?16:15}" class="empty-state">No buys</td></tr>`;
-    const filteredEmptySells=hasActiveFilters&&mySells.length?`<tr><td colspan="${S.trader==='Admin'?16:15}" class="empty-state">No sells match current filters <button class="btn btn-default btn-sm" onclick="clearBlotterFilters()" style="margin-left:8px">Clear Filters</button></td></tr>`:`<tr><td colspan="${S.trader==='Admin'?16:15}" class="empty-state">No sells</td></tr>`;
+    const filteredEmptyBuys=hasActiveFilters&&myBuys.length?`<tr><td colspan="${S.trader==='Admin'?12:11}" class="empty-state">No buys match current filters <button class="btn btn-default btn-sm" onclick="clearBlotterFilters()" style="margin-left:8px">Clear Filters</button></td></tr>`:`<tr><td colspan="${S.trader==='Admin'?12:11}" class="empty-state">No buys</td></tr>`;
+    const filteredEmptySells=hasActiveFilters&&mySells.length?`<tr><td colspan="${S.trader==='Admin'?11:10}" class="empty-state">No sells match current filters <button class="btn btn-default btn-sm" onclick="clearBlotterFilters()" style="margin-left:8px">Clear Filters</button></td></tr>`:`<tr><td colspan="${S.trader==='Admin'?11:10}" class="empty-state">No sells</td></tr>`;
     // Age class helper
     const ageClass=d=>{if(!d)return'';const days=Math.floor((new Date()-new Date(d))/(1000*60*60*24));return days>30?'age-stale':days>14?'age-old':days>7?'age-week':'age-fresh'}
     // Trade status helper
@@ -1649,29 +1324,24 @@ function render(){
         </div>
       </div></div>
       <div class="panel"><div class="panel-header"><span>${S.trader==='Admin'?'ALL BUYS':'MY BUYS'}</span><span style="color:var(--muted);font-size:10px;margin-left:8px">${filteredBuys.length} trades</span></div>
-        <div class="panel-body" style="padding:0;overflow-x:auto"><table class="data-table"><thead><tr>${S.trader==='Admin'?'<th>Trader</th>':''}<th class="sortable" onclick="toggleSort('orderNum')">Order # ${sortIcon('orderNum')}</th><th class="sortable" onclick="toggleSort('date')">Date ${sortIcon('date')}</th><th>Status</th><th class="right">Age</th><th class="sortable" onclick="toggleSort('mill')">Mill ${sortIcon('mill')}</th><th>Origin</th><th>Reg</th><th class="sortable" onclick="toggleSort('product')">Product ${sortIcon('product')}</th><th>Len</th><th class="right sortable" onclick="toggleSort('price')">Price ${sortIcon('price')}</th><th class="right">Frt</th><th class="right sortable" onclick="toggleSort('volume')">Vol ${sortIcon('volume')}</th><th class="right">Sold</th><th class="right">Avail</th><th></th></tr></thead><tbody>
-          ${filteredBuys.length?filteredBuys.map(b=>{const ordDisplay=String(b.orderNum||b.po||'').trim();const ord=normalizeOrderNum(b.orderNum||b.po);const sold=orderSold[ord]||0;const avail=(b.volume||0)-sold;const age=calcAge(b.date);const ageCls=ageClass(b.date);const linkedSells=ord?sellByOrder[ord]||[]:[];const coworkerSells=linkedSells.filter(s=>s.trader&&s.trader!==b.trader);const isCancelled=b.status==='cancelled';const st=tradeStatus(b);return`<tr class="${isCancelled?'cancelled-row':''}">${S.trader==='Admin'?`<td><span style="display:inline-block;width:20px;height:20px;border-radius:50%;background:${traderColor(b.trader||'Ian P')};color:var(--bg);font-size:10px;font-weight:700;text-align:center;line-height:20px" title="${escapeHtml(b.trader||'Ian P')}">${traderInitial(b.trader||'Ian P')}</span></td>`:''}<td class="bold accent">${escapeHtml(ordDisplay)||'--'}${coworkerSells.length?` <span style="font-size:9px;color:var(--info)" title="Sold by: ${escapeHtml(coworkerSells.map(s=>s.trader).join(', '))}">->${coworkerSells.map(s=>traderInitial(s.trader)).join(',')}</span>`:''}</td><td>${fmtD(b.date)}</td><td><span class="status-badge status-${st}">${st}</span></td><td class="right ${ageCls}" title="${age} days old">${age}d</td><td>${escapeHtml(b.mill)||'--'}</td><td>${escapeHtml(b.origin)||'--'}</td><td style="text-transform:capitalize">${escapeHtml(b.region)}</td><td class="bold">${escapeHtml(b.product)}${b.msrPremium?' <span style="color:var(--accent);font-size:9px">+'+b.msrPremium+'</span>':''}</td><td>${b.length||'RL'}${b.tally?' <span style="color:var(--warn);font-size:9px">T</span>':''}</td><td class="right positive editable" ondblclick="editCell(this,'price','buy-${b.id}')">${fmt(b.price)}${b.freight?' <span style="color:var(--muted);font-size:9px">FOB</span>':''}</td><td class="right ${b.freight?'warn':''}">${b.freight?fmt(b.freight):'--'}</td><td class="right editable" ondblclick="editCell(this,'volume','buy-${b.id}')">${fmtN(b.volume)}</td><td class="right ${sold>0?'warn':''}">${fmtN(sold)}</td><td class="right ${avail>0?'positive':''}">${fmtN(avail)}</td><td><div class="action-buttons"><button class="btn btn-default btn-sm" onclick="editBuy(${b.id})">Edit</button><button class="btn btn-default btn-sm" onclick="dupBuy(${b.id})">&#x29C9;</button><button class="btn btn-default btn-sm" onclick="cancelBuy(${b.id})" title="${b.status==='cancelled'?'Reactivate':'Cancel'}">${b.status==='cancelled'?'&#x21A9;':'&#x2298;'}</button><button class="btn btn-danger btn-sm" onclick="delBuy(${b.id})">x</button></div></td></tr>`}).join(''):filteredEmptyBuys}
+        <div class="panel-body" style="padding:0;overflow-x:auto"><table class="data-table"><thead><tr>${S.trader==='Admin'?'<th>Trader</th>':''}<th class="sortable" onclick="toggleSort('orderNum')">Order # ${sortIcon('orderNum')}</th><th class="sortable" onclick="toggleSort('date')">Date ${sortIcon('date')}</th><th>Status</th><th class="right">Age</th><th class="sortable" onclick="toggleSort('mill')">Mill ${sortIcon('mill')}</th><th>Origin</th><th>Reg</th><th class="sortable" onclick="toggleSort('product')">Product ${sortIcon('product')}</th><th>Len</th><th class="right sortable" onclick="toggleSort('price')">Price ${sortIcon('price')}</th><th></th></tr></thead><tbody>
+          ${filteredBuys.length?filteredBuys.map(b=>{const ordDisplay=String(b.orderNum||b.po||'').trim();const ord=normalizeOrderNum(b.orderNum||b.po);const sold=orderSold[ord]||0;const avail=(b.volume||0)-sold;const age=calcAge(b.date);const ageCls=ageClass(b.date);const linkedSells=ord?sellByOrder[ord]||[]:[];const coworkerSells=linkedSells.filter(s=>s.trader&&s.trader!==b.trader);const isCancelled=b.status==='cancelled';const st=tradeStatus(b);return`<tr class="${isCancelled?'cancelled-row':''}">${S.trader==='Admin'?`<td><span style="display:inline-block;width:20px;height:20px;border-radius:50%;background:${traderColor(b.trader||'Ian P')};color:var(--bg);font-size:10px;font-weight:700;text-align:center;line-height:20px" title="${escapeHtml(b.trader||'Ian P')}">${traderInitial(b.trader||'Ian P')}</span></td>`:''}<td class="bold accent">${escapeHtml(ordDisplay)||'--'}${coworkerSells.length?` <span style="font-size:9px;color:var(--info)" title="Sold by: ${escapeHtml(coworkerSells.map(s=>s.trader).join(', '))}">->${coworkerSells.map(s=>traderInitial(s.trader)).join(',')}</span>`:''}</td><td>${fmtD(b.date)}</td><td><span class="status-badge status-${st}">${st}</span></td><td class="right ${ageCls}" title="${age} days old">${age}d</td><td>${escapeHtml(b.mill)||'--'}</td><td>${escapeHtml(b.origin)||'--'}</td><td style="text-transform:capitalize">${escapeHtml(b.region)}</td><td class="bold">${escapeHtml(b.product)}${b.msrPremium?' <span style="color:var(--accent);font-size:9px">+'+b.msrPremium+'</span>':''}</td><td>${b.length||'RL'}${b.tally?' <span style="color:var(--warn);font-size:9px">T</span>':''}</td><td class="right positive editable" ondblclick="editCell(this,'price','buy-${b.id}')">${fmt(b.price)}${b.freight?' <span style="color:var(--muted);font-size:9px">FOB</span>':''}</td><td><div class="action-buttons"><button class="btn btn-default btn-sm" onclick="editBuy(${b.id})">Edit</button><button class="btn btn-default btn-sm" onclick="dupBuy(${b.id})">&#x29C9;</button><button class="btn btn-default btn-sm" onclick="cancelBuy(${b.id})" title="${b.status==='cancelled'?'Reactivate':'Cancel'}">${b.status==='cancelled'?'&#x21A9;':'&#x2298;'}</button><button class="btn btn-danger btn-sm" onclick="delBuy(${b.id})">x</button></div></td></tr>`}).join(''):filteredEmptyBuys}
         </tbody></table></div>
-        <div class="panel-footer"><span>Total Volume: <strong>${fmtN(buyTotalVol)} MBF</strong></span><span>Avg Price: <strong>${buyTotalVol>0?fmt(Math.round(filteredBuys.reduce((s,b)=>s+(b.price||0)*(b.volume||0),0)/buyTotalVol)):'--'}</strong></span><span>${filteredBuys.length} trades</span></div>
+        <div class="panel-footer"><span>Avg Price: <strong>${buyTotalVol>0?fmt(Math.round(filteredBuys.reduce((s,b)=>s+(b.price||0)*(b.volume||0),0)/buyTotalVol)):'--'}</strong></span><span>${filteredBuys.length} trades</span></div>
       </div>
       <div class="panel" style="margin-top:16px"><div class="panel-header"><span>${S.trader==='Admin'?'ALL SELLS':'MY SELLS'}</span><span style="color:var(--muted);font-size:10px;margin-left:8px">${filteredSells.length} trades</span></div>
-        <div class="panel-body" style="padding:0;overflow-x:auto"><table class="data-table"><thead><tr>${S.trader==='Admin'?'<th>Trader</th>':''}<th class="sortable" onclick="toggleSort('orderNum')">Order # ${sortIcon('orderNum')}</th><th class="sortable" onclick="toggleSort('date')">Date ${sortIcon('date')}</th><th>Status</th><th class="sortable" onclick="toggleSort('customer')">Customer ${sortIcon('customer')}</th><th>Dest</th><th class="sortable" onclick="toggleSort('product')">Product ${sortIcon('product')}</th><th>Len</th><th class="right sortable" onclick="toggleSort('price')">DLVD ${sortIcon('price')}</th><th class="right">Frt</th><th class="right">Frt/MBF</th><th class="right">Margin</th><th class="right sortable" onclick="toggleSort('volume')">Vol ${sortIcon('volume')}</th><th class="right">Profit</th><th>Matched</th><th></th></tr></thead><tbody>
+        <div class="panel-body" style="padding:0;overflow-x:auto"><table class="data-table"><thead><tr>${S.trader==='Admin'?'<th>Trader</th>':''}<th class="sortable" onclick="toggleSort('orderNum')">Order # ${sortIcon('orderNum')}</th><th class="sortable" onclick="toggleSort('date')">Date ${sortIcon('date')}</th><th>Status</th><th class="sortable" onclick="toggleSort('customer')">Customer ${sortIcon('customer')}</th><th>Dest</th><th class="sortable" onclick="toggleSort('product')">Product ${sortIcon('product')}</th><th>Len</th><th class="right sortable" onclick="toggleSort('price')">Price ${sortIcon('price')}</th><th>Matched</th><th></th></tr></thead><tbody>
           ${filteredSells.length?filteredSells.map(x=>{
             const ordDisplay=String(x.orderNum||x.linkedPO||x.oc||'').trim()
             const ord=normalizeOrderNum(x.orderNum||x.linkedPO||x.oc)
             const buy=ord?buyByOrder[ord]:null
-            const buyCost=buy?.price||0
-            const sellFrtPerMBF=x.volume>0?(x.freight||0)/x.volume:0
-            const fob=(x.price||0)-sellFrtPerMBF
-            const margin=buy?fob-buyCost:null
-            const profit=margin!==null?margin*(x.volume||0):null
             const isShort=!buy
             const crossTrader=buy&&buy.trader!==x.trader
             const isCancelled=x.status==='cancelled'
             const st=tradeStatus(x)
-            return`<tr class="${isCancelled?'cancelled-row':''}">${S.trader==='Admin'?`<td><span style="display:inline-block;width:20px;height:20px;border-radius:50%;background:${traderColor(x.trader||'Ian P')};color:var(--bg);font-size:10px;font-weight:700;text-align:center;line-height:20px" title="${escapeHtml(x.trader||'Ian P')}">${traderInitial(x.trader||'Ian P')}</span></td>`:''}<td class="bold ${isShort?'negative':'accent'}">${escapeHtml(ordDisplay)||'--'}${isShort?' <span class="status-badge status-draft">SHORT</span>':''}${crossTrader?` <span style="font-size:9px;color:${traderColor(buy.trader)}" title="Sourced from ${escapeHtml(buy.trader)}"><-${traderInitial(buy.trader)}</span>`:''}</td><td>${fmtD(x.date)}</td><td><span class="status-badge status-${st}">${st}</span></td><td>${escapeHtml(x.customer)||'--'}</td><td>${escapeHtml(x.destination)||'--'}</td><td class="bold">${escapeHtml(x.product)}${x.msrPremium?' <span style="color:var(--accent);font-size:9px">+'+x.msrPremium+'</span>':''}</td><td>${x.length||'RL'}${x.tally?' <span style="color:var(--warn);font-size:9px">T</span>':''}</td><td class="right accent editable" ondblclick="editCell(this,'price','sell-${x.id}')">${fmt(x.price)}</td><td class="right warn">${fmt(x.freight)}</td><td class="right" style="color:var(--muted)">${fmt(Math.round(sellFrtPerMBF))}</td><td class="right ${margin===null?'':margin>=0?'positive':'negative'} bold">${margin!==null?fmt(Math.round(margin)):'--'}</td><td class="right editable" ondblclick="editCell(this,'volume','sell-${x.id}')">${fmtN(x.volume)}</td><td class="right ${profit===null?'':profit>=0?'positive':'negative'} bold">${profit!==null?fmt(Math.round(profit)):'--'}</td><td style="text-align:center">${buy?'<span style="color:var(--positive)" title="Matched to '+escapeHtml(ordDisplay)+'">&#10003;</span>':'<span style="color:var(--negative)">&#10007;</span>'}</td><td><div class="action-buttons"><button class="btn btn-default btn-sm" onclick="editSell(${x.id})">Edit</button><button class="btn btn-default btn-sm" onclick="dupSell(${x.id})">&#x29C9;</button><button class="btn btn-default btn-sm" onclick="cancelSell(${x.id})" title="${x.status==='cancelled'?'Reactivate':'Cancel'}">${x.status==='cancelled'?'&#x21A9;':'&#x2298;'}</button><button class="btn btn-danger btn-sm" onclick="delSell(${x.id})">x</button></div></td></tr>`}).join(''):filteredEmptySells}
+            return`<tr class="${isCancelled?'cancelled-row':''}">${S.trader==='Admin'?`<td><span style="display:inline-block;width:20px;height:20px;border-radius:50%;background:${traderColor(x.trader||'Ian P')};color:var(--bg);font-size:10px;font-weight:700;text-align:center;line-height:20px" title="${escapeHtml(x.trader||'Ian P')}">${traderInitial(x.trader||'Ian P')}</span></td>`:''}<td class="bold ${isShort?'negative':'accent'}">${escapeHtml(ordDisplay)||'--'}${isShort?' <span class="status-badge status-draft">SHORT</span>':''}${crossTrader?` <span style="font-size:9px;color:${traderColor(buy.trader)}" title="Sourced from ${escapeHtml(buy.trader)}"><-${traderInitial(buy.trader)}</span>`:''}</td><td>${fmtD(x.date)}</td><td><span class="status-badge status-${st}">${st}</span></td><td>${escapeHtml(x.customer)||'--'}</td><td>${escapeHtml(x.destination)||'--'}</td><td class="bold">${escapeHtml(x.product)}${x.msrPremium?' <span style="color:var(--accent);font-size:9px">+'+x.msrPremium+'</span>':''}</td><td>${x.length||'RL'}${x.tally?' <span style="color:var(--warn);font-size:9px">T</span>':''}</td><td class="right accent editable" ondblclick="editCell(this,'price','sell-${x.id}')">${fmt(x.price)}</td><td style="text-align:center">${buy?'<span style="color:var(--positive)" title="Matched to '+escapeHtml(ordDisplay)+'">&#10003;</span>':'<span style="color:var(--negative)">&#10007;</span>'}</td><td><div class="action-buttons"><button class="btn btn-default btn-sm" onclick="editSell(${x.id})">Edit</button><button class="btn btn-default btn-sm" onclick="dupSell(${x.id})">&#x29C9;</button><button class="btn btn-default btn-sm" onclick="cancelSell(${x.id})" title="${x.status==='cancelled'?'Reactivate':'Cancel'}">${x.status==='cancelled'?'&#x21A9;':'&#x2298;'}</button><button class="btn btn-danger btn-sm" onclick="delSell(${x.id})">x</button></div></td></tr>`}).join(''):filteredEmptySells}
         </tbody></table></div>
-        <div class="panel-footer"><span>Total Volume: <strong>${fmtN(sellTotalVol)} MBF</strong></span><span>Total P&L: <strong class="${sellTotalProfit>=0?'positive':'negative'}">${fmt(Math.round(sellTotalProfit))}</strong></span><span>Avg Margin: <strong class="${avgMarginAll>=0?'positive':'negative'}">${fmt(Math.round(avgMarginAll))}/MBF</strong></span><span>${filteredSells.length} trades</span></div>
+        <div class="panel-footer"><span>Avg Price: <strong>${sellTotalVol>0?fmt(Math.round(filteredSells.reduce((s,x)=>s+(x.price||0)*(x.volume||0),0)/sellTotalVol)):'--'}</strong></span><span>${filteredSells.length} trades</span></div>
       </div>`;
   }
   else if(S.view==='quotes'){
@@ -1706,7 +1376,9 @@ function render(){
     const customerCustom=S.qbCustomer?allCustom.filter(t=>t.customer===S.qbCustomer):[];
     const _activeT=S.qeBuildTemplate||'';
     const _esc=s=>s.replace(/'/g,"\\'");
+    const _hasCustTpl=S.qbCustomer&&S.customerTemplates&&S.customerTemplates[S.qbCustomer]&&S.customerTemplates[S.qbCustomer].grid&&Object.keys(S.customerTemplates[S.qbCustomer].grid).length>0;
     const templateBtns=[
+      _hasCustTpl?`<button class="btn ${'__customer__'===_activeT?'btn-primary':'btn-default'}" style="padding:2px 8px;font-size:10px;min-width:0;border:1px solid var(--positive)" onclick="qeApplyCustomerTemplate()">&#128203; Profile</button>`:'',
       ...builtInNames.map(name=>`<button class="btn ${name===_activeT?'btn-primary':'btn-default'}" style="padding:2px 8px;font-size:10px;min-width:0" onclick="qeApplyTemplate('${_esc(name)}')">${escapeHtml(name)}</button>`),
       ...generalCustom.map(t=>`<button class="btn ${t.name===_activeT?'btn-primary':'btn-default'}" style="padding:2px 8px;font-size:10px;min-width:0" onclick="qeApplyTemplate('${_esc(t.name)}')">${escapeHtml(t.name)} <span onclick="event.stopPropagation();qeDeleteTemplate('${_esc(t.name)}')" style="cursor:pointer;margin-left:2px;opacity:0.5" title="Delete">&times;</span></button>`),
       ...customerCustom.map(t=>`<button class="btn ${t.name===_activeT?'btn-primary':'btn-default'}" style="padding:2px 8px;font-size:10px;min-width:0" onclick="qeApplyTemplate('${_esc(t.name)}')">&#128100; ${escapeHtml(t.name)} <span onclick="event.stopPropagation();qeDeleteTemplate('${_esc(t.name)}','${_esc(t.customer)}')" style="cursor:pointer;margin-left:2px;opacity:0.5" title="Delete">&times;</span></button>`),
@@ -2170,7 +1842,7 @@ function render(){
           <div class="panel-body" style="padding:0;overflow-x:auto"><table class="data-table"><thead><tr>${S.trader==='Admin'?'<th>Trader</th>':''}<th class="sortable" ${_csC('name')}>Customer ${_csI('name')}</th><th>Locations</th><th class="right sortable" ${_csC('trades')}>Trades ${_csI('trades')}</th><th class="right sortable" ${_csC('vol')}>Volume ${_csI('vol')}</th><th class="right sortable" ${_csC('margin')}>Avg Margin ${_csI('margin')}</th><th>Credit Status</th><th></th></tr></thead><tbody>
             ${custData.length?custData.map(cu=>{
               const creditColor=cu.creditUtil>90?'var(--negative)':cu.creditUtil>70?'var(--warn)':'var(--positive)'
-              return`<tr style="${S.selectedCustomer===cu.name?'background:var(--panel-alt)':''}">${S.trader==='Admin'?`<td><span style="display:inline-block;width:18px;height:18px;border-radius:50%;background:${traderColor(cu.trader||'Ian P')};color:var(--bg);font-size:9px;font-weight:700;text-align:center;line-height:18px" title="${escapeHtml(cu.trader||'Ian P')}">${traderInitial(cu.trader||'Ian P')}</span></td>`:''}<td class="bold" style="cursor:pointer" onclick="S.selectedCustomer='${escapeHtml(cu.name||'')}';render()">${escapeHtml(cu.name||'')}</td><td style="font-size:10px">${cu.locs.length?escapeHtml(cu.locs.join(', ')):'--'}</td><td class="right">${cu.tradeCount}</td><td class="right">${fmtN(cu.vol)} MBF</td><td class="right ${cu.avgMargin>=0?'positive':'negative'} bold">${cu.vol>0?fmt(Math.round(cu.avgMargin)):''}</td><td><div class="limit-bar" style="width:100px;display:inline-block;vertical-align:middle"><div class="limit-fill" style="width:${Math.min(100,cu.creditUtil)}%;background:${creditColor}"></div></div> <span style="font-size:9px;color:${creditColor}">${Math.round(cu.creditUtil)}%</span></td><td style="white-space:nowrap">${typeof erOpenUnifiedByName==='function'?`<button class="btn btn-default btn-sm" onclick="erOpenUnifiedByName('${escapeHtml(cu.name||'')}','customer')" title="Unified Entity View">🔗</button> `:''}<button class="btn btn-default btn-sm" onclick="S.selectedCustomer='${escapeHtml(cu.name||'')}';render()">360</button> <button class="btn btn-default btn-sm" onclick="editCust('${escapeHtml(cu.name||'')}')">Edit</button> <button class="btn btn-default btn-sm" onclick="deleteCust('${escapeHtml(cu.name||'')}')" style="color:var(--negative)">x</button></td></tr>`
+              return`<tr style="${S.selectedCustomer===cu.name?'background:var(--panel-alt)':''}">${S.trader==='Admin'?`<td><span style="display:inline-block;width:18px;height:18px;border-radius:50%;background:${traderColor(cu.trader||'Ian P')};color:var(--bg);font-size:9px;font-weight:700;text-align:center;line-height:18px" title="${escapeHtml(cu.trader||'Ian P')}">${traderInitial(cu.trader||'Ian P')}</span></td>`:''}<td class="bold" style="cursor:pointer" onclick="S.selectedCustomer='${escapeHtml(cu.name||'')}';render()">${escapeHtml(cu.name||'')}</td><td style="font-size:10px">${cu.locs.length?escapeHtml(cu.locs.join(', ')):'--'}</td><td class="right">${cu.tradeCount}</td><td class="right">${fmtN(cu.vol)} MBF</td><td class="right ${cu.avgMargin>=0?'positive':'negative'} bold">${cu.vol>0?fmt(Math.round(cu.avgMargin)):''}</td><td><div class="limit-bar" style="width:100px;display:inline-block;vertical-align:middle"><div class="limit-fill" style="width:${Math.min(100,cu.creditUtil)}%;background:${creditColor}"></div></div> <span style="font-size:9px;color:${creditColor}">${Math.round(cu.creditUtil)}%</span></td><td style="white-space:nowrap">${typeof erOpenUnifiedByName==='function'?`<button class="btn btn-default btn-sm" onclick="erOpenUnifiedByName('${escapeHtml(cu.name||'')}','customer')" title="Unified Entity View">🔗</button> `:''}<button class="btn btn-default btn-sm" onclick="showCustomerTemplateModal('${escapeHtml(cu.name||'')}')" title="Product Template" style="${S.customerTemplates&&S.customerTemplates[cu.name]?'color:var(--positive)':''}">Tpl</button> <button class="btn btn-default btn-sm" onclick="S.selectedCustomer='${escapeHtml(cu.name||'')}';render()">360</button> <button class="btn btn-default btn-sm" onclick="editCust('${escapeHtml(cu.name||'')}')">Edit</button> <button class="btn btn-default btn-sm" onclick="deleteCust('${escapeHtml(cu.name||'')}')" style="color:var(--negative)">x</button></td></tr>`
             }).join(''):`<tr><td colspan="${S.trader==='Admin'?8:7}" class="empty-state">No customers yet</td></tr>`}
           </tbody></table></div></div>
 
@@ -2325,126 +1997,7 @@ function render(){
     const _mc=document.getElementById('content');
     if(_mc)_mc.insertAdjacentHTML('afterbegin',_miTabBar);
   }
-  else if(S.view==='trading'&&S.tradingTab==='pnl'){
-    const _tTabBar=_subTabBar('tradingTab',[{id:'blotter',label:'Blotter'},{id:'pnl',label:'P&L'}],'pnl');
-    // P&L Attribution Enhancement
-    const pnlPeriod=S.pnlPeriod||'mtd'
-    const _pnlNow=new Date()
-    const _pnlPeriodStart=(()=>{
-      const d=new Date()
-      if(pnlPeriod==='today'){d.setHours(0,0,0,0);return d}
-      if(pnlPeriod==='wtd'){d.setDate(d.getDate()-d.getDay());d.setHours(0,0,0,0);return d}
-      if(pnlPeriod==='mtd'){d.setDate(1);d.setHours(0,0,0,0);return d}
-      if(pnlPeriod==='qtd'){d.setMonth(Math.floor(d.getMonth()/3)*3,1);d.setHours(0,0,0,0);return d}
-      if(pnlPeriod==='ytd'){d.setMonth(0,1);d.setHours(0,0,0,0);return d}
-      return new Date(0)
-    })()
-    const _pnlInRange=d=>new Date(d)>=_pnlPeriodStart&&new Date(d)<=_pnlNow
-
-    // Build P&L attribution data
-    const _pnlBuyByOrder={}
-    S.buys.forEach(b=>{const ord=String(b.orderNum||b.po||'').trim();if(ord)_pnlBuyByOrder[ord]=b})
-    const _pnlTrades=S.sells.filter(s=>_pnlInRange(s.date)).map(s=>{
-      const ord=String(s.orderNum||s.linkedPO||s.oc||'').trim()
-      const buy=ord?_pnlBuyByOrder[ord]:null
-      const sellFrtMBF=s.volume>0?(s.freight||0)/s.volume:0
-      const fob=(s.price||0)-sellFrtMBF
-      const tradePnl=buy?(fob-(buy.price||0))*(s.volume||0):0
-      const freightPnl=-(s.freight||0)
-      return{...s,buy,tradePnl,freightPnl,totalPnl:tradePnl}
-    })
-    const _totalTradePnl=_pnlTrades.reduce((s,t)=>s+t.tradePnl,0)
-    const _totalFreightCost=_pnlTrades.reduce((s,t)=>s+t.freightPnl,0)
-
-    // By trader
-    const _byTrader={}
-    _pnlTrades.forEach(t=>{const tr=t.trader||'Ian P';if(!_byTrader[tr])_byTrader[tr]={trader:tr,pnl:0,vol:0,count:0};_byTrader[tr].pnl+=t.tradePnl;_byTrader[tr].vol+=t.volume||0;_byTrader[tr].count++})
-    const _pnlS=S.pnlSort||{col:'tradePnl',dir:'desc'};
-    const _pSortFn=(list,nameKey)=>{
-      return[...list].sort((a,b)=>{
-        let va,vb;
-        if(_pnlS.col===nameKey||_pnlS.col==='name'){va=a[nameKey]||'';vb=b[nameKey]||'';return _pnlS.dir==='asc'?va.localeCompare(vb):vb.localeCompare(va)}
-        if(_pnlS.col==='count'){va=a.count;vb=b.count}
-        else if(_pnlS.col==='vol'){va=a.vol;vb=b.vol}
-        else{va=a.pnl;vb=b.pnl}
-        return _pnlS.dir==='asc'?va-vb:vb-va;
-      });
-    };
-    const _pSI=c=>_pnlS.col===c?(_pnlS.dir==='asc'?'▲':'▼'):'';
-    const _pSC=c=>'onclick="togglePnlSort(\''+c+'\')" style="cursor:pointer"';
-    const _traderList=_pSortFn(Object.values(_byTrader),'trader')
-
-    // By product
-    const _byProduct={}
-    _pnlTrades.forEach(t=>{const p=t.product||'Unknown';if(!_byProduct[p])_byProduct[p]={product:p,pnl:0,vol:0,count:0};_byProduct[p].pnl+=t.tradePnl;_byProduct[p].vol+=t.volume||0;_byProduct[p].count++})
-    const _productList=_pSortFn(Object.values(_byProduct),'product')
-
-    // Top/bottom trades
-    const _sortedTrades=[..._pnlTrades].filter(t=>t.buy).sort((a,b)=>b.tradePnl-a.tradePnl)
-    const _topTrades=_sortedTrades.slice(0,5)
-    const _bottomTrades=_sortedTrades.slice(-5).reverse()
-
-    const periodLabels={today:'Today',wtd:'WTD',mtd:'MTD',qtd:'QTD',ytd:'YTD'}
-
-    const calendarHTML=renderPnLCalendar()
-    c.innerHTML=_tTabBar+`
-      <!-- Period Selector -->
-      <div style="display:flex;gap:4px;margin-bottom:16px">
-        ${['today','wtd','mtd','qtd','ytd'].map(p=>`<button class="btn ${pnlPeriod===p?'btn-primary':'btn-default'} btn-sm" onclick="S.pnlPeriod='${p}';SS('pnlPeriod','${p}');render()">${periodLabels[p]}</button>`).join('')}
-      </div>
-
-      <!-- P&L Summary Cards -->
-      <div class="kpi-row" style="margin-bottom:20px">
-        <div class="kpi-card"><div class="kpi-label">Total P&L (${periodLabels[pnlPeriod]})</div><div class="kpi-value ${_totalTradePnl>=0?'positive':'negative'}">${fmt(Math.round(_totalTradePnl))}</div><div class="kpi-trend">${_pnlTrades.filter(t=>t.buy).length} matched trades</div></div>
-        <div class="kpi-card"><div class="kpi-label">Freight Cost</div><div class="kpi-value warn">${fmt(Math.round(Math.abs(_totalFreightCost)))}</div><div class="kpi-trend">${_pnlTrades.length} shipments</div></div>
-        <div class="kpi-card"><div class="kpi-label">Avg Margin/MBF</div><div class="kpi-value ${_totalTradePnl>=0?'positive':'negative'}">${_pnlTrades.reduce((s,t)=>s+(t.volume||0),0)>0?fmt(Math.round(_totalTradePnl/_pnlTrades.reduce((s,t)=>s+(t.volume||0),0))):'--'}</div></div>
-        <div class="kpi-card"><div class="kpi-label">Volume Traded</div><div class="kpi-value">${fmtN(_pnlTrades.reduce((s,t)=>s+(t.volume||0),0))} MBF</div></div>
-      </div>
-
-      <!-- Attribution Tables -->
-      <div class="grid-2" style="margin-bottom:20px">
-        <div class="panel"><div class="panel-header">P&L BY TRADER</div><div class="panel-body" style="padding:0">
-          <table class="data-table"><thead><tr><th class="sortable" ${_pSC('name')}>Trader ${_pSI('name')}</th><th class="right sortable" ${_pSC('count')}>Trades ${_pSI('count')}</th><th class="right sortable" ${_pSC('vol')}>Volume ${_pSI('vol')}</th><th class="right sortable" ${_pSC('tradePnl')}>P&L ${_pSI('tradePnl')}</th></tr></thead><tbody>
-            ${_traderList.length?_traderList.map(t=>`<tr style="border-left:3px solid ${traderColor(t.trader)}"><td class="bold">${escapeHtml(t.trader)}</td><td class="right">${t.count}</td><td class="right">${fmtN(t.vol)} MBF</td><td class="right ${t.pnl>=0?'positive':'negative'} bold">${fmt(Math.round(t.pnl))}</td></tr>`).join(''):'<tr><td colspan="4" class="empty-state">No data</td></tr>'}
-          </tbody></table>
-        </div></div>
-        <div class="panel"><div class="panel-header">P&L BY PRODUCT</div><div class="panel-body" style="padding:0">
-          <table class="data-table"><thead><tr><th class="sortable" ${_pSC('name')}>Product ${_pSI('name')}</th><th class="right sortable" ${_pSC('count')}>Trades ${_pSI('count')}</th><th class="right sortable" ${_pSC('vol')}>Volume ${_pSI('vol')}</th><th class="right sortable" ${_pSC('tradePnl')}>P&L ${_pSI('tradePnl')}</th></tr></thead><tbody>
-            ${_productList.length?_productList.slice(0,8).map(p=>`<tr><td class="bold">${escapeHtml(p.product)}</td><td class="right">${p.count}</td><td class="right">${fmtN(p.vol)} MBF</td><td class="right ${p.pnl>=0?'positive':'negative'} bold">${fmt(Math.round(p.pnl))}</td></tr>`).join(''):'<tr><td colspan="4" class="empty-state">No data</td></tr>'}
-          </tbody></table>
-        </div></div>
-      </div>
-
-      <!-- Top/Bottom Performers -->
-      <div class="grid-2" style="margin-bottom:20px">
-        <div class="panel"><div class="panel-header">BEST TRADES</div><div class="panel-body" style="padding:0">
-          <table class="data-table"><thead><tr><th>Date</th><th>Customer</th><th>Product</th><th class="right">P&L</th></tr></thead><tbody>
-            ${_topTrades.length?_topTrades.map(t=>`<tr><td>${fmtD(t.date)}</td><td>${escapeHtml(t.customer||'')}</td><td class="bold">${escapeHtml(t.product||'')}</td><td class="right positive bold">${fmt(Math.round(t.tradePnl))}</td></tr>`).join(''):'<tr><td colspan="4" class="empty-state">No data</td></tr>'}
-          </tbody></table>
-        </div></div>
-        <div class="panel"><div class="panel-header">WORST TRADES</div><div class="panel-body" style="padding:0">
-          <table class="data-table"><thead><tr><th>Date</th><th>Customer</th><th>Product</th><th class="right">P&L</th></tr></thead><tbody>
-            ${_bottomTrades.length?_bottomTrades.map(t=>`<tr><td>${fmtD(t.date)}</td><td>${escapeHtml(t.customer||'')}</td><td class="bold">${escapeHtml(t.product||'')}</td><td class="right negative bold">${fmt(Math.round(t.tradePnl))}</td></tr>`).join(''):'<tr><td colspan="4" class="empty-state">No data</td></tr>'}
-          </tbody></table>
-        </div></div>
-      </div>
-
-      <!-- Calendar -->
-      ${calendarHTML}`;
-    setTimeout(()=>{
-      const dailyPnL=calcDailyPnL();
-      const month=S.calendarMonth||today().slice(0,7);
-      const yr=parseInt(month.split('-')[0]),mo=parseInt(month.split('-')[1]);
-      const daysInMonth=new Date(yr,mo,0).getDate();
-      const labels=[],data=[];
-      for(let d=1;d<=daysInMonth;d++){
-        const key=`${yr}-${String(mo).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
-        labels.push(String(d));
-        data.push(dailyPnL[key]?Math.round(dailyPnL[key].total):0);
-      }
-      renderPnLBarChart(labels,data);
-    },10);
-  }
+  // P&L tab removed — TC import doesn't include volume/freight data
   else if(S.view==='intelligence'){
     const _iTabBar=_subTabBar('intelligenceTab',[{id:'regime',label:'Regime'},{id:'signals',label:'Spread Signals'},{id:'millmoves',label:'Mill Moves'}],S.intelligenceTab||'regime');
     const _iTab=S.intelligenceTab||'regime';
@@ -2532,31 +2085,77 @@ function render(){
           `<button class="btn ${intelRegion===rg?'btn-primary':'btn-default'} btn-sm" onclick="S.intelRegion='${rg}';SS('intelRegion','${rg}');if(window._intelCache)delete window._intelCache['signals_${rg}'];render()">${rg.charAt(0).toUpperCase()+rg.slice(1)}</button>`
         ).join('');
 
-        let sigHTML='';
-        if(sigData.signals&&sigData.signals.length){
-          sigHTML=sigData.signals.map(s=>{
-            const isOpp=s.reversionProb&&s.reversionProb>=60;
-            const border=isOpp?'border-left:4px solid #22c55e':'border-left:4px solid var(--border)';
-            const pctBar=`<div style="width:100%;height:6px;background:var(--border);border-radius:3px;margin:4px 0"><div style="width:${s.percentile}%;height:100%;background:${s.percentile<=10?'#3b82f6':s.percentile>=90?'#ef4444':'#6b7280'};border-radius:3px"></div></div>`;
-            return `<div class="card" style="${border};margin-bottom:12px">
-              <div style="padding:14px">
-                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-                  <span style="font-weight:700;font-size:14px">${s.spread}</span>
-                  <span style="font-size:11px;padding:2px 8px;border-radius:4px;background:${isOpp?'rgba(34,197,94,0.1)':'var(--bg)'};color:${isOpp?'#22c55e':'var(--muted)'}">${s.category}</span>
+        // Merge backend signals with frontend cross-zone signals
+        const backendSigs=sigData.signals||[];
+        let zoneSigs=[];
+        try{
+          zoneSigs=(typeof generateSpreadSignals==='function'?generateSpreadSignals():[]).map(z=>{
+            const regAL=z.region.charAt(0).toUpperCase()+z.region.slice(1);
+            const regBL=z.regionB.charAt(0).toUpperCase()+z.regionB.slice(1);
+            return{
+              spread:`${z.product} ${regAL}→${regBL}`,
+              category:'zone',
+              current:z.spread,
+              avg:z.avg,
+              wavg:z.avg,
+              percentile:z.percentile,
+              reversionProb:z.revertProb,
+              context:z.reason,
+              actionable:z.direction==='buy'?`Spread unusually ${z.spread<z.avg?'narrow':'wide'} — ${regAL} may be undervalued vs ${regBL}`:`Spread unusually ${z.spread>z.avg?'wide':'narrow'} — consider ${regAL} sell / ${regBL} buy`,
+              zScore:z.zScore,
+              strength:z.strength
+            };
+          });
+        }catch(e){console.warn('Zone signal gen error:',e)}
+        const allSigs=[...backendSigs,...zoneSigs];
+        const totalCount=allSigs.length;
+
+        // Render signal card helper
+        const renderSigCard=s=>{
+          const isOpp=s.reversionProb&&s.reversionProb>=60;
+          const isZone=s.category==='zone';
+          const border=isOpp?'border-left:4px solid #22c55e':isZone?'border-left:4px solid #8b5cf6':'border-left:4px solid var(--border)';
+          const catBg=isZone?(isOpp?'rgba(34,197,94,0.1)':'rgba(139,92,246,0.1)'):(isOpp?'rgba(34,197,94,0.1)':'var(--bg)');
+          const catColor=isZone?(isOpp?'#22c55e':'#8b5cf6'):(isOpp?'#22c55e':'var(--muted)');
+          const pctBar=`<div style="width:100%;height:6px;background:var(--border);border-radius:3px;margin:4px 0"><div style="width:${s.percentile}%;height:100%;background:${s.percentile<=10?'#3b82f6':s.percentile>=90?'#ef4444':'#6b7280'};border-radius:3px"></div></div>`;
+          return `<div class="card" style="${border};margin-bottom:12px">
+            <div style="padding:14px">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+                <span style="font-weight:700;font-size:14px">${s.spread}</span>
+                <div style="display:flex;gap:6px;align-items:center">
+                  ${s.zScore!=null?`<span style="font-size:10px;padding:2px 6px;border-radius:4px;background:var(--bg);color:var(--muted)">z: ${s.zScore}</span>`:''}
+                  <span style="font-size:11px;padding:2px 8px;border-radius:4px;background:${catBg};color:${catColor}">${s.category}</span>
                 </div>
-                <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:8px;font-size:12px">
-                  <div><span style="color:var(--muted)">Current</span><br><strong>${s.current>=0?'+':''}$${s.current}</strong></div>
-                  <div><span style="color:var(--muted)">Avg</span><br>$${s.avg}</div>
-                  <div><span style="color:var(--muted)">WAvg</span><br>$${s.wavg}</div>
-                  <div><span style="color:var(--muted)">Percentile</span><br><strong>${s.percentile}th</strong></div>
-                </div>
-                ${pctBar}
-                ${s.reversionProb!=null?`<div style="font-size:13px;margin:8px 0"><strong>Reversion Probability:</strong> <span style="color:${s.reversionProb>=60?'#22c55e':'var(--muted)'}; font-weight:700">${s.reversionProb}%</span> <span style="color:var(--muted);font-size:11px">(within 4 weeks)</span></div>`:''}
-                <div style="font-size:12px;color:var(--muted);margin-top:6px">${s.context}</div>
-                <div style="font-size:12px;margin-top:4px;color:var(--text)">${s.actionable}</div>
               </div>
+              <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:8px;font-size:12px">
+                <div><span style="color:var(--muted)">Current</span><br><strong>${s.current>=0?'+':''}$${s.current}</strong></div>
+                <div><span style="color:var(--muted)">Avg</span><br>$${s.avg}</div>
+                <div><span style="color:var(--muted)">${isZone?'Z-Score':'WAvg'}</span><br>${isZone?(s.zScore!=null?s.zScore:'—'):'$'+s.wavg}</div>
+                <div><span style="color:var(--muted)">Percentile</span><br><strong>${s.percentile}th</strong></div>
+              </div>
+              ${pctBar}
+              ${s.reversionProb!=null?`<div style="font-size:13px;margin:8px 0"><strong>Reversion Probability:</strong> <span style="color:${s.reversionProb>=60?'#22c55e':'var(--muted)'}; font-weight:700">${s.reversionProb}%</span> <span style="color:var(--muted);font-size:11px">(within 4 weeks)</span></div>`:''}
+              <div style="font-size:12px;color:var(--muted);margin-top:6px">${s.context}</div>
+              <div style="font-size:12px;margin-top:4px;color:var(--text)">${s.actionable}</div>
+            </div>
+          </div>`;
+        };
+
+        let sigHTML='';
+        if(allSigs.length){
+          // Separate backend (dimension/length/grade) from zone signals
+          const nonZone=allSigs.filter(s=>s.category!=='zone');
+          const zones=allSigs.filter(s=>s.category==='zone');
+          if(nonZone.length){
+            sigHTML+=nonZone.map(renderSigCard).join('');
+          }
+          if(zones.length){
+            sigHTML+=`<div style="margin:20px 0 12px;padding:8px 12px;background:rgba(139,92,246,0.08);border-radius:6px;display:flex;align-items:center;gap:8px">
+              <span style="font-size:13px;font-weight:700;color:#8b5cf6">CROSS-ZONE ARBITRAGE</span>
+              <span style="font-size:11px;color:var(--muted)">${zones.length} signal${zones.length!==1?'s':''} · Same product across regions</span>
             </div>`;
-          }).join('');
+            sigHTML+=zones.map(renderSigCard).join('');
+          }
         } else {
           sigHTML='<div class="card"><div style="padding:40px;text-align:center;color:var(--muted)">No extreme spread signals currently.<br><span style="font-size:12px">Signals appear when spreads hit ≤10th or ≥90th percentile.</span></div></div>';
         }
@@ -2564,7 +2163,7 @@ function render(){
         c.innerHTML=_iTabBar+`
           <div style="display:flex;gap:6px;margin-bottom:16px">${regionBtns}</div>
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
-            <div style="font-size:12px;color:var(--muted)">${sigData.signalCount} signal${sigData.signalCount!==1?'s':''} · Regime: <strong>${sigData.regime||'Unknown'}</strong> · As of ${sigData.asOf||''}</div>
+            <div style="font-size:12px;color:var(--muted)">${totalCount} signal${totalCount!==1?'s':''} · Regime: <strong>${sigData.regime||'Unknown'}</strong> · As of ${sigData.asOf||''}</div>
           </div>
           ${sigHTML}`;
       } else {
@@ -2743,6 +2342,11 @@ function render(){
         </div>
       </div></div>
 
+      <div class="card"><div class="card-header"><span class="card-title">🔄 TRADE CENTRAL SYNC</span></div><div class="card-body">
+        <div style="font-size:12px;color:var(--muted);margin-bottom:12px">Import orders from Trade Central (FCTG) — eliminates double entry. Deduplicates by order number.</div>
+        <div id="tc-sync-settings"><div class="spinner" style="margin:12px auto"></div></div>
+      </div></div>
+
       <div class="card"><div class="card-header"><span class="card-title">🔗 ENTITY RESOLUTION</span></div><div class="card-body">
         <div style="font-size:12px;color:var(--muted);margin-bottom:12px">Unified identity system — links mills and customers across CRM, Mill Intel, and trading data via fuzzy name matching.</div>
         <div id="er-settings"><div class="spinner" style="margin:12px auto"></div></div>
@@ -2759,6 +2363,7 @@ function render(){
   
   // Render entity resolution settings if on settings page
   if(S.view==='settings'&&typeof renderEntityResolutionSettings==='function')setTimeout(renderEntityResolutionSettings,10);
+  if(S.view==='settings'&&typeof renderTCSyncSettings==='function')setTimeout(renderTCSyncSettings,10);
 
   // Draw charts after DOM update
   if(S.view==='analytics'&&S.analyticsTab==='charts')setTimeout(drawCharts,10);

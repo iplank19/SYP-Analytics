@@ -476,31 +476,65 @@ function renderPnLBarChart(labels,data){
 function generateSpreadTable(rlData){
   // Helper: return spread only when BOTH products have data, otherwise null
   const _sp=(a,b)=>(a&&b)?a-b:null;
-  const spreads=[
+
+  // Dimension spreads (same zone, different product)
+  const dimSpreads=[
     {name:'2x4/2x6',region:'west',calc:r=>_sp(r.west?.['2x6#2'],r.west?.['2x4#2'])},
     {name:'2x4/2x6',region:'central',calc:r=>_sp(r.central?.['2x6#2'],r.central?.['2x4#2'])},
     {name:'2x4/2x6',region:'east',calc:r=>_sp(r.east?.['2x6#2'],r.east?.['2x4#2'])},
     {name:'2x6/2x8',region:'west',calc:r=>_sp(r.west?.['2x8#2'],r.west?.['2x6#2'])},
-    {name:'West/Central',region:'2x4',calc:r=>_sp(r.west?.['2x4#2'],r.central?.['2x4#2'])},
-    {name:'West/East',region:'2x4',calc:r=>_sp(r.west?.['2x4#2'],r.east?.['2x4#2'])}
   ];
 
-  return spreads.map(s=>{
+  // Cross-zone spreads (same product, different zone)
+  const zoneSpreads=[
+    {name:'W→C 2x4#2',region:'zone',calc:r=>_sp(r.west?.['2x4#2'],r.central?.['2x4#2'])},
+    {name:'W→E 2x4#2',region:'zone',calc:r=>_sp(r.west?.['2x4#2'],r.east?.['2x4#2'])},
+    {name:'C→E 2x4#2',region:'zone',calc:r=>_sp(r.central?.['2x4#2'],r.east?.['2x4#2'])},
+    {name:'W→C 2x6#2',region:'zone',calc:r=>_sp(r.west?.['2x6#2'],r.central?.['2x6#2'])},
+    {name:'W→E 2x6#2',region:'zone',calc:r=>_sp(r.west?.['2x6#2'],r.east?.['2x6#2'])},
+    {name:'C→E 2x6#2',region:'zone',calc:r=>_sp(r.central?.['2x6#2'],r.east?.['2x6#2'])},
+    {name:'W→C 2x4#3',region:'zone',calc:r=>_sp(r.west?.['2x4#3'],r.central?.['2x4#3'])},
+    {name:'W→E 2x4#3',region:'zone',calc:r=>_sp(r.west?.['2x4#3'],r.east?.['2x4#3'])},
+  ];
+
+  const spreads=[...dimSpreads,...zoneSpreads];
+
+  const _renderRow=(s,isZone)=>{
     const vals=rlData.map(s.calc).filter(v=>v!==null&&v!==undefined);
-    const current=vals.length?vals[vals.length-1]:0;
+    if(!vals.length)return'';
+    const current=vals[vals.length-1];
     const avg4=vals.slice(-4).reduce((a,b)=>a+b,0)/(Math.min(vals.length,4)||1);
     const avg12=vals.reduce((a,b)=>a+b,0)/(vals.length||1);
     const diff=current-avg12;
-    
+
+    // Percentile rank for zone spreads
+    let pctBadge='';
+    if(isZone&&vals.length>=8){
+      const sorted=[...vals].sort((a,b)=>a-b);
+      const pct=Math.round(sorted.filter(v=>v<=current).length/sorted.length*100);
+      const pctColor=pct<=15||pct>=85?'var(--negative)':pct<=25||pct>=75?'var(--warn)':'var(--muted)';
+      pctBadge=`<span style="font-size:9px;color:${pctColor};margin-left:4px">${pct}p</span>`;
+    }
+
     return`<tr>
-      <td class="bold">${s.name}</td>
-      <td style="text-transform:capitalize">${s.region}</td>
+      <td class="bold">${s.name}${pctBadge}</td>
+      <td style="text-transform:capitalize;font-size:10px">${isZone?'cross':''}${isZone?'':s.region}</td>
       <td class="right">$${current}</td>
       <td class="right" style="color:var(--muted)">$${Math.round(avg4)}</td>
       <td class="right" style="color:var(--muted)">$${Math.round(avg12)}</td>
       <td class="right ${diff>5?'positive':diff<-5?'negative':''}">${diff>0?'+':''}$${Math.round(diff)}</td>
     </tr>`;
-  }).join('');
+  };
+
+  const dimRows=dimSpreads.map(s=>_renderRow(s,false)).filter(Boolean).join('');
+  const zoneRows=zoneSpreads.map(s=>_renderRow(s,true)).filter(Boolean).join('');
+
+  let html=dimRows;
+  if(zoneRows){
+    html+=`<tr><td colspan="6" style="font-size:10px;color:var(--accent);padding:6px 0 2px;border-top:1px solid var(--border)">CROSS-ZONE ARBITRAGE</td></tr>`;
+    html+=zoneRows;
+  }
+  return html;
 }
 
 // ============================================================================
