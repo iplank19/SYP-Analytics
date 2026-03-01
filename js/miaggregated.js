@@ -106,7 +106,7 @@ async function miRenderAggTable() {
         </select>
         <span style="color:var(--muted);font-size:11px">${filtered.length} current quotes | Green = best price</span>
       </div>
-      <div style="overflow-x:auto">
+      <div class="table-wrap">
         <table style="font-size:11px">
           <thead><tr>
             <th onclick="${sortClick('mill_name')}">Mill${sortIcon('mill_name')}</th>
@@ -308,7 +308,7 @@ async function miRenderGranularMatrix(el) {
   const delHeader = isPortal ? '' : '<th rowspan="2" style="position:sticky;right:0;background:var(--panel);z-index:3;width:24px"></th>';
   el.innerHTML = `<div class="card-body" style="padding:12px">
     ${controls}
-    <div style="overflow-x:auto;max-height:${isPortal?'85':'75'}vh;overflow-y:auto">
+    <div style="max-height:${isPortal?'85':'75'}vh;overflow-y:auto">
       <table class="matrix-table ${densityClass}" style="border-collapse:collapse">
         <thead style="position:sticky;top:0;z-index:2">
           <tr><th rowspan="2" style="position:sticky;left:0;background:var(--panel);z-index:3;padding:4px 8px">Mill</th>${productHeaderCells}${delHeader}</tr>
@@ -347,7 +347,7 @@ async function miRenderSummaryMatrix(el) {
 
   el.innerHTML = `<div class="card-body">
     ${miMatrixControls(products)}
-    <div style="overflow-x:auto">
+    <div class="table-wrap">
       <table style="font-size:11px">
         <thead><tr><th>Mill</th>${headerCells}</tr></thead>
         <tbody>${bodyRows}</tbody>
@@ -505,7 +505,7 @@ async function miRenderAggLog() {
       ${activeQuotes.length ? `
       <div style="margin-bottom:16px">
         <div style="font-weight:600;font-size:12px;margin-bottom:8px;color:var(--positive)">📊 Active Quotes (showing in matrix)</div>
-        <div style="overflow-x:auto">
+        <div class="table-wrap">
           <table style="font-size:11px">
             <thead><tr><th>Date</th><th>Trader</th><th>Mill</th><th>Product</th><th>FOB $</th><th>Vol</th><th>Ship</th><th>Source</th></tr></thead>
             <tbody>${activeRows}</tbody>
@@ -516,7 +516,7 @@ async function miRenderAggLog() {
       ${expiredQuotes.length ? `
       <div>
         <div style="font-weight:600;font-size:12px;margin-bottom:8px;color:var(--negative)">📁 Expired Quotes (archived from matrix)</div>
-        <div style="overflow-x:auto;max-height:300px;overflow-y:auto">
+        <div class="table-wrap" style="max-height:300px;overflow-y:auto">
           <table style="font-size:11px">
             <thead><tr><th>Date</th><th>Trader</th><th>Mill</th><th>Product</th><th>FOB $</th><th>Vol</th><th>Ship</th><th>Source</th></tr></thead>
             <tbody>${expiredRows}</tbody>

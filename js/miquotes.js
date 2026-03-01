@@ -344,7 +344,7 @@ async function _miRenderSmartQuotesInto(c) {
                 <span id="mi-mx-count" style="font-size:10px;color:var(--muted)"></span>
               </div>
               ${!isMatrixMode ? `<div style="display:flex;gap:3px;flex-wrap:wrap;margin-bottom:8px" id="mi-template-btns">${templateBtns}</div>` : ''}
-              <div style="overflow-x:auto">
+              <div class="table-wrap">
                 <table style="font-size:11px;border-collapse:collapse;width:100%" id="mi-quote-matrix">
                   <thead>
                     <tr>

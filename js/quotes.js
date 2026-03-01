@@ -2640,7 +2640,7 @@ function qeRenderMatrixHTML() {
   }).join('')
 
   return `
-    <div style="overflow-x:auto">
+    <div class="table-wrap">
       <table style="font-size:11px;border-collapse:collapse;width:100%" id="qe-build-matrix">
         <thead>
           <tr>
@@ -2721,7 +2721,7 @@ function renderPriceSheet(container){
     }).join('');
 
     tableHTML=`
-      <div style="overflow-x:auto;margin-top:16px">
+      <div class="table-wrap" style="margin-top:16px">
         <table style="font-size:11px;width:100%">
           <thead><tr>
             <th>Product</th><th>Best Mill</th><th class="right">FOB</th><th class="right">Freight</th><th class="right">Landed</th><th class="right">Margin</th><th class="right">Sell</th>

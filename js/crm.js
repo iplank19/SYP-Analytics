@@ -512,7 +512,7 @@ function showCustomerTemplateModal(customerName){
         <span><span style="display:inline-block;width:10px;height:10px;background:rgba(122,204,122,0.3);border:2px solid var(--positive);margin-right:2px"></span> From history</span>
         <span><span style="display:inline-block;width:10px;height:10px;background:rgba(232,200,74,0.2);border:2px solid var(--warn);margin-right:2px"></span> Inferred</span>
       </div>
-      <div style="overflow-x:auto;max-height:400px;overflow-y:auto">
+      <div class="table-wrap" style="max-height:400px;overflow-y:auto">
         <table style="font-size:11px;border-collapse:collapse;width:100%" id="ctpl-matrix">
           <thead style="position:sticky;top:0;background:var(--panel);z-index:1"><tr><th style="text-align:left;padding:3px 6px;font-size:10px">PRODUCT</th>${colHeaders}</tr></thead>
           <tbody>${matrixRows}</tbody>

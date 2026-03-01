@@ -508,7 +508,7 @@ function _renderPOPriceTable(records,selProds,agg){
   const keys=[...allKeys].sort()
   const hasRL=Object.keys(rlSeries).length>0
 
-  let html=`<div class="card"><div class="card-header"><span class="card-title">Price Data</span></div><div class="card-body" style="overflow-x:auto">
+  let html=`<div class="card"><div class="card-header"><span class="card-title">Price Data</span></div><div class="card-body table-wrap">
     <table class="data-table" style="width:100%;font-size:12px"><thead><tr>`
   if(selProds.length>1)html+=`<th>Product</th>`
   html+=`<th>Period</th><th>Avg Price</th>${hasRL?'<th>RL Market</th><th>Spread</th>':''}<th>Orders</th></tr></thead><tbody>`
@@ -576,7 +576,7 @@ function _renderPODataTab(c,tabBar){
       <span style="color:var(--muted);font-size:11px">${totalFiltered.toLocaleString()} records</span>
     </div>
 
-    <div class="card"><div class="card-body" style="overflow-x:auto">
+    <div class="card"><div class="card-body table-wrap">
       <table class="data-table" style="width:100%;font-size:12px">
         <thead><tr>
           <th>Date</th><th>Order#</th><th>Supplier</th>

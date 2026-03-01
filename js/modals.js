@@ -393,7 +393,7 @@ function showQuickEntryModal(){
 
   document.getElementById('modal').innerHTML=`<div class="modal-overlay" onclick="closeModalSafe()"><div class="modal extra-wide" onclick="event.stopPropagation()">
     <div class="modal-header"><span class="modal-title" style="color:var(--warn)">QUICK ENTRY - Quote Items</span><button class="modal-close" onclick="closeModal()">×</button></div>
-    <div class="modal-body" style="overflow-x:auto">
+    <div class="modal-body table-wrap">
       <div style="margin-bottom:12px;padding:8px 12px;background:var(--panel-alt);font-size:11px;color:var(--muted)">
         Tab through cells to enter multiple products quickly. Product format: <span style="color:var(--accent)">2x4 #2 16'</span> or <span style="color:var(--accent)">2x6#2</span> (length optional)
       </div>

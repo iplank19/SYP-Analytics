@@ -1176,6 +1176,9 @@ def seed_mi_from_supabase():
                 print(f"  Seeded {added} customers from cloud")
             crm_conn.close()
 
+        # Recompute price changes from the seeded quotes
+        recompute_price_changes()
+
         print("Cloud seed complete!")
     except requests.exceptions.Timeout:
         print("Cloud seed TIMEOUT — Supabase did not respond within 15s")
@@ -1183,6 +1186,57 @@ def seed_mi_from_supabase():
         print("Cloud seed CONNECTION ERROR — cannot reach Supabase")
     except Exception as e:
         print(f"Cloud seed error: {type(e).__name__}: {e}")
+
+def recompute_price_changes():
+    """Recompute mill_price_changes from mill_quotes data.
+    Sorts all quotes by date per mill+product+length, then generates
+    change records wherever the price differs between consecutive dates.
+    Called after seed_mi_from_supabase() and syncMillQuotesToMillIntel().
+    """
+    conn = get_mi_db()
+    try:
+        # Clear existing price changes (will rebuild from scratch)
+        conn.execute("DELETE FROM mill_price_changes")
+
+        # Get all quotes ordered by mill, product, length, date
+        rows = conn.execute(
+            """SELECT mill_id, mill_name, product, length, price, date, trader, source
+               FROM mill_quotes
+               ORDER BY UPPER(mill_name), UPPER(product), UPPER(COALESCE(length,'RL')), date ASC"""
+        ).fetchall()
+
+        if not rows:
+            conn.commit()
+            conn.close()
+            return
+
+        changes_added = 0
+        prev = None
+        for r in rows:
+            key = (r['mill_name'].upper(), r['product'].upper(), (r['length'] or 'RL').upper())
+            curr_price = r['price']
+
+            if prev and prev['key'] == key and abs(curr_price - prev['price']) > 0.001:
+                change_val = round(curr_price - prev['price'], 2)
+                pct_val = round((change_val / prev['price']) * 100, 2) if prev['price'] else None
+                conn.execute(
+                    """INSERT INTO mill_price_changes (mill_id, mill_name, product, length,
+                       old_price, new_price, change, pct_change, date, prev_date, source, trader)
+                       VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    (r['mill_id'], r['mill_name'], r['product'], r['length'] or 'RL',
+                     prev['price'], curr_price, change_val, pct_val,
+                     r['date'], prev['date'], r['source'] or 'recompute', r['trader'] or '')
+                )
+                changes_added += 1
+
+            prev = {'key': key, 'price': curr_price, 'date': r['date']}
+
+        conn.commit()
+        conn.close()
+        print(f"  Recomputed {changes_added} mill price changes from {len(rows)} quotes")
+    except Exception as e:
+        conn.close()
+        print(f"  Price change recomputation error: {e}")
 
 def mi_extract_state(location):
     if not location:
@@ -3491,6 +3545,11 @@ def mi_submit_quotes():
     conn.commit()
     conn.close()
     invalidate_matrix_cache()  # Clear cached matrix data
+
+    # Recompute price changes if this was a bulk sync (>50 quotes = likely full sync)
+    if len(created) > 50:
+        recompute_price_changes()
+
     return jsonify({'created': len(created), 'quotes': created}), 201
 
 @app.route('/api/mi/quotes/by-mill', methods=['DELETE'])

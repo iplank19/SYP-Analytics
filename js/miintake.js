@@ -171,7 +171,7 @@ function miRenderManualIntake(el) {
   if (!el) el = document.getElementById('mi-intake-area');
   const allMills = [...MILL_COMPANIES];
   el.innerHTML = `
-    <div style="overflow-x:auto">
+    <div class="table-wrap">
       <table style="font-size:11px">
         <thead><tr>
           <th>Mill</th><th>Product</th><th>FOB $/MBF</th><th>Length</th><th>Volume</th><th>TLs</th><th>Ship Window</th><th>Notes</th><th></th>
@@ -270,7 +270,7 @@ function miRenderEditingState(el) {
         <button class="btn btn-primary" onclick="miSavePreview()">Save to Database</button>
       </div>
     </div>
-    <div style="overflow-x:auto;max-height:60vh;overflow-y:auto">
+    <div class="table-wrap" style="max-height:60vh;overflow-y:auto">
       <table style="font-size:11px">
         <thead style="position:sticky;top:0;z-index:1"><tr>
           <th><input type="checkbox" ${allSelected?'checked':''} onchange="miToggleAllPreview(this.checked)" style="accent-color:var(--accent)"></th>
@@ -328,7 +328,7 @@ function miRenderPostSubmitComparison(el) {
       <div style="font-weight:600;font-size:14px;color:var(--positive);margin-bottom:12px">
         Saved ${quotes.length} quotes — Comparison:
       </div>
-      <div style="overflow-x:auto">
+      <div class="table-wrap">
         <table style="font-size:11px;width:100%">
           <thead><tr><th>Product</th><th>Best Price</th><th>Alternatives</th></tr></thead>
           <tbody>${compRows}</tbody>

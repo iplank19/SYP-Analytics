@@ -363,7 +363,7 @@ function renderMPManual(el){
   const prodOpts=PRODUCTS.map(p=>`<option value="${p}">${p}</option>`).join('');
 
   el.innerHTML=`
-    <div style="overflow-x:auto">
+    <div class="table-wrap">
       <table class="data-table" id="mp-manual-table" style="font-size:11px">
         <thead><tr>
           <th>Mill</th><th>Product</th><th>FOB $/MBF</th><th>Length</th><th>Volume</th><th>TLs</th><th>Ship Window</th><th>Notes</th><th></th>
@@ -634,7 +634,7 @@ function renderMPPreview(){
           <button class="btn btn-primary" onclick="mpSavePreview()">Save to Database</button>
         </div>
       </div>
-      <div style="overflow-x:auto">
+      <div class="table-wrap">
         <table class="data-table" style="font-size:11px">
           <thead><tr><th>Mill</th><th>Product</th><th>FOB $</th><th>Len</th><th>Vol</th><th>Ship</th><th></th></tr></thead>
           <tbody>${rows}</tbody>
@@ -711,7 +711,7 @@ function renderMPCurrent(){
         </select>
         <span style="color:var(--muted);font-size:11px">${latest.length} current quotes • Green = best price</span>
       </div>
-      <div style="overflow-x:auto">
+      <div class="table-wrap">
         <table class="data-table" style="font-size:11px">
           <thead><tr>
             <th>Mill</th><th>Product</th><th>FOB $/MBF</th><th>Len</th><th>Vol</th><th>TLs</th><th>Ship</th><th>Age</th><th>By</th><th></th>
@@ -918,7 +918,7 @@ function renderMPMatrix(){
   el.innerHTML=`
     <div class="card-body">
       <div style="color:var(--muted);font-size:10px;margin-bottom:8px">Latest FOB prices by mill and product. Green = best price. Faded = 3+ days old. Hover for details.</div>
-      <div style="overflow-x:auto">
+      <div class="table-wrap">
         <table class="data-table" style="font-size:11px">
           <thead><tr><th>Mill</th>${headerCells}</tr></thead>
           <tbody>${bodyRows}</tbody>
