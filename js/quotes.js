@@ -191,8 +191,20 @@ async function showBestCosts(){
     item.miles=bestMiles;
   }
 
+  // Auto-apply margin to items that got landed costs but no sell price yet
+  const marginInput=document.getElementById('qb-margin-input');
+  const defaultMargin=parseFloat(marginInput?.value)||25;
+  let marginApplied=0;
+  items.forEach(item=>{
+    if(item.landed&&!item.sellDlvd){
+      item.sellDlvd=Math.round(item.landed+defaultMargin);
+      marginApplied++;
+    }
+  });
+
   save('quoteItems',S.quoteItems);
-  showToast('Costs loaded!','positive');
+  const msg=marginApplied?`Costs loaded! Auto-applied $${defaultMargin} margin to ${marginApplied} items`:'Costs loaded!';
+  showToast(msg,'positive');
   render();
 }
 
@@ -368,6 +380,25 @@ function applyProfitAdder(){
   if(input)input.value='';
 
   showToast(`Adjusted ${selectedItems.length} items by ${adj>0?'+':''}$${adj}/MBF`,'positive');
+  render();
+}
+
+// Handle customer change — clear quote items, matrix selections, and reset destination
+function qeOnCustomerChange(newValue){
+  const oldCustomer=S.qbCustomer;
+  S.qbCustomer=newValue;
+  save('qbCustomer',S.qbCustomer);
+  S.qbCustomDest='';
+  save('qbCustomDest','');
+
+  // If switching to a different customer (not just re-selecting same), clear quote items
+  // Matrix checkboxes are DOM-based and reset automatically on render()
+  if(oldCustomer&&oldCustomer!==newValue){
+    S.quoteItems=[];
+    save('quoteItems',S.quoteItems);
+    showToast(newValue?`Switched to ${newValue} — quote cleared`:'Customer cleared','info');
+  }
+
   render();
 }
 
@@ -786,8 +817,8 @@ function calcFreightPerMBF(miles,origin,isMSR=false){
   // Get state rate - default to reasonable rate if not set
   const stateRate=originState&&S.stateRates?S.stateRates[originState]||2.25:2.25;
 
-  // Base + (Miles × StateRate) - default base to 300
-  const base=S.freightBase||300;
+  // Base + (Miles × StateRate) - default base to 450
+  const base=S.freightBase??450;
   const freightTotal=base+(miles*stateRate);
 
   const freightPerMBF=Math.round(freightTotal/mbfPerTL);

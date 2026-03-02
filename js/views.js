@@ -1410,7 +1410,7 @@ function render(){
               <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px">
                 <div>
                   <label style="font-size:9px;color:var(--muted);display:block;margin-bottom:2px">Customer</label>
-                  <select id="qb-customer-select" onchange="S.qbCustomer=this.value;save('qbCustomer',S.qbCustomer);S.qbCustomDest='';save('qbCustomDest','');render()" style="width:100%;padding:6px 8px;font-size:11px">
+                  <select id="qb-customer-select" onchange="qeOnCustomerChange(this.value)" style="width:100%;padding:6px 8px;font-size:11px">
                     <option value="">Select customer...</option>
                     ${customers.map(c=>{
                       const dest=c.locations?.[0]||c.destination||'';
@@ -1569,19 +1569,23 @@ function render(){
               ${S.quoteStatus==='approved'?'<button class="btn btn-success btn-sm" onclick="convertQuoteToTrades()">Convert to Trades</button>':''}
             </div>`:''}</div>
 
-          <!-- Cached Lanes -->
-          ${S.lanes.length?`<div class="card" style="margin-top:12px">
+          <!-- Cached Lanes (filtered by current destination) -->
+          ${(()=>{
+            const curDest=(S.qbCustomDest||customerDest||'').toLowerCase().trim();
+            const filteredLanes=curDest?S.lanes.filter(l=>(l.dest||'').toLowerCase().includes(curDest.split(',')[0].trim())):S.lanes;
+            return filteredLanes.length?`<div class="card" style="margin-top:12px">
             <div class="card-header">
-              <span class="card-title">📍 Cached Lanes (${S.lanes.length})</span>
+              <span class="card-title">📍 Cached Lanes (${filteredLanes.length}${filteredLanes.length!==S.lanes.length?' of '+S.lanes.length:''})</span>
               <button class="btn btn-default btn-sm" onclick="S.lanes=[];save('lanes',S.lanes);render()">Clear</button>
             </div>
             <div style="max-height:150px;overflow-y:auto;padding:8px">
               <table style="width:100%;font-size:10px;border-collapse:collapse">
-                ${S.lanes.slice(0,8).map(l=>`<tr style="border-bottom:1px solid var(--border)"><td style="padding:3px">${escapeHtml(l.origin)}</td><td style="padding:3px">→</td><td style="padding:3px">${escapeHtml(l.dest)}</td><td style="padding:3px;text-align:right;color:var(--accent)">${l.miles} mi</td></tr>`).join('')}
-                ${S.lanes.length>8?`<tr><td colspan="4" style="padding:3px;color:var(--muted);text-align:center">+${S.lanes.length-8} more</td></tr>`:''}
+                ${filteredLanes.slice(0,8).map(l=>`<tr style="border-bottom:1px solid var(--border)"><td style="padding:3px">${escapeHtml(l.origin)}</td><td style="padding:3px">→</td><td style="padding:3px">${escapeHtml(l.dest)}</td><td style="padding:3px;text-align:right;color:var(--accent)">${l.miles} mi</td></tr>`).join('')}
+                ${filteredLanes.length>8?`<tr><td colspan="4" style="padding:3px;color:var(--muted);text-align:center">+${filteredLanes.length-8} more</td></tr>`:''}
               </table>
             </div>
-          </div>`:''}
+          </div>`:'';
+          })()}
         </div>
       </div>`;
 
