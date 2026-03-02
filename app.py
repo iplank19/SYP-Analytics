@@ -1,4 +1,4 @@
-"""
+""" 
 SYP Analytics - Flask Server
 Handles mileage API proxy, CRM, and static file serving
 """
