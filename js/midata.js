@@ -3,7 +3,7 @@
 
 const MI_API = '';
 
-async function miApiGet(path, timeoutMs = 15000) {
+async function miApiGet(path, timeoutMs = 30000) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
@@ -67,14 +67,29 @@ async function miLoadLatestQuotes(filters = {}) {
   if (filters.product) params.set('product', filters.product);
   if (filters.region) params.set('region', filters.region);
   if (filters.since) params.set('since', filters.since);
-  return miApiGet('/api/mi/quotes/latest?' + params);
+  return miApiGetWithRetry('/api/mi/quotes/latest?' + params);
 }
 
 async function miLoadQuoteMatrix(detail = '') {
   const params = new URLSearchParams();
   if (detail) params.set('detail', detail);
   if (typeof _miMatrixCutoff !== 'undefined' && _miMatrixCutoff) params.set('since', _miMatrixCutoff);
-  return miApiGet('/api/mi/quotes/matrix?' + params);
+  return miApiGetWithRetry('/api/mi/quotes/matrix?' + params);
+}
+
+// Retry wrapper for critical endpoints (handles Railway cold starts)
+async function miApiGetWithRetry(path, retries = 2, timeoutMs = 30000) {
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      return await miApiGet(path, timeoutMs);
+    } catch (e) {
+      if (attempt < retries && (e.message.includes('timed out') || e.message.includes('Failed to fetch'))) {
+        console.warn(`MI: Retry ${attempt + 1}/${retries} for ${path.split('?')[0]}`);
+        continue;
+      }
+      throw e;
+    }
+  }
 }
 
 async function miLoadQuoteHistory(mill, product, days = 90) {
