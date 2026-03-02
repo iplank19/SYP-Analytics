@@ -1391,7 +1391,7 @@ distance_cache = {}
 
 # Matrix response cache (short TTL to handle concurrent requests)
 _matrix_cache = {}
-_matrix_cache_ttl = 30  # seconds
+_matrix_cache_ttl = 120  # seconds (increased from 30 — data only covers 2 days, cache invalidated on every POST)
 
 def get_cached_matrix(cache_key):
     """Get cached matrix response if still valid."""
@@ -3382,6 +3382,20 @@ def consolidate_mills():
 
 # ----- MI: MILL QUOTES -----
 
+def _mi_default_since():
+    """Default 'since' date for MI active-pricing queries: yesterday (or Friday if Monday).
+    Keeps matrix + quote engine focused on fresh data (today + yesterday only)."""
+    from datetime import date, timedelta
+    d = date.today()
+    if d.weekday() == 0:  # Monday → use Friday
+        d -= timedelta(days=3)
+    elif d.weekday() == 6:  # Sunday → use Friday
+        d -= timedelta(days=2)
+    else:
+        d -= timedelta(days=1)
+    return d.isoformat()
+
+
 @app.route('/api/mi/quotes', methods=['GET'])
 def mi_list_quotes():
     conn = get_mi_db()
@@ -3601,27 +3615,34 @@ def mi_latest_quotes():
     product = request.args.get('product')
     region = request.args.get('region')
     since = request.args.get('since')
-    sql = """
+    show_all = request.args.get('all')  # ?all=true bypasses default 2-day window
+
+    # Default to 2-day window (today + yesterday) unless explicit since or all=true
+    if not since and not show_all:
+        since = _mi_default_since()
+
+    # Fast MAX(id) approach instead of correlated subquery
+    inner_where = ""
+    inner_params = []
+    if since:
+        inner_where = " WHERE date >= ?"
+        inner_params = [since]
+
+    sql = f"""
         SELECT mq.*, m.lat, m.lon, m.region, m.city, m.state
         FROM mill_quotes mq
         LEFT JOIN mills m ON mq.mill_id = m.id
         WHERE mq.id IN (
-            SELECT id FROM mill_quotes mq2
-            WHERE mq2.mill_name = mq.mill_name AND mq2.product = mq.product
-            ORDER BY mq2.date DESC, mq2.created_at DESC
-            LIMIT 1
+            SELECT MAX(id) FROM mill_quotes{inner_where} GROUP BY mill_name, product
         )
     """
-    params = []
+    params = list(inner_params)
     if product:
         sql += " AND LOWER(REPLACE(mq.product, ' ', ''))=LOWER(REPLACE(?, ' ', ''))"
         params.append(product)
     if region:
         sql += " AND m.region=?"
         params.append(region)
-    if since:
-        sql += " AND mq.date>=?"
-        params.append(since)
     sql += " ORDER BY mq.product, mq.price"
     rows = conn.execute(sql, params).fetchall()
     conn.close()
@@ -3632,6 +3653,11 @@ def mi_quote_matrix():
     detail = request.args.get('detail', '')
     filter_product = request.args.get('product', '')
     filter_since = request.args.get('since', '')
+    show_all = request.args.get('all')
+
+    # Default to 2-day window (today + yesterday) unless explicit since or all=true
+    if not filter_since and not show_all:
+        filter_since = _mi_default_since()
 
     # Check cache first (30s TTL to handle concurrent users)
     cache_key = f"matrix:{detail}:{filter_product}:{filter_since}"
