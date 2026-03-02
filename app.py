@@ -229,7 +229,7 @@ def init_crm_db():
             updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
         );
 
-        -- Mills table (universal — used by both CRM and Mill Intel)
+        -- Mills table (universal â used by both CRM and Mill Intel)
         CREATE TABLE IF NOT EXISTS mills (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL,
@@ -355,7 +355,7 @@ def init_crm_db():
     except:
         pass
 
-    # ── Entity Resolution tables (migration-safe) ──────────────────
+    # ââ Entity Resolution tables (migration-safe) ââââââââââââââââââ
     conn.executescript('''
         CREATE TABLE IF NOT EXISTS entity_canonical (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -660,7 +660,7 @@ MILL_COMPANY_ALIASES = {
     # Green Bay Packaging
     'green bay': 'Green Bay Packaging', 'green bay packaging': 'Green Bay Packaging',
     'green bay packaging inc': 'Green Bay Packaging', 'green bay packaging inc.': 'Green Bay Packaging',
-    # Hardy Technologies (→ Idaho Forest Group)
+    # Hardy Technologies (â Idaho Forest Group)
     'hardy': 'Idaho Forest Group', 'hardy technologies': 'Idaho Forest Group',
     'hardy technologies llc': 'Idaho Forest Group',
     # Resolute FP
@@ -947,10 +947,10 @@ def init_mi_db():
 
 init_mi_db()
 
-# ── Entity Resolution engine ──────────────────────────────────────
+# ââ Entity Resolution engine ââââââââââââââââââââââââââââââââââââââ
 _entity_resolver = EntityResolver(CRM_DB_PATH, MILL_COMPANY_ALIASES)
 
-# Sync CRM mills → MI mills table on startup (keeps JOINs working)
+# Sync CRM mills â MI mills table on startup (keeps JOINs working)
 def sync_crm_mills_to_mi():
     crm_conn = get_crm_db()
     crm_mills = crm_conn.execute("SELECT * FROM mills").fetchall()
@@ -961,7 +961,7 @@ def sync_crm_mills_to_mi():
         existing = mi_conn.execute("SELECT id FROM mills WHERE id=?", (md['id'],)).fetchone()
         existing_name = mi_conn.execute("SELECT id FROM mills WHERE name=? AND id!=?", (md['name'], md['id'])).fetchone() if not existing else None
         if existing_name:
-            # Name exists with different ID — delete old entry to avoid UNIQUE conflict
+            # Name exists with different ID â delete old entry to avoid UNIQUE conflict
             mi_conn.execute("DELETE FROM mills WHERE id=?", (existing_name['id'],))
         if existing:
             mi_conn.execute(
@@ -1022,7 +1022,7 @@ def seed_mi_from_supabase():
     supa_url = os.environ.get('SUPABASE_URL', '')
     supa_key = os.environ.get('SUPABASE_ANON_KEY', '')
     if not supa_url or not supa_key:
-        print("Supabase not configured — skipping MI cloud seed")
+        print("Supabase not configured â skipping MI cloud seed")
         return
 
     # Only seed if mill_quotes table is empty (fresh deploy)
@@ -1030,11 +1030,11 @@ def seed_mi_from_supabase():
     count = mi_conn.execute("SELECT COUNT(*) FROM mill_quotes").fetchone()[0]
     if count > 0:
         mi_conn.close()
-        print(f"MI already has {count} quotes — skipping cloud seed")
+        print(f"MI already has {count} quotes â skipping cloud seed")
         return
     mi_conn.close()
 
-    print("MI tables empty — seeding from Supabase cloud...")
+    print("MI tables empty â seeding from Supabase cloud...")
     try:
         res = requests.get(
             f"{supa_url}/rest/v1/syp_data?select=data&limit=1",
@@ -1051,7 +1051,7 @@ def seed_mi_from_supabase():
 
         d = rows[0]['data']
 
-        # Seed mills into CRM → MI
+        # Seed mills into CRM â MI
         cloud_mills = d.get('mills', [])
         if cloud_mills:
             crm_conn = get_crm_db()
@@ -1088,7 +1088,7 @@ def seed_mi_from_supabase():
                 crm_conn.commit()
                 print(f"  Seeded {added} mills from cloud into CRM")
             crm_conn.close()
-            # Re-sync CRM → MI so mill IDs are available for quotes
+            # Re-sync CRM â MI so mill IDs are available for quotes
             sync_crm_mills_to_mi()
 
         # Seed mill quotes
@@ -1181,9 +1181,9 @@ def seed_mi_from_supabase():
 
         print("Cloud seed complete!")
     except requests.exceptions.Timeout:
-        print("Cloud seed TIMEOUT — Supabase did not respond within 15s")
+        print("Cloud seed TIMEOUT â Supabase did not respond within 15s")
     except requests.exceptions.ConnectionError:
-        print("Cloud seed CONNECTION ERROR — cannot reach Supabase")
+        print("Cloud seed CONNECTION ERROR â cannot reach Supabase")
     except Exception as e:
         print(f"Cloud seed error: {type(e).__name__}: {e}")
 
@@ -1264,14 +1264,14 @@ def seed_rl_from_csv():
     """Seed rl_prices table from data/rl_prices.csv.gz on startup if empty."""
     csv_path = os.path.join(os.path.dirname(__file__), 'data', 'rl_prices.csv.gz')
     if not os.path.exists(csv_path):
-        print("RL CSV not found — skipping historical seed")
+        print("RL CSV not found â skipping historical seed")
         return
 
     conn = get_mi_db()
     count = conn.execute("SELECT COUNT(*) FROM rl_prices").fetchone()[0]
     if count > 0:
         conn.close()
-        print(f"RL already has {count} prices — skipping CSV seed")
+        print(f"RL already has {count} prices â skipping CSV seed")
         return
     conn.close()
 
@@ -1329,7 +1329,7 @@ def seed_rl_from_supabase():
             date = entry.get('date')
             if not date:
                 continue
-            # Composite prices (west/central/east → product keys like "2x4#2")
+            # Composite prices (west/central/east â product keys like "2x4#2")
             for region in ['west', 'central', 'east']:
                 for product, price in (entry.get(region) or {}).items():
                     if isinstance(price, (int, float)) and price > 0:
@@ -1391,7 +1391,7 @@ distance_cache = {}
 
 # Matrix response cache (short TTL to handle concurrent requests)
 _matrix_cache = {}
-_matrix_cache_ttl = 120  # seconds (increased from 30 — data only covers 2 days, cache invalidated on every POST)
+_matrix_cache_ttl = 120  # seconds (increased from 30 â data only covers 2 days, cache invalidated on every POST)
 
 def get_cached_matrix(cache_key):
     """Get cached matrix response if still valid."""
@@ -1600,7 +1600,7 @@ def mileage_bulk():
         if not origin_cached:
             need_nominatim = True
 
-        # Geocode dest (cache across lanes — usually the same destination)
+        # Geocode dest (cache across lanes â usually the same destination)
         if dest not in dest_cache:
             dest_cached = dest.lower().strip() in geo_cache
             if need_nominatim and not dest_cached:
@@ -2968,7 +2968,7 @@ def parse_pdf():
                     if cleaned:
                         tables.append({'page': i + 1, 'rows': cleaned})
 
-        # If no text/tables found, it's likely a scanned PDF — convert pages to images
+        # If no text/tables found, it's likely a scanned PDF â convert pages to images
         page_images = []
         if not pages_text and not tables:
             import io, base64
@@ -3017,7 +3017,7 @@ def health():
 
 @app.route('/health/mi')
 def health_mi():
-    """Mill Intel health check — verifies SQLite has data and reports counts."""
+    """Mill Intel health check â verifies SQLite has data and reports counts."""
     try:
         mi_conn = get_mi_db()
         quote_count = mi_conn.execute("SELECT COUNT(*) FROM mill_quotes").fetchone()[0]
@@ -3106,7 +3106,7 @@ def get_config():
     })
 
 # ==========================================
-# PRICING MATRIX — standalone read-only view
+# PRICING MATRIX â standalone read-only view
 # ==========================================
 
 PRICING_PASSWORD = os.environ.get('PRICING_PASSWORD', '2026')
@@ -3194,7 +3194,7 @@ def set_matrix_cutoff():
     return jsonify({'since': _matrix_cutoff['since']})
 
 # ==========================================
-# MILL INTEL ROUTES — /api/mi/*
+# MILL INTEL ROUTES â /api/mi/*
 # ==========================================
 
 # ----- MI: MILLS -----
@@ -3387,9 +3387,9 @@ def _mi_default_since():
     Keeps matrix + quote engine focused on fresh data (today + yesterday only)."""
     from datetime import date, timedelta
     d = date.today()
-    if d.weekday() == 0:  # Monday → use Friday
+    if d.weekday() == 0:  # Monday â use Friday
         d -= timedelta(days=3)
-    elif d.weekday() == 6:  # Sunday → use Friday
+    elif d.weekday() == 6:  # Sunday â use Friday
         d -= timedelta(days=2)
     else:
         d -= timedelta(days=1)
@@ -3486,7 +3486,7 @@ def mi_submit_quotes():
         except (ValueError, TypeError):
             continue
 
-        # Find or create mill in CRM — skip geocoding for known mills
+        # Find or create mill in CRM â skip geocoding for known mills
         company = extract_company_name(mill_name)
         cached = _mill_cache.get(company.upper())
         if cached:
@@ -3667,6 +3667,21 @@ def mi_quote_matrix():
 
     conn = get_mi_db()
 
+    def product_sort_key(prod):
+        """Sort products: 2x4→2x6→2x8→2x10→2x12 by grade, then specialty."""
+        import re
+        dim_match = re.match(r'(\d+)x(\d+)', prod)
+        if dim_match:
+            w, h = int(dim_match.group(1)), int(dim_match.group(2))
+            dim_order = {4:0, 6:1, 8:2, 10:3, 12:4}
+            dim_rank = dim_order.get(h, 5 + h)
+            width_rank = 0 if w == 2 else w
+            grade_part = prod[dim_match.end():].strip()
+            grade_order = {'#1':0, '#2':1, '#3':2, '#4':3, 'MSR':4, 'DSS':5}
+            grade_rank = grade_order.get(grade_part, 6)
+            return (0, width_rank, dim_rank, grade_rank, prod)
+        return (1, 0, 0, 0, prod)
+
     if detail == 'length':
         # Inner subquery also respects since filter to avoid stale data
         inner_where = ""
@@ -3732,10 +3747,10 @@ def mi_quote_matrix():
             parts = c.rsplit(' ', 1)
             prod = parts[0]
             length = parts[1].replace("'", "") if len(parts) > 1 else 'RL'
-            return (prod, length_sort_key(length))
+            return (product_sort_key(prod), length_sort_key(length))
 
         sorted_cols = sorted(columns, key=col_sort)
-        unique_products = sorted(set(c.rsplit(' ', 1)[0] for c in columns))
+        unique_products = sorted(set(c.rsplit(' ', 1)[0] for c in columns), key=product_sort_key)
 
         result = {
             'matrix': matrix,
@@ -3794,7 +3809,7 @@ def mi_quote_matrix():
         result = {
             'matrix': matrix,
             'mills': sorted(mills),
-            'products': sorted(products),
+            'products': sorted(products, key=product_sort_key),
             'best_by_product': best_by_product
         }
         set_cached_matrix(cache_key, result)
@@ -3918,7 +3933,7 @@ def mi_intel_signals():
             'signal': 'price_momentum',
             'current_avg': round(current_avg, 2), 'slope_14d': round(slope_14d, 2), 'slope_30d': round(slope_30d, 2),
             'direction': direction, 'strength': strength,
-            'explanation': f"{product} avg ${round(current_avg)}. Price {'rising' if slope_14d > 0 else 'falling'} ~${abs(round(slope_14d, 1))}/day over 14d. {'Buy before prices climb higher.' if direction=='bullish' else 'Prices softening — wait or short.' if direction=='bearish' else 'Prices stable.'}"
+            'explanation': f"{product} avg ${round(current_avg)}. Price {'rising' if slope_14d > 0 else 'falling'} ~${abs(round(slope_14d, 1))}/day over 14d. {'Buy before prices climb higher.' if direction=='bullish' else 'Prices softening â wait or short.' if direction=='bearish' else 'Prices stable.'}"
         })
 
         # 3. Print vs Street
@@ -4285,7 +4300,7 @@ def rl_dates():
 
 @app.route('/api/rl/entry', methods=['GET'])
 def rl_entry():
-    """Return full RL entry for one date, structured by region → product → length → price."""
+    """Return full RL entry for one date, structured by region â product â length â price."""
     try:
         date = request.args.get('date')
         if not date:
@@ -4767,7 +4782,7 @@ def rl_backfill():
         rows = conn.execute(sql, params).fetchall()
         conn.close()
 
-        # Group by date → S.rl-shaped entries
+        # Group by date â S.rl-shaped entries
         by_date = {}
         for r in rows:
             d = r['date']
@@ -4785,7 +4800,7 @@ def rl_backfill():
 
 
 # =====================================================================
-# FORECAST ENDPOINTS — Seasonal, Short-term, and Pricing Models
+# FORECAST ENDPOINTS â Seasonal, Short-term, and Pricing Models
 # =====================================================================
 
 MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
@@ -5017,9 +5032,9 @@ def forecast_shortterm():
             # Smoothed relative seasonal: interpolated target vs current
             target_si = smoothed_seasonal(forecast_date)
             ratio = target_si / current_si if current_si else 1.0
-            # Cap seasonal swing at ±15% to prevent extreme jumps
+            # Cap seasonal swing at Â±15% to prevent extreme jumps
             ratio = max(0.85, min(1.15, ratio))
-            # Ramp seasonal effect gradually — week 1 is mostly trend,
+            # Ramp seasonal effect gradually â week 1 is mostly trend,
             # full seasonal influence by the end of the horizon
             ramp = w / weeks  # 0.125 at w=1, 1.0 at w=8
             effective_ratio = 1.0 + ramp * (ratio - 1.0)
@@ -5218,10 +5233,10 @@ def forecast_pricing():
                         pct = round(sum(1 for p in month_prices if p <= latest) / len(month_prices) * 100)
                         if pct < 30:
                             seasonal_adj = -5
-                            seasonal_note = f"Below seasonal norm ({pct}th %ile for {MONTH_NAMES[current_month-1]}) — tighter margin, good buying window"
+                            seasonal_note = f"Below seasonal norm ({pct}th %ile for {MONTH_NAMES[current_month-1]}) â tighter margin, good buying window"
                         elif pct > 70:
                             seasonal_adj = 5
-                            seasonal_note = f"Above seasonal norm ({pct}th %ile for {MONTH_NAMES[current_month-1]}) — wider margin, prices elevated"
+                            seasonal_note = f"Above seasonal norm ({pct}th %ile for {MONTH_NAMES[current_month-1]}) â wider margin, prices elevated"
                         else:
                             seasonal_note = f"Near seasonal norm ({pct}th %ile for {MONTH_NAMES[current_month-1]})"
             except Exception:
@@ -5384,7 +5399,7 @@ def create_audit_entry():
         return jsonify({'error': str(e)}), 500
 
 
-# ── Intelligence Endpoints ──────────────────────────────────────────────────
+# ââ Intelligence Endpoints ââââââââââââââââââââââââââââââââââââââââââââââââââ
 
 @app.route('/api/intelligence/mill-moves', methods=['GET'])
 def intel_mill_moves():
@@ -5488,11 +5503,11 @@ def intel_regime():
             regime = 'Rally'
             confidence = min(100, int(40 + abs(roc_2wk) * 8 + abs(roc_4wk) * 5))
             bias = f"Prices up ${chg_4wk}/MBF over 4 weeks. Momentum supports higher prices near-term."
-            trading = "Favor buying on dips — strong upward momentum."
+            trading = "Favor buying on dips â strong upward momentum."
         elif roc_2wk < 1 and roc_4wk > 2:
             regime = 'Topping'
             confidence = min(100, int(35 + abs(roc_4wk - roc_2wk) * 10))
-            bias = f"Momentum fading — 2wk change slowing to {roc_2wk}% while 4wk still +{roc_4wk}%."
+            bias = f"Momentum fading â 2wk change slowing to {roc_2wk}% while 4wk still +{roc_4wk}%."
             trading = "Consider locking in sales at current levels. Upside may be limited."
         elif roc_2wk < -2 and roc_4wk < -2:
             regime = 'Decline'
@@ -5502,12 +5517,12 @@ def intel_regime():
         elif roc_2wk > -1 and roc_4wk < -2:
             regime = 'Bottoming'
             confidence = min(100, int(35 + abs(roc_4wk - roc_2wk) * 10))
-            bias = f"Decline losing steam — 2wk change recovering to {roc_2wk}% while 4wk still {roc_4wk}%."
+            bias = f"Decline losing steam â 2wk change recovering to {roc_2wk}% while 4wk still {roc_4wk}%."
             trading = "Watch for buying opportunities. Market may be finding a floor."
         else:
             regime = 'Choppy'
             confidence = max(20, int(50 - abs(roc_2wk) * 5 - abs(roc_4wk) * 3))
-            bias = f"No clear trend — 2wk {'+' if roc_2wk >= 0 else ''}{roc_2wk}%, 4wk {'+' if roc_4wk >= 0 else ''}{roc_4wk}%."
+            bias = f"No clear trend â 2wk {'+' if roc_2wk >= 0 else ''}{roc_2wk}%, 4wk {'+' if roc_4wk >= 0 else ''}{roc_4wk}%."
             trading = "Range-bound market. Trade tactically around spread opportunities."
 
         confidence = max(10, min(95, confidence))
@@ -5532,7 +5547,7 @@ def intel_regime():
 
 @app.route('/api/intelligence/spread-signals', methods=['GET'])
 def intel_spread_signals():
-    """Spread mean-reversion signals — flags extreme percentile spreads with reversion probability."""
+    """Spread mean-reversion signals â flags extreme percentile spreads with reversion probability."""
     try:
         region = request.args.get('region', 'west').strip()
         spread_type = request.args.get('type', 'all').strip()  # dimension, length, grade, zone, all
@@ -5553,7 +5568,7 @@ def intel_spread_signals():
         finally:
             conn.close()
 
-        # Filter to complete dates only (≥10 rows per date)
+        # Filter to complete dates only (â¥10 rows per date)
         from collections import Counter
         date_counts = Counter(r['date'] for r in rows)
         complete_dates = set(d for d, c in date_counts.items() if c >= 10)
@@ -5609,7 +5624,7 @@ def intel_spread_signals():
             pct = round(sum(1 for v in vals if v <= current) / len(vals) * 100)
 
             if pct > EXTREME_LOW and pct < EXTREME_HIGH:
-                return  # Not extreme — no signal
+                return  # Not extreme â no signal
 
             # Compute reversion probability: how often did extreme spreads revert toward mean within 4 weeks?
             bucket_low = 0 if pct <= EXTREME_LOW else 90
@@ -5621,7 +5636,7 @@ def intel_spread_signals():
                 rank = sum(1 for v in vals if v <= s) / len(vals) * 100
                 if rank >= bucket_low and rank <= bucket_high:
                     total_instances += 1
-                    # Look ahead ~4 weeks (20 trading days ≈ 4-5 data points in weekly data)
+                    # Look ahead ~4 weeks (20 trading days â 4-5 data points in weekly data)
                     look_ahead = min(i + 5, len(hist_vals) - 1)
                     if look_ahead > i:
                         future_s = hist_vals[look_ahead][1]
@@ -5758,7 +5773,7 @@ def intel_spread_signals():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-# ── End Intelligence Endpoints ─────────────────────────────────────────────
+# ââ End Intelligence Endpoints âââââââââââââââââââââââââââââââââââââââââââââ
 
 @app.route('/api/audit/log', methods=['GET'])
 
@@ -6513,10 +6528,10 @@ def _compute_offering_products(profile, destination):
                     pct = round(sum(1 for p in month_prices if p <= latest) / len(month_prices) * 100)
                     if pct < 30:
                         seasonal_adj = -5
-                        seasonal_note = f"Below seasonal norm ({pct}th %ile) — tighter margin"
+                        seasonal_note = f"Below seasonal norm ({pct}th %ile) â tighter margin"
                     elif pct > 70:
                         seasonal_adj = 5
-                        seasonal_note = f"Above seasonal norm ({pct}th %ile) — wider margin"
+                        seasonal_note = f"Above seasonal norm ({pct}th %ile) â wider margin"
                     else:
                         seasonal_note = f"Near seasonal norm ({pct}th %ile)"
         except Exception:
