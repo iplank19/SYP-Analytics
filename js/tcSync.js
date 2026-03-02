@@ -333,8 +333,8 @@ function tcImportToSYP(extracted) {
     newBuys++
 
     // Ensure mill exists in S.mills
-    if (buy.mill && !S.mills.includes(buy.mill)) {
-      S.mills.push(buy.mill)
+    if (buy.mill && !S.mills.find(m => m.name === buy.mill)) {
+      S.mills.push({ name: buy.mill, origin: buy.origin || '', addedDate: new Date().toISOString().split('T')[0] })
     }
   })
 
@@ -349,13 +349,16 @@ function tcImportToSYP(extracted) {
     newSells++
 
     // Ensure customer exists in S.customers
-    if (sell.customer && !S.customers.includes(sell.customer)) {
-      S.customers.push(sell.customer)
+    if (sell.customer && !S.customers.find(c => c.name === sell.customer)) {
+      S.customers.push({ name: sell.customer, destination: sell.destination || '', addedDate: new Date().toISOString().split('T')[0] })
     }
   })
 
   if (newBuys > 0 || newSells > 0) {
-    save()
+    save('buys', S.buys)
+    save('sells', S.sells)
+    if (newBuys > 0) save('mills', S.mills)
+    if (newSells > 0) save('customers', S.customers)
     render()
     showToast(`TC Import: +${newBuys} buys, +${newSells} sells (${skippedBuys + skippedSells} duplicates skipped)`, 'positive')
   } else {

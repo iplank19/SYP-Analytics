@@ -533,9 +533,12 @@ tr:hover .row-actions{opacity:1}
   .sidebar.open{left:0}
   .sidebar-overlay{background:rgba(0,0,0,0.6)}
   .main{width:100%;overflow:visible}
-  /* Header: show filters on mobile in a compact flex layout */
-  .header{display:flex !important;flex-wrap:wrap;gap:8px;padding:8px 12px;align-items:center}
-  .header select,.header input{flex:1;min-width:80px;font-size:12px}
+  /* Header: show filters, hide action buttons on mobile */
+  .header{display:block !important;padding:8px 12px}
+  .header h1{font-size:14px;margin-bottom:6px}
+  .header .filters{display:flex;gap:6px;flex-wrap:wrap}
+  .header .filters select{flex:1;min-width:80px;font-size:12px;padding:6px 8px}
+  .header .header-right{display:none}
   .content{padding:12px;overflow:visible}
   /* Override ALL inline grid-template-columns to single column */
   [style*="grid-template-columns"]{grid-template-columns:1fr !important}

@@ -1189,8 +1189,8 @@ def seed_mi_from_supabase():
 
 def recompute_price_changes():
     """Recompute mill_price_changes from mill_quotes data.
-    Sorts all quotes by date per mill+product+length, then generates
-    change records wherever the price differs between consecutive dates.
+    Deduplicates by taking one price per mill+product+length+date (latest entry wins),
+    then generates change records wherever price differs between consecutive dates.
     Called after seed_mi_from_supabase() and syncMillQuotesToMillIntel().
     """
     conn = get_mi_db()
@@ -1198,10 +1198,14 @@ def recompute_price_changes():
         # Clear existing price changes (will rebuild from scratch)
         conn.execute("DELETE FROM mill_price_changes")
 
-        # Get all quotes ordered by mill, product, length, date
+        # Get deduplicated quotes: one price per mill+product+length+date (latest id wins)
         rows = conn.execute(
             """SELECT mill_id, mill_name, product, length, price, date, trader, source
                FROM mill_quotes
+               WHERE id IN (
+                   SELECT MAX(id) FROM mill_quotes
+                   GROUP BY UPPER(mill_name), UPPER(product), UPPER(COALESCE(length,'RL')), date
+               )
                ORDER BY UPPER(mill_name), UPPER(product), UPPER(COALESCE(length,'RL')), date ASC"""
         ).fetchall()
 
@@ -1216,7 +1220,7 @@ def recompute_price_changes():
             key = (r['mill_name'].upper(), r['product'].upper(), (r['length'] or 'RL').upper())
             curr_price = r['price']
 
-            if prev and prev['key'] == key and abs(curr_price - prev['price']) > 0.001:
+            if prev and prev['key'] == key and prev['date'] != r['date'] and abs(curr_price - prev['price']) > 0.001:
                 change_val = round(curr_price - prev['price'], 2)
                 pct_val = round((change_val / prev['price']) * 100, 2) if prev['price'] else None
                 conn.execute(
