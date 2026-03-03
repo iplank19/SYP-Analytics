@@ -13,6 +13,19 @@ async function addMillQuote(q){
 }
 
 async function addMillQuotes(quotes){
+  // Dedup: remove existing quotes with same mill+date combo before pushing
+  const clearKeys=new Set();
+  quotes.forEach(q=>{
+    const mill=(q.mill||'').toUpperCase();
+    const date=q.date||today();
+    if(mill)clearKeys.add(`${mill}|${date}`);
+  });
+  if(clearKeys.size){
+    S.millQuotes=S.millQuotes.filter(mq=>{
+      const key=`${(mq.mill||'').toUpperCase()}|${mq.date||''}`;
+      return !clearKeys.has(key);
+    });
+  }
   quotes.forEach(q=>{
     q.id=q.id||genId();
     q.date=q.date||today();
@@ -81,9 +94,10 @@ function getMillPriceMatrix(){
   const products=new Set();
   latest.forEach(q=>{
     mills.add(q.mill);
-    products.add(q.product);
+    const colKey=q.product+'|'+(q.length||'RL');
+    products.add(colKey);
     if(!matrix[q.mill])matrix[q.mill]={};
-    matrix[q.mill][q.product]={price:q.price,date:q.date,volume:q.volume,shipWindow:q.shipWindow};
+    matrix[q.mill][colKey]={price:q.price,date:q.date,volume:q.volume,shipWindow:q.shipWindow,length:q.length||'RL'};
   });
   return{matrix,mills:[...mills].sort(),products:[...products].sort()};
 }
@@ -190,10 +204,11 @@ function normalizeMillProduct(raw){
   if(!raw)return'';
   const s=raw.trim().toUpperCase();
   // Direct match
-  if(PRODUCTS.includes(s.toLowerCase().replace('#','#')))return s;
+  const lower=s.toLowerCase().replace('#','#');
+  if(PRODUCTS.includes(lower))return lower;
   // Extract dimension and grade
   const m=s.match(/(\d+)\s*[xX×]\s*(\d+)/);
-  if(!m)return raw.trim();
+  if(!m)return raw.trim().toLowerCase();
   const dim=m[1]+'x'+m[2];
   // Detect grade
   let grade='#2';// default
@@ -202,7 +217,7 @@ function normalizeMillProduct(raw){
   else if(/msr|machine|stress/i.test(s))grade=' MSR';
   else if(/#2|#\s*2|grade\s*2|no\.?\s*2|std|standard|stud/i.test(s))grade='#2';
 
-  return dim+(grade===' MSR'?' MSR':grade);
+  return (dim+(grade===' MSR'?' MSR':grade)).toLowerCase();
 }
 
 // Parse tab-delimited paste (from spreadsheet copy)
@@ -615,12 +630,12 @@ function renderMPPreview(){
 
   const rows=quotes.map((q,i)=>`
     <tr>
-      <td><input type="text" value="${q.mill||''}" onchange="_mpPreviewQuotes[${i}].mill=this.value" style="width:150px;padding:3px;font-size:11px;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:var(--radius)"></td>
-      <td><input type="text" value="${q.product||''}" onchange="_mpPreviewQuotes[${i}].product=this.value" style="width:70px;padding:3px;font-size:11px;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:var(--radius)"></td>
+      <td><input type="text" value="${escapeHtml(q.mill||'')}" onchange="_mpPreviewQuotes[${i}].mill=this.value" style="width:150px;padding:3px;font-size:11px;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:var(--radius)"></td>
+      <td><input type="text" value="${escapeHtml(q.product||'')}" onchange="_mpPreviewQuotes[${i}].product=this.value" style="width:70px;padding:3px;font-size:11px;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:var(--radius)"></td>
       <td><input type="number" value="${q.price||''}" onchange="_mpPreviewQuotes[${i}].price=parseFloat(this.value)||0" style="width:65px;padding:3px;font-size:11px;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:var(--radius)"></td>
-      <td><input type="text" value="${q.length||'RL'}" onchange="_mpPreviewQuotes[${i}].length=this.value" style="width:40px;padding:3px;font-size:11px;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:var(--radius)"></td>
+      <td><input type="text" value="${escapeHtml(q.length||'RL')}" onchange="_mpPreviewQuotes[${i}].length=this.value" style="width:40px;padding:3px;font-size:11px;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:var(--radius)"></td>
       <td><input type="number" value="${q.volume||0}" onchange="_mpPreviewQuotes[${i}].volume=parseFloat(this.value)||0" style="width:50px;padding:3px;font-size:11px;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:var(--radius)"></td>
-      <td><input type="text" value="${q.shipWindow||''}" onchange="_mpPreviewQuotes[${i}].shipWindow=this.value" style="width:70px;padding:3px;font-size:11px;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:var(--radius)"></td>
+      <td><input type="text" value="${escapeHtml(q.shipWindow||'')}" onchange="_mpPreviewQuotes[${i}].shipWindow=this.value" style="width:70px;padding:3px;font-size:11px;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:var(--radius)"></td>
       <td><button onclick="_mpPreviewQuotes.splice(${i},1);renderMPIntake()" style="background:none;border:none;color:var(--negative);cursor:pointer">×</button></td>
     </tr>
   `).join('');
@@ -694,7 +709,7 @@ function renderMPCurrent(){
       <td>${q.shipWindow||'-'}</td>
       <td style="color:${age===0?'var(--positive)':age<=3?'var(--text)':'var(--muted)'}">${age===0?'Today':age+'d ago'}</td>
       <td>${q.enteredBy||'-'}</td>
-      <td><button onclick="deleteMillQuote(${q.id})" style="background:none;border:none;color:var(--negative);cursor:pointer;font-size:12px" title="Delete">×</button></td>
+      <td><button onclick="deleteMillQuote('${q.id}')" style="background:none;border:none;color:var(--negative);cursor:pointer;font-size:12px" title="Delete">×</button></td>
     </tr>`;
   }).join('');
 

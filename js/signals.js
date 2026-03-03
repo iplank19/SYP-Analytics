@@ -150,7 +150,7 @@ function generateMeanReversionSignals(){
   if(!config?.enabled)return[];
 
   const signals=[];
-  const products=['2x4#2','2x6#2','2x4#3','2x6#3','2x8#2','2x10#2'];
+  const products=PRODUCTS;
   const regions=['west','central','east'];
   const threshold=config.stdDevThreshold||1.5;
 
@@ -220,8 +220,8 @@ function generateSeasonalSignals(){
   const monthNames=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
   // Data-driven seasonal signals from /api/forecast/seasonal
-  // Check all 5 core products across all 3 regions
-  const products=['2x4#2','2x6#2','2x8#2','2x10#2','2x12#2'];
+  // Check all products across all 3 regions
+  const products=PRODUCTS;
   const regions=['west','central','east'];
 
   products.forEach(product=>{
@@ -326,7 +326,7 @@ function generateSpreadSignals(){
 
   // ── Cross-zone spreads: same product across regions ──
   const zonePairs=[['west','central'],['west','east'],['central','east']];
-  const zoneProducts=['2x4#2','2x6#2','2x4#3','2x6#3','2x10#2','2x4 MSR','2x6 MSR'];
+  const zoneProducts=PRODUCTS;
 
   zoneProducts.forEach(product=>{
     const normProd=(product||'').replace(/\s+/g,'');
@@ -423,7 +423,7 @@ function generateMomentumSignals(){
   if(!config?.enabled)return[];
 
   const signals=[];
-  const products=['2x4#2','2x6#2','2x4#3','2x6#3','2x8#2'];
+  const products=PRODUCTS;
   const regions=['west','central','east'];
   const threshold=config.threshold||2;
 
@@ -584,9 +584,11 @@ function calcSignalConfidence(signal,allSignals){
 let _signalCache=null;
 let _signalCacheTime=0;
 
+function invalidateSignalCache(){_signalCache=null;_signalCacheTime=0;}
+
 function generateSignals(){
   const now=Date.now();
-  if(_signalCache&&now-_signalCacheTime<1000)return _signalCache;
+  if(_signalCache&&now-_signalCacheTime<1000)return[..._signalCache];
 
   initSignalConfig();
 
@@ -651,7 +653,8 @@ function getTradeRecommendations(){
     if(g.signals.length<1)return; // Need at least 1 signal
 
     const reasons=g.signals.map(s=>s.reason).slice(0,3);
-    const avgPrice=g.signals.reduce((s,x)=>s+(x.price||0),0)/g.signals.filter(x=>x.price).length;
+    const pricesWithValue=g.signals.filter(x=>x.price);
+    const avgPrice=pricesWithValue.length>0?pricesWithValue.reduce((s,x)=>s+x.price,0)/pricesWithValue.length:null;
 
     recommendations.push({
       action:g.direction,
@@ -808,7 +811,7 @@ function renderSignalCards(){
           <div style="height:100%;width:${s.confidence}%;background:${confColor};transition:width 0.3s"></div>
         </div>
         <div style="font-size:10px;color:var(--muted)">${escapeHtml(s.reason)}</div>
-        ${s.price?`<div style="font-size:10px;color:var(--muted);margin-top:2px">${escapeHtml(s.region||'all')} @ $${s.price.toFixed(0)}</div>`:''}
+        ${s.price!=null?`<div style="font-size:10px;color:var(--muted);margin-top:2px">${escapeHtml(s.region||'all')} @ $${s.price.toFixed(0)}</div>`:''}
       </div>`
   }).join('')
 }

@@ -527,7 +527,7 @@ async function executeAITool(name,params){
         const groupBy=params.groupBy||'product';
         const buyByOrder=buildBuyByOrder();const groups={};
         S.sells.forEach(s=>{
-          const ord=String(s.orderNum||s.linkedPO||s.oc||'').trim();const buy=ord?buyByOrder[ord]:null;if(!buy)return;
+          const ord=normalizeOrderNum(s.orderNum||s.linkedPO||s.oc);const buy=ord?buyByOrder[ord]:null;if(!buy)return;
           let key;if(groupBy==='customer')key=s.customer||'Unknown';else if(groupBy==='month')key=(s.date||'').substring(0,7);else key=s.product||'Unknown';
           if(params.filter&&!key.toLowerCase().includes(params.filter.toLowerCase()))return;
           if(!groups[key])groups[key]={vol:0,profit:0};

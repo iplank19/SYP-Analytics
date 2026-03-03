@@ -67,7 +67,7 @@ function _resolveMillOrigin(mill,q){
 }
 
 async function showBestCosts(){
-  const items=S.quoteItems||[];
+  const items=[...(S.quoteItems||[])];
   if(!items.length){
     showToast('Add some products first','warn');
     return;
@@ -178,7 +178,10 @@ async function showBestCosts(){
       }
     }
 
-    if(!bestCandidate)bestCandidate=candidates.reduce((a,b)=>a.price<b.price?a:b);
+    if(!bestCandidate){
+      const validCandidates=candidates.filter(c=>c.price!=null&&!isNaN(c.price));
+      if(validCandidates.length)bestCandidate=validCandidates.reduce((a,b)=>a.price<b.price?a:b);
+    }
 
     const landed=bestCandidate.price!=null&&bestFreight!=null?Math.round(bestCandidate.price+bestFreight):null;
 
@@ -202,6 +205,7 @@ async function showBestCosts(){
     }
   });
 
+  S.quoteItems=items;
   save('quoteItems',S.quoteItems);
   const msg=marginApplied?`Costs loaded! Auto-applied $${defaultMargin} margin to ${marginApplied} items`:'Costs loaded!';
   showToast(msg,'positive');
@@ -211,7 +215,7 @@ async function showBestCosts(){
 // Update sell delivered price for an item
 function updateQuoteSellDlvd(idx,value){
   if(S.quoteItems[idx]){
-    S.quoteItems[idx].sellDlvd=value||null;
+    S.quoteItems[idx].sellDlvd=value!=null&&value!==''?parseFloat(value):null;
     save('quoteItems',S.quoteItems);
     render();
   }
@@ -220,8 +224,8 @@ function updateQuoteSellDlvd(idx,value){
 // Apply margin to all items that have landed costs
 function applyAllMargin(){
   const marginInput=document.getElementById('qb-margin-input');
-  const margin=parseFloat(marginInput?.value)||0;
-  if(!margin){
+  const margin=parseFloat(marginInput?.value);
+  if(isNaN(margin)){
     showToast('Enter a margin amount (e.g. 25)','warn');
     return;
   }
@@ -444,7 +448,7 @@ function loadFromInventory(){
     // Try to find mill location
     let origin='';
     if(p.mill){
-      const mill=S.mills.find(m=>m.name===p.mill);
+      const mill=(S.mills||[]).find(m=>m.name===p.mill);
       if(mill&&mill.location)origin=mill.location;
       else if(mill&&mill.city)origin=mill.city;
     }
@@ -735,6 +739,9 @@ function extractState(location){
   for(const st of states){
     if(str.split(/[\s,]+/).includes(st))return st;
   }
+  // Fallback: match any 2-letter state abbreviation at end after comma
+  const fallback=str.match(/,\s*([A-Z]{2})\s*$/);
+  if(fallback)return fallback[1];
   return null;
 }
 
@@ -823,9 +830,10 @@ function calcFreightPerMBF(miles,origin,isMSR=false){
 
   const freightPerMBF=Math.round(freightTotal/mbfPerTL);
 
-  // Apply floor
+  // Apply floor and ceiling
   const floor=S.shortHaulFloor||0;
-  return Math.max(floor,freightPerMBF);
+  if(freightPerMBF>500)console.warn('calcFreightPerMBF: freight $'+freightPerMBF+'/MBF exceeds $500 ceiling (miles='+miles+', origin='+origin+')');
+  return Math.max(floor,Math.min(freightPerMBF,500));
 }
 
 function toggleQuoteCustomer(idx,checked){
@@ -2085,8 +2093,8 @@ Respond with ONLY a JSON array, no explanation:
       let updated=0;
       
       results.forEach(r=>{
-        // Find matching item
-        const item=S.quoteItems.find(i=>
+        // Find matching item — try exact match first, then fuzzy
+        const item=S.quoteItems.find(i=>i.product===r.product)||S.quoteItems.find(i=>
           i.product&&i.product.toLowerCase().includes(r.product.toLowerCase().substring(0,8))
         );
         if(item&&r.suggestedFOB){
@@ -2160,8 +2168,9 @@ function parseProductString(str){
   
   // Extract size (2x4, 2x6, etc)
   const sizeMatch=s.match(/(2x4|2x6|2x8|2x10|2x12|4x4|4x6)/);
-  const size=sizeMatch?sizeMatch[1]:'2x4';
-  
+  const size=sizeMatch?sizeMatch[1]:null;
+  if(!size)return{base:null,length:null,region:'west',size:null,grade:null};
+
   // Extract grade (#1, #2, #3, #4, MSR, 2400f)
   let grade='#2';
   if(s.includes('#1')||s.includes('no.1')||s.includes('no 1'))grade='#1';
@@ -2373,7 +2382,7 @@ Respond with JSON only, no explanation:
 // BUILD TAB — Product x Length Matrix
 // ============================================================
 
-function _qePid(p) { return p.replace(/\s+/g, '-') }
+function _qePid(p) { return p.replace(/[^a-zA-Z0-9]/g, '_') }
 
 function qeGetCheckedCombos() {
   const combos = []
@@ -2695,10 +2704,11 @@ function calcAvgHistoricalMargin(){
 
   let totalMargin=0,count=0;
   S.sells.forEach(s=>{
+    if(!s.volume||s.volume<=0)return;
     const ord=String(s.orderNum||s.linkedPO||s.oc||'').trim();
     const buy=ord?buyByOrder[ord]:null;
     if(buy){
-      const fob=(s.price||0)-(s.volume>0?(s.freight||0)/s.volume:0);
+      const fob=(s.price||0)-(s.freight||0)/s.volume;
       const cost=buy.price||0;
       totalMargin+=fob-cost;
       count++;
@@ -3001,6 +3011,7 @@ async function fetchPriceSheet(){
 
 function psApplyUniformMargin(){
   const margin=parseFloat(document.getElementById('ps-margin')?.value)||0;
+  if(margin<0&&!confirm('Negative margin ($'+margin+') — sell below cost for ALL products?'))return;
   S.priceSheet.margin=margin;
   (S.priceSheet.rows||[]).forEach(r=>{
     r.margin=margin;

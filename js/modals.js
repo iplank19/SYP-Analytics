@@ -180,9 +180,9 @@ function showBuyModal(b=null){
   const isRL=b?.length==='RL'||b?.tally;
   
   // Get sells without matching buys (shorts that need covering) - normalize order numbers
-  const buyOrders=new Set(S.buys.map(x=>String(x.orderNum||x.po||'').trim()).filter(Boolean));
+  const buyOrders=new Set(S.buys.map(x=>normalizeOrderNum(x.orderNum||x.po)).filter(Boolean));
   const uncoveredSells=S.sells.filter(s=>{
-    const ord=String(s.orderNum||s.linkedPO||s.oc||'').trim();
+    const ord=normalizeOrderNum(s.orderNum||s.linkedPO||s.oc);
     return ord && !buyOrders.has(ord);
   });
   
@@ -585,9 +585,9 @@ function onBuyOrderChange(){
   const orderNum=document.getElementById('m-orderNum')?.value;
   if(!orderNum)return;
   
-  // Find matching sell (short to cover) - normalize to string
-  const orderNumStr=String(orderNum).trim();
-  const sell=S.sells.find(s=>String(s.orderNum||s.linkedPO||s.oc||'').trim()===orderNumStr);
+  // Find matching sell (short to cover) - normalize for consistent matching
+  const orderNumNorm=normalizeOrderNum(orderNum);
+  const sell=S.sells.find(s=>normalizeOrderNum(s.orderNum||s.linkedPO||s.oc)===orderNumNorm);
   if(sell){
     // Auto-fill product, length, volume, region from the sell
     if(sell.product&&!document.getElementById('m-product').value){
@@ -611,9 +611,9 @@ function onSellOrderChange(){
   const orderNum=document.getElementById('m-orderNum')?.value;
   if(!orderNum)return;
   
-  // Find matching buy (long to sell against) - normalize to string
-  const orderNumStr=String(orderNum).trim();
-  const buy=S.buys.find(b=>String(b.orderNum||b.po||'').trim()===orderNumStr);
+  // Find matching buy (long to sell against) - normalize for consistent matching
+  const orderNumStr=normalizeOrderNum(orderNum);
+  const buy=S.buys.find(b=>normalizeOrderNum(b.orderNum||b.po)===orderNumStr);
   if(buy){
     // Auto-fill product, length, region from the buy
     if(buy.product&&!document.getElementById('m-product').value){
@@ -658,7 +658,7 @@ function sellPosition(product, length, volume){
 
   // Use first matching buy
   const matchingBuy=matchingBuys[0];
-  const orderNum=matchingBuy?String(matchingBuy.orderNum||matchingBuy.po||'').trim():'';
+  const orderNum=matchingBuy?String(matchingBuy.orderNum||matchingBuy.po||'').trim():''; // Keep display format
 
   // Show modal with pre-filled data
   showSellModal({
@@ -681,21 +681,21 @@ function sellPosition(product, length, volume){
 // Cover a short position from Risk view  
 function coverPosition(product, length, volume){
   // Find a sell (short) with this product/length that needs covering
-  const buyOrders=new Set(S.buys.map(b=>String(b.orderNum||b.po||'').trim()).filter(Boolean));
-  
+  const buyOrders=new Set(S.buys.map(b=>normalizeOrderNum(b.orderNum||b.po)).filter(Boolean));
+
   // Normalize product for matching
   const normProd=p=>(p||'').toLowerCase().replace(/\s+/g,'');
   const targetProd=normProd(product);
   const targetLen=String(length||'RL').replace(/'/g,'');
-  
+
   const matchingSell=S.sells.find(s=>{
     if(normProd(s.product)!==targetProd)return false;
     const sellLen=String(s.length||'RL').replace(/'/g,'');
     if(targetLen && sellLen!==targetLen)return false;
-    const ord=String(s.orderNum||s.linkedPO||s.oc||'').trim();
+    const ord=normalizeOrderNum(s.orderNum||s.linkedPO||s.oc);
     return ord && !buyOrders.has(ord);
   });
-  
+
   const orderNum=matchingSell?String(matchingSell.orderNum||matchingSell.linkedPO||matchingSell.oc||'').trim():'';
   
   showBuyModal({
@@ -1983,7 +1983,7 @@ function autoFillFreightFromLane(){
   const orderNum=document.getElementById('m-orderNum')?.value||document.getElementById('m-linkedPO')?.value||'';
   let origin='';
   if(orderNum){
-    const buy=S.buys.find(b=>String(b.orderNum||b.po||'').trim()===orderNum.trim());
+    const buy=S.buys.find(b=>normalizeOrderNum(b.orderNum||b.po)===normalizeOrderNum(orderNum));
     if(buy)origin=buy.origin||'';
   }
   if(!origin)return;
@@ -2045,9 +2045,9 @@ function updateSellCalc(){
   const sellFrtPerMBF=volume>0?sellFreight/volume:0;
   const fob=sellPrice-sellFrtPerMBF;
   
-  // Find matching buy by orderNum - normalize to string for comparison
-  const orderNumStr=String(orderNum||'').trim();
-  const buy=orderNumStr?S.buys.find(b=>String(b.orderNum||b.po||'').trim()===orderNumStr):null;
+  // Find matching buy by orderNum - normalize for consistent comparison
+  const orderNumNorm=normalizeOrderNum(orderNum);
+  const buy=orderNumNorm?S.buys.find(b=>normalizeOrderNum(b.orderNum||b.po)===orderNumNorm):null;
   
   const buyPrice=buy?.price||0;
 

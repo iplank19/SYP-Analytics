@@ -290,8 +290,8 @@ async function miRenderGranularMatrix(el) {
 
       return `<td class="mono${gs}" style="text-align:center;${heatBg}${staleStyle}${bestStyle}${dayPriorBorder}" title="${tip}" data-base-price="${d.price}" data-ship="${shipNorm}">$${displayPrice}</td>`;
     }).join('');
-    const delBtn = isPortal ? '' : `<td style="padding:2px;position:sticky;right:0;background:var(--panel);z-index:1"><button onclick="miDeleteMillQuotes('${m.replace(/'/g, "\\'")}');event.stopPropagation()" style="background:none;border:none;color:var(--negative);cursor:pointer;font-size:11px;padding:2px 6px;opacity:0.5" title="Delete all quotes for ${m}" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=0.5">×</button></td>`;
-    return `<tr><td class="mill-cell" style="white-space:nowrap;font-weight:500;font-size:11px;padding:4px 8px;position:sticky;left:0;background:var(--panel);z-index:1">${m}</td>${cells}${delBtn}</tr>`;
+    const delBtn = isPortal ? '' : `<td style="padding:2px;position:sticky;right:0;background:var(--panel);z-index:1"><button onclick="miDeleteMillQuotes('${m.replace(/'/g, "\\'")}');event.stopPropagation()" style="background:none;border:none;color:var(--negative);cursor:pointer;font-size:11px;padding:2px 6px;opacity:0.5" title="Delete all quotes for ${escapeHtml(m)}" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=0.5">×</button></td>`;
+    return `<tr><td class="mill-cell" style="white-space:nowrap;font-weight:500;font-size:11px;padding:4px 8px;position:sticky;left:0;background:var(--panel);z-index:1">${escapeHtml(m)}</td>${cells}${delBtn}</tr>`;
   }).join('');
 
   const densityClass = `matrix-${_miMatrixDensity}`;
@@ -337,12 +337,12 @@ async function miRenderSummaryMatrix(el) {
     const cells = products.map(p => {
       const d = matrix[m]?.[p];
       const age = d ? businessDayAge(d.date) : null;
-      const maxAge = _miMatrixMaxAge !== '' ? parseInt(_miMatrixMaxAge, 10) : null;
-      if (!d || (maxAge !== null && age > maxAge)) return '<td style="text-align:center;color:var(--muted)">-</td>';
+      const maxAge = _miMatrixMaxAge !== '' ? parseInt(_miMatrixMaxAge, 10) : 2;
+      if (!d || age > maxAge) return '<td style="text-align:center;color:var(--muted)">-</td>';
       const isBest = d.price === best_by_product[p];
       return `<td class="mono" style="text-align:center;${isBest?'color:var(--positive);font-weight:700':''}${age>3?';opacity:0.5':''}" title="${d.ship_window||''} | ${d.trader||''} | ${age}d ago">$${d.price}</td>`;
     }).join('');
-    return `<tr><td style="white-space:nowrap;font-weight:500">${m}</td>${cells}</tr>`;
+    return `<tr><td style="white-space:nowrap;font-weight:500">${escapeHtml(m)}</td>${cells}</tr>`;
   }).join('');
 
   el.innerHTML = `<div class="card-body">
@@ -532,7 +532,8 @@ async function miRenderAggLog() {
 }
 
 function miWipeMatrix() {
-  const today = new Date().toISOString().slice(0, 10);
+  const now = new Date();
+  const today = now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0')+'-'+String(now.getDate()).padStart(2,'0');
   _miMatrixCutoff = today;
   SS('miMatrixCutoff', today);
   fetch('/api/pricing/cutoff', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({since:today})}).catch(()=>{});

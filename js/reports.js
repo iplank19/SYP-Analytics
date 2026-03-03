@@ -444,7 +444,7 @@ function generateMillReport(period='30d'){
       activeMills:millActivity.length,
       totalVolume:millActivity.reduce((s,m)=>s+m.volume,0),
       totalCost:millActivity.reduce((s,m)=>s+m.cost,0),
-      avgCost:millActivity.reduce((s,m)=>s+m.cost,0)/millActivity.reduce((s,m)=>s+m.volume,0)||0
+      avgCost:(()=>{const totalVol=millActivity.reduce((s,m)=>s+m.volume,0);return totalVol>0?millActivity.reduce((s,m)=>s+m.cost,0)/totalVol:0})()
     },
     topMills:millActivity.slice(0,20),
     millPricing:millBasis.slice(0,15),
@@ -802,50 +802,7 @@ function exportReportJSON(report){
   URL.revokeObjectURL(url);
 }
 
-// Export report to CSV
-function exportReportCSV(report){
-  let csv='';
-
-  // For P&L breakdown reports
-  if(report.byProduct){
-    csv='Product,Volume,Trade P&L,Freight P&L,Total P&L,Avg Margin,Win Rate\n';
-    report.byProduct.forEach(p=>{
-      csv+=`"${p.key}",${p.volume},${p.tradePnL},${p.freightPnL},${p.totalPnL},${p.avgMargin},${p.winRate}\n`;
-    });
-  }
-
-  const blob=new Blob([csv],{type:'text/csv'});
-  const url=URL.createObjectURL(blob);
-  const a=document.createElement('a');
-  a.href=url;
-  a.download=`${report.type}-${report.date||today()}.csv`;
-  a.click();
-  URL.revokeObjectURL(url);
-}
-
-// Generate PDF using html2pdf (if available)
-function exportReportPDF(report){
-  if(typeof html2pdf==='undefined'){
-    showToast('PDF export requires html2pdf library','warn');
-    return;
-  }
-
-  const html=renderReportHTML(report);
-  const container=document.createElement('div');
-  container.innerHTML=html;
-  container.style.background='#0a0a10';
-  document.body.appendChild(container);
-
-  html2pdf().set({
-    margin:10,
-    filename:`${report.type}-${report.date||today()}.pdf`,
-    image:{type:'jpeg',quality:0.98},
-    html2canvas:{scale:2},
-    jsPDF:{unit:'mm',format:'a4',orientation:'portrait'}
-  }).from(container).save().then(()=>{
-    document.body.removeChild(container);
-  });
-}
+// Note: exportReportCSV and exportReportPDF are defined below (using window._currentReport)
 
 // ============================================================================
 // REPORT HISTORY

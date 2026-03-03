@@ -830,7 +830,7 @@ function normalizeMillQuotes(){
     else if(q.mill==='GP'){changed=true;return false}
     return true
   })
-  if(changed)save('millQuotes',S.millQuotes)
+  if(changed){dbSet('millQuotes',S.millQuotes);SS('millQuotes',S.millQuotes)}
 }
 
 const NAV=[{id:'dashboard',icon:'📊',label:'Dashboard'},{id:'trading',icon:'📋',label:'Trading'},{id:'quotes',icon:'💰',label:'Quotes'},{id:'millintel',icon:'📥',label:'Mill Intel'},{id:'analytics',icon:'📈',label:'Analytics'},{id:'intelligence',icon:'🧠',label:'Intelligence'},{id:'poanalysis',icon:'📦',label:'PO Analysis'},{id:'crm',icon:'🏢',label:'CRM'},{id:'settings',icon:'⚙️',label:'Settings'}];
@@ -839,7 +839,8 @@ const NAV=[{id:'dashboard',icon:'📊',label:'Dashboard'},{id:'trading',icon:'�
 const NAV_GROUPS=null;
 
 const LS=(k,d)=>{try{const v=localStorage.getItem('syp_'+k);return v?JSON.parse(v):d}catch{return d}};
-const SS=(k,v)=>{try{localStorage.setItem('syp_'+k,JSON.stringify(v))}catch(e){console.warn('localStorage write failed for key "'+k+'":', e.message);S._localStorageFull=true}};
+let _lsFullWarned=false;
+const SS=(k,v)=>{try{localStorage.setItem('syp_'+k,JSON.stringify(v))}catch(e){console.warn('localStorage write failed for key "'+k+'":', e.message);S._localStorageFull=true;if(!_lsFullWarned&&typeof showToast==='function'){_lsFullWarned=true;showToast('Local storage full — data saved to cloud only','warn')}}};
 
 // Traders in department
 const TRADERS=['Ian P','Aubrey M','Hunter S','Sawyer R','Jackson M','John W'];
@@ -1035,7 +1036,7 @@ function migrateTraderNames(){
   S.customers.forEach(c=>{const n=normalizeTrader(c.trader);if(n&&n!==c.trader){c.trader=n;changed=true;}});
   if(changed){SS('buys',S.buys);SS('sells',S.sells);SS('mills',S.mills);SS('customers',S.customers);}
 }
-migrateTraderNames();
+// NOTE: migrateTraderNames() is NOT called at module load — it runs inside init() after S.trader is set from sessionStorage
 
 // Migrate buy mill names from "Company - City" to company-only
 (function migrateMillNames(){

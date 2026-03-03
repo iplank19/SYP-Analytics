@@ -15,7 +15,7 @@ function getPositionForProduct(product){
     sold+=s.volume||0;
   });
   const net=bought-sold;
-  const avgCost=bought?boughtVal/bought:0;
+  const avgCost=bought>0?boughtVal/bought:null;
   return{
     product,bought,sold,net,avgCost,
     isLong:net>0,isShort:net<0,isFlat:net===0,
@@ -34,12 +34,12 @@ function getMarketContext(product,region='west'){
   if(!latestRL)return null;
 
   const normProd=(product||'').replace(/\s+/g,'');
-  const currentPrice=latestRL[region]?.[normProd]||latestRL[region]?.[normProd+'#2']||null;
-  const prevPrice=prevRL?prevRL[region]?.[normProd]||prevRL[region]?.[normProd+'#2']:null;
-  if(!currentPrice)return null;
+  const currentPrice=parseFloat(latestRL[region]?.[normProd]||latestRL[region]?.[normProd+'#2']);
+  const prevPrice=prevRL?parseFloat(prevRL[region]?.[normProd]||prevRL[region]?.[normProd+'#2']):null;
+  if(!currentPrice||isNaN(currentPrice))return null;
 
   let trend='flat',trendPct=0;
-  if(prevPrice&&prevPrice>0){
+  if(prevPrice&&!isNaN(prevPrice)&&prevPrice>0){
     trendPct=((currentPrice-prevPrice)/prevPrice)*100;
     trend=trendPct>1?'up':trendPct<-1?'down':'flat';
   }
@@ -94,7 +94,7 @@ function getCustomerProfile(customerName){
 
   const byProduct=Object.values(productStats).map(p=>({
     ...p,
-    avgPrice:p.volume>0?p.priceVolumeSum/p.volume:p.prices.length?p.prices.reduce((a,b)=>a+b,0)/p.prices.length:0,
+    avgPrice:p.volume>0?p.priceVolumeSum/p.volume:(()=>{const nonZero=p.prices.filter(x=>x>0);return nonZero.length?nonZero.reduce((a,b)=>a+b,0)/nonZero.length:0;})(),
     lastPrice:p.prices[p.prices.length-1]||0,
     avgMargin:p.volume&&p.margin?p.margin/p.volume:null
   }));
@@ -221,7 +221,7 @@ function generateBulkQuotes(customerName,destination,riskLevel=1,marginTarget=25
     let costSource;
     if(riskLevel==='aggressive')costSource=prod.best;
     else if(riskLevel==='conservative')costSource=prod.third||prod.second||prod.best;
-    else if(typeof riskLevel==='number')costSource=prod.quotes[riskLevel]||prod.quotes[prod.quotes.length-1];
+    else if(typeof riskLevel==='number'){const idx=Math.max(0,Math.min(Math.floor(riskLevel),prod.quotes.length-1));costSource=prod.quotes[idx];}
     else costSource=prod.second||prod.best;
 
     // Adjust margin based on market trend and position
@@ -234,7 +234,7 @@ function generateBulkQuotes(customerName,destination,riskLevel=1,marginTarget=25
     // Calculate freight if destination provided
     let freight=null;
     if(destination&&costSource.mill){
-      const dirEntry=MILL_DIRECTORY?.[costSource.mill];
+      const dirEntry=typeof MILL_DIRECTORY!=='undefined'?MILL_DIRECTORY?.[costSource.mill]:null;
       const origin=dirEntry?.city;
       if(origin&&typeof getLaneMiles==='function'&&typeof calcFreightPerMBF==='function'){
         const miles=getLaneMiles(origin+', '+(dirEntry?.state||''),destination);

@@ -14,11 +14,13 @@
 const DB_NAME='SYPAnalytics';
 const DB_VERSION=1;
 let db=null;
+let _dbPromise=null;
 
 async function initDB(){
-  return new Promise((resolve,reject)=>{
+  if(_dbPromise)return _dbPromise;
+  _dbPromise=new Promise((resolve,reject)=>{
     const request=indexedDB.open(DB_NAME,DB_VERSION);
-    request.onerror=()=>reject(request.error);
+    request.onerror=()=>{_dbPromise=null;reject(request.error)};
     request.onsuccess=()=>{db=request.result;resolve(db)};
     request.onupgradeneeded=(e)=>{
       const database=e.target.result;
@@ -27,6 +29,7 @@ async function initDB(){
       }
     };
   });
+  return _dbPromise;
 }
 
 async function dbGet(key,defaultVal){
@@ -50,8 +53,8 @@ async function dbSet(key,value){
       const store=tx.objectStore('data');
       store.put({key,value});
       tx.oncomplete=()=>resolve(true);
-      tx.onerror=()=>resolve(false);
-    }catch{resolve(false)}
+      tx.onerror=()=>{console.warn('IDB write failed for key:',key);S._idbWriteFailed=true;resolve(false)};
+    }catch{console.warn('IDB write failed for key:',key);S._idbWriteFailed=true;resolve(false)}
   });
 }
 
@@ -121,7 +124,7 @@ function _mergeById(local,remote,key='id'){
       // Compare updatedAt timestamps if available, otherwise remote wins
       const localTime=existing.updatedAt?new Date(existing.updatedAt).getTime():0
       const remoteTime=item.updatedAt?new Date(item.updatedAt).getTime():0
-      if(remoteTime>=localTime)merged.set(k,item)
+      if(remoteTime>localTime)merged.set(k,item)
     }
   })
   return[...merged.values()]
@@ -260,6 +263,7 @@ async function cloudSync(action='push',opts={}){
       
       return{success:true,action:'pushed'};
     }else if(action==='pull'){
+      if(_isPulling) return {success:false, error:'Pull already in progress'};
       _isPulling=true;
       // Download cloud data to local
       const res=await fetch(`${supabase.url}/rest/v1/syp_data?user_id=eq.${userId}&select=data,updated_at`,{
@@ -268,6 +272,7 @@ async function cloudSync(action='push',opts={}){
           'Authorization':`Bearer ${supabase.key}`
         }
       });
+      if(!res.ok) throw new Error('Cloud pull failed: '+res.status);
       const rows=await res.json();
       if(rows&&rows.length>0&&rows[0].data){
         const d=rows[0].data;
@@ -331,12 +336,14 @@ async function cloudSync(action='push',opts={}){
         // Cancel any push that saveAllLocal may have scheduled
         clearTimeout(_cloudPushTimer);
         // Sync pulled data into SQLite and Mill Intel (fire-and-forget, don't block UI)
-        syncCustomersToServer(S.customers).catch(e=>console.warn('Customer sync:',e));
-        syncMillsToServer(S.mills).catch(e=>console.warn('Mill sync:',e));
-        syncMillQuotesToMillIntel().catch(e=>console.warn('Mill quote sync:',e));
-        syncRLToMillIntel().catch(e=>console.warn('RL sync:',e));
-        backfillRLFromBackend().catch(e=>console.warn('RL backfill:',e));
-        _isPulling=false;
+        // Keep _isPulling=true until all background ops complete
+        Promise.allSettled([
+          syncCustomersToServer(S.customers).catch(e=>console.warn('Customer sync:',e)),
+          syncMillsToServer(S.mills).catch(e=>console.warn('Mill sync:',e)),
+          syncMillQuotesToMillIntel().catch(e=>console.warn('Mill quote sync:',e)),
+          syncRLToMillIntel().catch(e=>console.warn('RL sync:',e)),
+          backfillRLFromBackend().catch(e=>console.warn('RL backfill:',e))
+        ]).finally(()=>{_isPulling=false});
         return{success:true,action:'pulled',updated:rows[0].updated_at};
       }
       _isPulling=false;
@@ -518,7 +525,7 @@ async function backfillRLFromBackend(){
     }
     if(added){
       S.rl.sort((a,b)=>new Date(a.date)-new Date(b.date));
-      await saveAllLocal();
+      await dbSet('rl',S.rl);SS('rl',S.rl);
       _dbg(`Backfilled ${added} RL entries from backend`);
     }
   }catch(e){
@@ -699,10 +706,14 @@ async function syncMillsToServer(mills){
 // Keys in ALWAYS_SYNC will trigger cloud sync regardless of autoSync setting
 const ALWAYS_SYNC_KEYS = ['lanes', 'buys', 'sells', 'customers', 'mills', 'freightBase', 'stateRates', 'poHistory'];
 
+const _TRADER_SUFFIXED_KEYS=['quoteItems','stateRates','quoteProfiles','quoteProfile'];
+
 async function save(key,value){
   S[key]=value;
-  await dbSet(key,value);
-  SS(key,value); // backup
+  // Trader-specific keys get suffixed with _traderName in IDB/LS (matches saveAllLocal behavior)
+  const storageKey=_TRADER_SUFFIXED_KEYS.includes(key)?key+'_'+S.trader:key;
+  await dbSet(storageKey,value);
+  SS(storageKey,value); // backup
 
   // Auto-sync to cloud if configured, or if key is in always-sync list
   if(supabase && (S.autoSync || ALWAYS_SYNC_KEYS.includes(key))){

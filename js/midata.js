@@ -18,17 +18,27 @@ async function miApiGet(path, timeoutMs = 30000) {
   }
 }
 
-async function miApiPost(path, data) {
-  const res = await fetch(MI_API + path, {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify(data)
-  });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err.error || `API error: ${res.status}`);
+async function miApiPost(path, data, timeoutMs = 30000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(MI_API + path, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(data),
+      signal: controller.signal
+    });
+    clearTimeout(timer);
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || `API error: ${res.status}`);
+    }
+    return res.json();
+  } catch(e) {
+    clearTimeout(timer);
+    if (e.name === 'AbortError') throw new Error('Request timed out — server may be slow or unavailable');
+    throw e;
   }
-  return res.json();
 }
 
 async function miApiPut(path, data) {
@@ -90,6 +100,7 @@ async function miApiGetWithRetry(path, retries = 2, timeoutMs = 30000) {
       throw e;
     }
   }
+  throw new Error('All retries exhausted');
 }
 
 async function miLoadQuoteHistory(mill, product, days = 90) {

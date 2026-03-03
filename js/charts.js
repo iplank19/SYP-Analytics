@@ -950,7 +950,7 @@ function renderMarginHeatmap(){
   const customers=new Set();
 
   S.sells.forEach(s=>{
-    const ord=String(s.orderNum||s.linkedPO||s.oc||'').trim();
+    const ord=normalizeOrderNum(s.orderNum||s.linkedPO||s.oc);
     const buy=ord?buyByOrder[ord]:null;
     if(!buy)return;
 

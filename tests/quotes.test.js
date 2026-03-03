@@ -63,9 +63,9 @@ describe('parseProductString', () => {
 
   test('handles null/empty input', () => {
     const r = parseProductString(null);
-    expect(r.base).toBe('2x4#2'); // defaults
+    expect(r.base).toBeNull(); // returns null instead of wrong default
     const r2 = parseProductString('');
-    expect(r2.base).toBe('2x4#2');
+    expect(r2.base).toBeNull();
   });
 
   test('handles "ft" length format', () => {

@@ -62,9 +62,7 @@ function saveTraderGoal(trader){
   const profit=parseFloat(document.getElementById('goal-profit-'+trader)?.value)||0;
   if(!S.traderGoals)S.traderGoals={};
   S.traderGoals[trader]={volume:vol||null,profit:profit||null};
-  SS('traderGoals',S.traderGoals);
-  // Sync to cloud
-  if(supabase)cloudSync('push').catch(()=>{});
+  save('traderGoals',S.traderGoals);
   showToast(`Goals saved for ${trader}`,'positive');
   render();
 }
@@ -228,22 +226,22 @@ async function impData(e){
   r.onload=async ev=>{
     try{
       const d=JSON.parse(ev.target.result);
-      if(d.buys){S.buys=d.buys}
-      if(d.sells){S.sells=d.sells}
-      if(d.rl){S.rl=d.rl}
-      if(d.customers){S.customers=d.customers}
-      if(d.mills){S.mills=d.mills}
-      if(d.nextId){S.nextId=d.nextId}
-      if(d.flatRate){S.flatRate=d.flatRate}
+      if(d.buys&&Array.isArray(d.buys)){S.buys=d.buys}
+      if(d.sells&&Array.isArray(d.sells)){S.sells=d.sells}
+      if(d.rl&&Array.isArray(d.rl)){S.rl=d.rl}
+      if(d.customers&&Array.isArray(d.customers)){S.customers=d.customers}
+      if(d.mills&&Array.isArray(d.mills)){S.mills=d.mills}
+      if(d.nextId&&typeof d.nextId==='number'){S.nextId=d.nextId}
+      if(d.flatRate&&typeof d.flatRate==='number'){S.flatRate=d.flatRate}
       // Quote engine data
-      if(d.lanes){S.lanes=d.lanes}
-      if(d.quoteItems){S.quoteItems=d.quoteItems}
-      if(d.quoteProfiles){S.quoteProfiles=d.quoteProfiles}
-      if(d.quoteProfile){S.quoteProfile=d.quoteProfile}
-      if(d.marketBlurb!==undefined){S.marketBlurb=d.marketBlurb}
-      if(d.stateRates){S.stateRates=d.stateRates}
-      if(d.freightBase!==undefined){S.freightBase=d.freightBase}
-      if(d.shortHaulFloor!==undefined){S.shortHaulFloor=d.shortHaulFloor}
+      if(d.lanes&&Array.isArray(d.lanes)){S.lanes=d.lanes}
+      if(d.quoteItems&&Array.isArray(d.quoteItems)){S.quoteItems=d.quoteItems}
+      if(d.quoteProfiles&&typeof d.quoteProfiles==='object'&&!Array.isArray(d.quoteProfiles)){S.quoteProfiles=d.quoteProfiles}
+      if(d.quoteProfile&&typeof d.quoteProfile==='string'){S.quoteProfile=d.quoteProfile}
+      if(d.marketBlurb!==undefined&&typeof d.marketBlurb==='string'){S.marketBlurb=d.marketBlurb}
+      if(d.stateRates&&typeof d.stateRates==='object'&&!Array.isArray(d.stateRates)){S.stateRates=d.stateRates}
+      if(d.freightBase!==undefined&&typeof d.freightBase==='number'){S.freightBase=d.freightBase}
+      if(d.shortHaulFloor!==undefined&&typeof d.shortHaulFloor==='number'){S.shortHaulFloor=d.shortHaulFloor}
       migrateTraderNames();
       await saveAllLocal();
       showToast('Imported! All data restored.','positive');
@@ -270,7 +268,7 @@ function initStatusBar(){
   const traderEl=document.getElementById('status-trader');
   if(traderEl)traderEl.textContent=S.trader||'—';
   if(clockEl){
-    const tick=()=>{const now=new Date();clockEl.textContent=now.toLocaleTimeString('en-US',{hour12:false})};
+    const tick=()=>{const now=new Date();clockEl.textContent=now.toLocaleTimeString('en-US',{hour12:false,timeZone:'America/Los_Angeles'})};
     tick();setInterval(tick,1000);
   }
 }
@@ -845,9 +843,14 @@ async function setupTraderPassword(){
     return;
   }
 
-  errEl.textContent='Saving...';
-
   const passwords=safeJSONParse(localStorage.getItem('traderPasswords'),{});
+
+  if(passwords[trader]){
+    errEl.textContent='Password already set. Contact admin to reset.';
+    return;
+  }
+
+  errEl.textContent='Saving...';
   const hash=await hashPassword(pwd)
   passwords[trader]=hash;
   localStorage.setItem('traderPasswords',JSON.stringify(passwords));

@@ -961,10 +961,10 @@ function calcMatchScore(buy, sell){
 // Get volume already sold from a buy order
 function getVolumeAlreadySold(buy){
   if(!buy)return 0;
-  const ord=String(buy.orderNum||buy.po||'').trim();
+  const ord=normalizeOrderNum(buy.orderNum||buy.po);
   if(!ord)return 0;
   return S.sells.filter(s=>{
-    const sellOrd=String(s.orderNum||s.linkedPO||s.oc||'').trim();
+    const sellOrd=normalizeOrderNum(s.orderNum||s.linkedPO||s.oc);
     return sellOrd===ord&&s.status!=='cancelled';
   }).reduce((sum,s)=>sum+(s.volume||0),0);
 }
@@ -1033,9 +1033,9 @@ async function autoMatchShort(sellId){
   if(!sell){showToast('Sell not found','warn');return null}
 
   // Check if already matched
-  const ord=String(sell.orderNum||sell.linkedPO||sell.oc||'').trim();
+  const ord=normalizeOrderNum(sell.orderNum||sell.linkedPO||sell.oc);
   if(ord){
-    const existingBuy=S.buys.find(b=>String(b.orderNum||b.po||'').trim()===ord);
+    const existingBuy=S.buys.find(b=>normalizeOrderNum(b.orderNum||b.po)===ord);
     if(existingBuy){showToast('Already matched to PO '+ord,'info');return null}
   }
 
@@ -1060,7 +1060,7 @@ async function confirmMatch(sellId,buyId){
 
   if(!sell||!buy){showToast('Trade not found','warn');return false}
 
-  const buyOrd=String(buy.orderNum||buy.po||'').trim();
+  const buyOrd=normalizeOrderNum(buy.orderNum||buy.po);
   if(!buyOrd){showToast('Buy has no order number','warn');return false}
 
   // Link the sell to the buy's order number
@@ -1078,13 +1078,13 @@ async function confirmMatch(sellId,buyId){
 function getUnmatchedSells(){
   const buyOrders=new Set(
     S.buys.filter(b=>b.status!=='cancelled')
-      .map(b=>String(b.orderNum||b.po||'').trim())
+      .map(b=>normalizeOrderNum(b.orderNum||b.po))
       .filter(Boolean)
   );
 
   return S.sells.filter(s=>{
     if(s.status==='cancelled')return false;
-    const ord=String(s.orderNum||s.linkedPO||s.oc||'').trim();
+    const ord=normalizeOrderNum(s.orderNum||s.linkedPO||s.oc);
     return!ord||!buyOrders.has(ord);
   });
 }
@@ -1252,8 +1252,8 @@ function getTradesByStage(){
   // Process sells with their matched buys
   S.sells.filter(s=>s.status!=='cancelled').forEach(sell=>{
     const stage=getPipelineStage(sell);
-    const ord=String(sell.orderNum||sell.linkedPO||sell.oc||'').trim();
-    const buy=ord?S.buys.find(b=>String(b.orderNum||b.po||'').trim()===ord):null;
+    const ord=normalizeOrderNum(sell.orderNum||sell.linkedPO||sell.oc);
+    const buy=ord?S.buys.find(b=>normalizeOrderNum(b.orderNum||b.po)===ord):null;
 
     // Calculate margin if matched
     let margin=null;

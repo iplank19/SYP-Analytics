@@ -1234,16 +1234,16 @@ function render(){
     if(bf.customer)filteredSells=filteredSells.filter(s=>s.customer===bf.customer);
     if(bf.showShorts){
       // Shorts = sells with orderNum that has no matching buy - normalize for comparison (use my buys only)
-      const buyOrders=new Set(myBuys.map(b=>String(b.orderNum||b.po||'').trim()).filter(Boolean));
+      const buyOrders=new Set(myBuys.map(b=>normalizeOrderNum(b.orderNum||b.po)).filter(Boolean));
       filteredSells=filteredSells.filter(s=>{
-        const ord=String(s.orderNum||s.linkedPO||s.oc||'').trim();
+        const ord=normalizeOrderNum(s.orderNum||s.linkedPO||s.oc);
         return !ord||!buyOrders.has(ord);
       });
     }
     if(bf.noOrderNum){
       // Show only orders without an order number
-      filteredBuys=filteredBuys.filter(b=>!String(b.orderNum||b.po||'').trim());
-      filteredSells=filteredSells.filter(s=>!String(s.orderNum||s.linkedPO||s.oc||'').trim());
+      filteredBuys=filteredBuys.filter(b=>!normalizeOrderNum(b.orderNum||b.po));
+      filteredSells=filteredSells.filter(s=>!normalizeOrderNum(s.orderNum||s.linkedPO||s.oc));
     }
 
     // Calculate inventory age (days since buy date)
@@ -1600,14 +1600,14 @@ function render(){
 
     // Calculate margin by customer for current trader only
     const buyByOrder={};
-    S.buys.forEach(b=>{
-      const ord=String(b.orderNum||b.po||'').trim();
+    S.buys.filter(b=>b.status!=='cancelled').forEach(b=>{
+      const ord=normalizeOrderNum(b.orderNum||b.po);
       if(ord)buyByOrder[ord]=b;
     });
 
     const custMargins={};
-    S.sells.filter(s=>s.trader===S.trader||!s.trader).forEach(s=>{
-      const ord=String(s.orderNum||s.linkedPO||s.oc||'').trim();
+    S.sells.filter(s=>s.status!=='cancelled'&&(s.trader===S.trader||!s.trader)).forEach(s=>{
+      const ord=normalizeOrderNum(s.orderNum||s.linkedPO||s.oc);
       const buy=ord?buyByOrder[ord]:null;
       const buyCost=buy?.price||0;
       const sellFrtPerMBF=s.volume>0?(s.freight||0)/s.volume:0;
@@ -1881,7 +1881,7 @@ function render(){
           <div class="panel"><div class="panel-header">ORDER HISTORY</div><div class="panel-body table-wrap" style="padding:0;max-height:300px">
             <table class="data-table"><thead><tr><th>Date</th><th>Order #</th><th>Product</th><th class="right">Vol</th><th class="right">Price</th><th>Status</th><th class="right">Margin</th></tr></thead><tbody>
               ${selCust.trades.length?selCust.trades.sort((x,y)=>new Date(y.date)-new Date(x.date)).slice(0,20).map(t=>{
-                const ord=String(t.orderNum||t.linkedPO||t.oc||'').trim()
+                const ord=normalizeOrderNum(t.orderNum||t.linkedPO||t.oc)
                 const buy=ord?buyByOrder[ord]:null
                 const sellFrtMBF=t.volume>0?(t.freight||0)/t.volume:0
                 const margin=buy?((t.price||0)-sellFrtMBF)-(buy.price||0):null

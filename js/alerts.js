@@ -11,7 +11,8 @@ function initAlertConfig(){
       priceChange:{enabled:true,threshold:5},
       positionBreach:{enabled:true},
       inventoryAging:{enabled:true,days:30},
-      anomaly:{enabled:true,threshold:2}
+      anomaly:{enabled:true,threshold:2},
+      spread:{enabled:true}
     };
     SS('alertConfig',S.alertConfig);
   }
@@ -53,7 +54,7 @@ function generatePriceChangeAlerts(){
       if(Math.abs(changePct)>=threshold){
         const direction=change>0?'up':'down';
         alerts.push({
-          id:`price-${product}-${region}-${Date.now()}`,
+          id:`price-${product}-${region}-${Date.now()}-${Math.random().toString(36).slice(2,6)}`,
           type:'priceChange',
           severity:Math.abs(changePct)>=threshold*2?'critical':'warning',
           title:`${product} ${region.charAt(0).toUpperCase()+region.slice(1)} ${direction} $${Math.abs(change).toFixed(0)}`,
@@ -90,7 +91,7 @@ function generatePositionBreachAlerts(){
     const breaches=checkPositionLimits();
     breaches.forEach(b=>{
       alerts.push({
-        id:`breach-${b.name||'portfolio'}-${Date.now()}`,
+        id:`breach-${b.name||'portfolio'}-${Date.now()}-${Math.random().toString(36).slice(2,6)}`,
         type:'positionBreach',
         severity:'critical',
         title:`Position Limit Breach: ${b.name||'Portfolio'}`,
@@ -123,7 +124,7 @@ function generatePositionBreachAlerts(){
     const net=p.bought-p.sold;
     if(net<-150){ // Significant short position
       alerts.push({
-        id:`short-${p.product}-${Date.now()}`,
+        id:`short-${p.product}-${Date.now()}-${Math.random().toString(36).slice(2,6)}`,
         type:'positionBreach',
         severity:'warning',
         title:`Large Short Position: ${p.product}`,
@@ -185,7 +186,7 @@ function generateInventoryAgingAlerts(){
 
     const severity=p.maxAge>60?'critical':p.maxAge>45?'warning':'info';
     alerts.push({
-      id:`aging-${p.product}-${Date.now()}`,
+      id:`aging-${p.product}-${Date.now()}-${Math.random().toString(36).slice(2,6)}`,
       type:'inventoryAging',
       severity,
       title:`Aging Inventory: ${p.product}`,
@@ -238,7 +239,7 @@ function generateAnomalyAlerts(){
     // Alert if bought significantly above market
     if(diffPct>threshold*3){
       alerts.push({
-        id:`anomaly-buy-${b.id}-${Date.now()}`,
+        id:`anomaly-buy-${b.id}-${Date.now()}-${Math.random().toString(36).slice(2,6)}`,
         type:'priceAnomaly',
         severity:'warning',
         title:`High Buy Price: ${b.product}`,
@@ -256,7 +257,7 @@ function generateAnomalyAlerts(){
     // Alert if bought significantly below market (potential error or opportunity)
     if(diffPct<-threshold*5){
       alerts.push({
-        id:`anomaly-buy-low-${b.id}-${Date.now()}`,
+        id:`anomaly-buy-low-${b.id}-${Date.now()}-${Math.random().toString(36).slice(2,6)}`,
         type:'priceAnomaly',
         severity:'info',
         title:`Low Buy Price: ${b.product}`,
@@ -302,7 +303,7 @@ function generateSpreadAlerts(){
     // Alert if spread is inverted or unusually narrow/wide
     if(actualSpread<0){
       alerts.push({
-        id:`spread-inverted-${p.higher}-${Date.now()}`,
+        id:`spread-inverted-${p.higher}-${Date.now()}-${Math.random().toString(36).slice(2,6)}`,
         type:'spreadAnomaly',
         severity:'critical',
         title:`Grade Spread Inverted: ${p.higher}/${p.lower}`,
@@ -316,7 +317,7 @@ function generateSpreadAlerts(){
       });
     }else if(actualSpread<p.expectedSpread*0.4){
       alerts.push({
-        id:`spread-narrow-${p.higher}-${Date.now()}`,
+        id:`spread-narrow-${p.higher}-${Date.now()}-${Math.random().toString(36).slice(2,6)}`,
         type:'spreadAnomaly',
         severity:'info',
         title:`Grade Spread Narrow: ${p.higher}/${p.lower}`,
@@ -530,10 +531,10 @@ function generateAlerts(){
     if(!a.createdAt)a.createdAt=a.timestamp||new Date().toISOString()
   })
 
-  // Deduplicate by combining similar alerts
+  // Deduplicate by combining similar alerts (stable key includes product/region)
   const seen=new Set();
   const unique=allAlerts.filter(a=>{
-    const key=`${a.type}-${a.title}`;
+    const key=a.product?a.type+'-'+a.product+'-'+(a.region||''):a.type+'-'+a.title;
     if(seen.has(key))return false;
     seen.add(key);
     return true;
@@ -603,8 +604,13 @@ function checkAutoEscalation(){
 
   ;(S.alerts||[]).forEach(a=>{
     if(a.acknowledged)return
-    if(a.tier!=='warning')return
     const created=new Date(a.createdAt||a.timestamp).getTime()
+    // Auto-expire info alerts older than 24 hours
+    if(a.tier==='info'&&now-created>escalationThreshold){
+      a.read=true
+      return
+    }
+    if(a.tier!=='warning')return
     if(now-created>escalationThreshold){
       escalateAlert(a.id)
     }

@@ -232,14 +232,14 @@ function miRenderEditingState(el) {
   const rows = _miPreviewQuotes.map((q, i) => `
     <tr style="${_miPreviewSelected.has(i)?'background:rgba(91,138,245,0.08)':''}">
       <td><input type="checkbox" ${_miPreviewSelected.has(i)?'checked':''} onchange="miTogglePreviewRow(${i},this.checked)" style="accent-color:var(--accent)"></td>
-      <td><input type="text" value="${q.mill||''}" onchange="_miPreviewQuotes[${i}].mill=this.value;_miSavePreviewDraft()" style="width:150px;${inputStyle}"></td>
-      <td><input type="text" value="${q.product||''}" onchange="_miPreviewQuotes[${i}].product=this.value;_miSavePreviewDraft()" style="width:70px;${inputStyle}"></td>
+      <td><input type="text" value="${escapeHtml(q.mill||'')}" onchange="_miPreviewQuotes[${i}].mill=this.value;_miSavePreviewDraft()" style="width:150px;${inputStyle}"></td>
+      <td><input type="text" value="${escapeHtml(q.product||'')}" onchange="_miPreviewQuotes[${i}].product=this.value;_miSavePreviewDraft()" style="width:70px;${inputStyle}"></td>
       <td><input type="number" value="${q.price||''}" onchange="_miPreviewQuotes[${i}].price=parseFloat(this.value)||0;_miSavePreviewDraft()" style="width:65px;${inputStyle}"></td>
-      <td><input type="text" value="${q.length||'RL'}" onchange="_miPreviewQuotes[${i}].length=this.value;_miSavePreviewDraft()" style="width:40px;${inputStyle}"></td>
+      <td><input type="text" value="${escapeHtml(q.length||'RL')}" onchange="_miPreviewQuotes[${i}].length=this.value;_miSavePreviewDraft()" style="width:40px;${inputStyle}"></td>
       <td><input type="number" value="${q.volume||0}" onchange="_miPreviewQuotes[${i}].volume=parseFloat(this.value)||0;_miSavePreviewDraft()" style="width:50px;${inputStyle}"></td>
       <td><input type="number" value="${q.tls||0}" onchange="_miPreviewQuotes[${i}].tls=parseInt(this.value)||0;_miSavePreviewDraft()" style="width:35px;${inputStyle}"></td>
-      <td><input type="text" value="${q.shipWindow||''}" onchange="_miPreviewQuotes[${i}].shipWindow=this.value;_miSavePreviewDraft()" style="width:70px;${inputStyle}"></td>
-      <td><input type="text" value="${q.city||''}" onchange="_miPreviewQuotes[${i}].city=this.value;_miSavePreviewDraft()" style="width:90px;${inputStyle}" placeholder="City, ST"></td>
+      <td><input type="text" value="${escapeHtml(q.shipWindow||'')}" onchange="_miPreviewQuotes[${i}].shipWindow=this.value;_miSavePreviewDraft()" style="width:70px;${inputStyle}"></td>
+      <td><input type="text" value="${escapeHtml(q.city||'')}" onchange="_miPreviewQuotes[${i}].city=this.value;_miSavePreviewDraft()" style="width:90px;${inputStyle}" placeholder="City, ST"></td>
       <td><button onclick="_miPreviewQuotes.splice(${i},1);_miPreviewSelected.delete(${i});_miSavePreviewDraft();miRenderEditingState()" style="background:none;border:none;color:var(--negative);cursor:pointer">×</button></td>
     </tr>
   `).join('');
@@ -486,6 +486,7 @@ async function miParseAll() {
 
 async function miRunAIParse(text) {
   if (!S.apiKey) { showToast('Set your Claude API key in Settings first', 'warn'); return; }
+  if (_miIntakeProcessing) { showToast('Parse already in progress', 'info'); return; }
 
   // Transition to parsing state
   _miIntakeProcessing = true;

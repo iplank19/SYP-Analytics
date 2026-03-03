@@ -27,7 +27,7 @@ function calcDailyMTM(){
   const positions=[];
   let totalValue=0,totalCost=0;
 
-  S.buys.forEach(b=>{
+  S.buys.filter(b=>b.status!=='cancelled').forEach(b=>{
     const ord=normalizeOrderNum(b.orderNum||b.po);
     const sold=orderSold[ord]||0;
     const openVol=(b.volume||0)-sold;
@@ -98,11 +98,11 @@ function getMTMHistory(days=30){
     }
 
     // Count open positions as of that date
-    const orderSold=buildOrderSold(S.sells.filter(s=>s.date<=dateStr));
+    const orderSold=buildOrderSold(S.sells.filter(s=>s.status!=='cancelled'&&s.date<=dateStr));
 
     let totalValue=0,totalCost=0;
-    S.buys.filter(b=>b.date<=dateStr).forEach(b=>{
-      const ord=String(b.orderNum||b.po||'').trim();
+    S.buys.filter(b=>b.date<=dateStr&&b.status!=='cancelled').forEach(b=>{
+      const ord=normalizeOrderNum(b.orderNum||b.po);
       const sold=orderSold[ord]||0;
       const openVol=(b.volume||0)-sold;
       if(openVol<=0)return;
@@ -395,7 +395,7 @@ function getInventoryTurnover(){
 
   // Calculate average inventory
   let totalInventory=0,inventoryCount=0;
-  S.buys.forEach(b=>{
+  S.buys.filter(b=>b.status!=='cancelled').forEach(b=>{
     const ord=normalizeOrderNum(b.orderNum||b.po);
     const sold=orderSold[ord]||0;
     const remaining=(b.volume||0)-sold;
@@ -408,11 +408,11 @@ function getInventoryTurnover(){
 
   // Calculate COGS (cost of goods sold in last 90 days)
   let cogs=0;
-  S.sells.filter(s=>new Date(s.date)>=days90).forEach(s=>{
-    const ord=String(s.orderNum||s.linkedPO||s.oc||'').trim();
+  S.sells.filter(s=>s.status!=='cancelled'&&new Date(s.date)>=days90).forEach(s=>{
+    const ord=normalizeOrderNum(s.orderNum||s.linkedPO||s.oc);
     // Find matching buy
     const buy=S.buys.find(b=>{
-      const bOrd=String(b.orderNum||b.po||'').trim();
+      const bOrd=normalizeOrderNum(b.orderNum||b.po);
       return bOrd===ord;
     });
     if(buy){
@@ -425,7 +425,7 @@ function getInventoryTurnover(){
 
   // Calculate average inventory value
   let avgInvValue=0;
-  S.buys.forEach(b=>{
+  S.buys.filter(b=>b.status!=='cancelled').forEach(b=>{
     const ord=normalizeOrderNum(b.orderNum||b.po);
     const sold=orderSold[ord]||0;
     const remaining=(b.volume||0)-sold;

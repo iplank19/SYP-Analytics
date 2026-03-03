@@ -48,7 +48,7 @@ function getExposure(groupBy='product'){
   // Process unmatched sells (short exposure)
   const buyByOrder=buildBuyByOrder();
   S.sells.forEach(s=>{
-    const ord=String(s.orderNum||s.linkedPO||s.oc||'').trim();
+    const ord=normalizeOrderNum(s.orderNum||s.linkedPO||s.oc);
     const hasBuy=ord?buyByOrder[ord]:null;
     if(hasBuy)return; // Matched - not a short position
 
@@ -120,8 +120,8 @@ function checkPositionLimits(){
   // Product-level limits
   if(limits.positionLimits){
     Object.entries(exposure).forEach(([product,exp])=>{
-      const limit=limits.positionLimits[product];
-      if(limit&&Math.abs(exp.net)>limit){
+      const limit=limits.positionLimits[product]||limits.defaultPositionLimit||300;
+      if(Math.abs(exp.net)>limit){
         breaches.push({
           type:'position',
           level:'product',
@@ -220,7 +220,11 @@ function calcParametricVaR(confidence=0.95,holdingPeriod=5){
   const productVaRs=[];
 
   Object.entries(exposure).forEach(([product,exp])=>{
-    const region='west'; // Use west as primary for vol calc
+    // Detect region from exposure data or buy history, fallback to 'west'
+    const region=exp.region||(()=>{
+      const buy=S.buys.find(b=>(b.product||'')=== product&&b.region);
+      return buy?buy.region:'west';
+    })()||'west';
     const vol=calcHistoricalVolatility(product,region,12);
     const position=Math.abs(exp.net);
     const price=latestRL?.[region]?.[product]||exp.avgPrice||400;
@@ -229,17 +233,20 @@ function calcParametricVaR(confidence=0.95,holdingPeriod=5){
     // VaR = Notional × σ × Z × √(holding period / base period)
     // Weekly vol, so adjust for holding period in weeks
     const periodAdjust=Math.sqrt(holdingPeriod/5); // Assuming 5 trading days/week
-    const productVaR=notional*vol.volatility*z*periodAdjust;
+    // Use conservative fallback for zero volatility (insufficient history)
+    const effectiveVol=vol.volatility>0?vol.volatility:0.10;
+    const productVaR=notional*effectiveVol*z*periodAdjust;
 
     productVaRs.push({
       product,
       position,
       price,
       notional,
-      volatility:vol.volatility,
-      annualizedVol:vol.annualized,
+      volatility:effectiveVol,
+      annualizedVol:vol.annualized>0?vol.annualized:effectiveVol*Math.sqrt(52),
       var:productVaR,
-      varPct:(notional>0?productVaR/notional:0)*100
+      varPct:(notional>0?productVaR/notional:0)*100,
+      volFallback:vol.volatility===0
     });
 
     // Sum for portfolio (ignoring correlations - conservative)
@@ -263,6 +270,7 @@ function calcHistoricalVaR(confidence=0.95,lookback=52){
   const exposure=getExposure('product');
   if(S.rl.length<lookback)lookback=S.rl.length;
   if(lookback<5)return{confidence,portfolioVaR:0,scenarios:[],method:'historical'};
+  if(lookback<20)return{confidence,portfolioVaR:0,scenarios:[],method:'historical',insufficient:true};
 
   const scenarios=[];
 
@@ -274,7 +282,11 @@ function calcHistoricalVaR(confidence=0.95,lookback=52){
 
     let weekPnL=0;
     Object.entries(exposure).forEach(([product,exp])=>{
-      const region='west';
+      // Detect region from exposure data or buy history, fallback to 'west'
+      const region=exp.region||(()=>{
+        const buy=S.buys.find(b=>(b.product||'')=== product&&b.region);
+        return buy?buy.region:'west';
+      })()||'west';
       const prevPrice=prevRL[region]?.[product]||0;
       const currPrice=currRL[region]?.[product]||0;
       if(prevPrice>0&&currPrice>0){
@@ -388,8 +400,8 @@ function calcDrawdown(period='30d'){
     currentValue:cumulative[cumulative.length-1].cumulative,
     daysSincePeak,
     isInDrawdown:currentDrawdown>0,
-    drawdownPct:peak>0?(currentDrawdown/peak)*100:0,
-    maxDrawdownPct:peak>0?(maxDrawdown/peak)*100:0,
+    drawdownPct:peak>0?Math.min(currentDrawdown/peak*100,100):0,
+    maxDrawdownPct:peak>0?Math.min(maxDrawdown/peak*100,100):0,
     cumulativePnL:cumulative
   };
 }
@@ -514,7 +526,7 @@ function getVolatilityReport(weeks=12){
   report.sort((a,b)=>b.annualizedVol-a.annualizedVol);
 
   // Detect volatility regime
-  const avgVol=report.reduce((s,r)=>s+r.annualizedVol,0)/report.length;
+  const avgVol=report.length>0?report.reduce((s,r)=>s+r.annualizedVol,0)/report.length:0;
   let regime='NORMAL';
   if(avgVol>30)regime='HIGH';
   else if(avgVol<15)regime='LOW';
@@ -553,25 +565,40 @@ function getCorrelationMatrix(weeks=12){
   const region='west';
   const matrix={};
 
-  // Get return series for each product (consistent with calcHistoricalVolatility)
-  const series={};
+  // Get return series for each product keyed by date for alignment
+  const seriesByDate={};
   products.forEach(prod=>{
-    const prices=S.rl.slice(-weeks).map(r=>r[region]?.[prod]).filter(p=>p&&p>0);
-    const returns=[];
-    for(let i=1;i<prices.length;i++){
-      returns.push((prices[i]-prices[i-1])/prices[i-1]);
-    }
-    series[prod]=returns;
+    const map={};
+    const data=S.rl.slice(-weeks);
+    let prevPrice=null;
+    data.forEach(r=>{
+      const p=r[region]?.[prod];
+      if(p&&p>0&&prevPrice&&prevPrice>0){
+        map[r.date]=(p-prevPrice)/prevPrice;
+      }
+      if(p&&p>0)prevPrice=p;
+    });
+    seriesByDate[prod]=map;
   });
 
-  // Calculate pairwise correlations on returns
+  // Calculate pairwise correlations on date-aligned returns
   products.forEach(prod1=>{
     matrix[prod1]={};
     products.forEach(prod2=>{
       if(prod1===prod2){
         matrix[prod1][prod2]=1;
       }else{
-        matrix[prod1][prod2]=calcCorrelation(series[prod1],series[prod2]);
+        // Align series by date: only use dates present in both
+        const map1=seriesByDate[prod1];
+        const map2=seriesByDate[prod2];
+        const commonDates=Object.keys(map1).filter(d=>d in map2);
+        if(commonDates.length<3){
+          matrix[prod1][prod2]=0;
+        }else{
+          const aligned1=commonDates.map(d=>map1[d]);
+          const aligned2=commonDates.map(d=>map2[d]);
+          matrix[prod1][prod2]=calcCorrelation(aligned1,aligned2);
+        }
       }
     });
   });

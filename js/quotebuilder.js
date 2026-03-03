@@ -23,7 +23,7 @@ function initQuoteBuilder(){
 
 // Get best mill quotes for a product (sorted by price)
 function qbGetMillQuotes(product){
-  const cutoff=Date.now()-2*24*60*60*1000; // 2 days (today + yesterday)
+  const cutoff=Date.now()-7*24*60*60*1000; // 7 days
   const quotes=(S.millQuotes||[])
     .filter(q=>q.product===product&&new Date(q.date)>=cutoff)
     .sort((a,b)=>a.price-b.price);
@@ -78,9 +78,7 @@ async function qbCalcFreight(origin,destination,product){
   if(typeof calcFreightPerMBF==='function'){
     freight=calcFreightPerMBF(miles,origin,isMSR);
   }else{
-    // Fallback: flat rate per mile, divided by ~42 pieces per TL to get per-MBF
-    const rate=S.flatRate||3.50;
-    freight=miles*rate/1000*42;
+    return null;
   }
 
   if(freight==null)return null;
@@ -241,7 +239,7 @@ function qbAdjustPrice(product,newPrice){
     if(isNaN(val))return;
     quote.price=val;
     quote.margin=quote.landed?quote.price-quote.landed:S.qb.marginTarget;
-    save();
+    save('qb',S.qb);
     render();
   }
 }
@@ -250,6 +248,7 @@ function qbAdjustPrice(product,newPrice){
 function qbAdjustFreight(product,newFreight){
   const quote=S.qb.quotes.find(q=>q.product===product);
   if(quote&&quote.freightData){
+    if(quote.fob==null){showToast('No FOB price available','warn');return;}
     const val=parseFloat(newFreight);
     if(isNaN(val))return;
     const diff=val-(quote.freightData.base||0);
@@ -290,6 +289,7 @@ function qbSwitchMill(product,millName){
     quote.freightData=freightData;
     quote.landed=quote.freight!=null?quote.fob+quote.freight:null;
     quote.price=quote.landed!=null?quote.landed+quote.margin:null;
+    save('qb',S.qb);
     render();
   });
 }
@@ -481,7 +481,7 @@ function qbSaveQuote(){
 
   if(!S.savedQuotes)S.savedQuotes=[];
   S.savedQuotes.push(savedQuote);
-  saveAllLocal();
+  save('savedQuotes',S.savedQuotes);
 
   showToast('Quote saved for tracking','positive');
 }

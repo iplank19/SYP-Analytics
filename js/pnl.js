@@ -23,9 +23,12 @@ function getPeriodCutoff(period){
 // Build buy order lookup (uses normalizeOrderNum for consistency with analytics.js)
 function buildBuyByOrderForPnL(){
   const buyByOrder={};
-  S.buys.forEach(b=>{
+  S.buys.filter(b=>b.status!=='cancelled').forEach(b=>{
     const ord=normalizeOrderNum(b.orderNum||b.po);
-    if(ord&&!buyByOrder[ord])buyByOrder[ord]=b;
+    if(ord){
+      if(buyByOrder[ord])console.warn('Duplicate order key:',ord);
+      else buyByOrder[ord]=b;
+    }
   });
   return buyByOrder;
 }
@@ -42,7 +45,7 @@ function getPnLBreakdown(options={}){
   const cutoff=getPeriodCutoff(period);
 
   // Process all matched trades
-  S.sells.forEach(s=>{
+  S.sells.filter(s=>s.status!=='cancelled').forEach(s=>{
     if(new Date(s.date)<cutoff)return;
 
     const ord=normalizeOrderNum(s.orderNum||s.linkedPO||s.oc);
@@ -167,7 +170,7 @@ function getMatchedTradesWithPnL(period='30d'){
   const cutoff=getPeriodCutoff(period);
   const trades=[];
 
-  S.sells.forEach(s=>{
+  S.sells.filter(s=>s.status!=='cancelled').forEach(s=>{
     if(new Date(s.date)<cutoff)return;
 
     const ord=normalizeOrderNum(s.orderNum||s.linkedPO||s.oc);
@@ -211,7 +214,7 @@ function getMTMPnL(){
   const orderSold=buildOrderSold();
 
   // Process buys to find open positions
-  S.buys.forEach(b=>{
+  S.buys.filter(b=>b.status!=='cancelled').forEach(b=>{
     const ord=normalizeOrderNum(b.orderNum||b.po);
     const soldVol=orderSold[ord]||0;
     const remainingVol=(b.volume||0)-soldVol;
@@ -272,7 +275,7 @@ function calcDetailedDailyPnL(days=30){
   const now=new Date();
   const cutoff=new Date(now.getTime()-days*24*60*60*1000);
 
-  S.sells.forEach(s=>{
+  S.sells.filter(s=>s.status!=='cancelled').forEach(s=>{
     const date=s.date;
     if(!date||new Date(date)<cutoff)return;
 
@@ -316,7 +319,7 @@ function calcDetailedDailyPnL(days=30){
 // Get contribution analysis showing what % each segment contributes
 function getContributionAnalysis(groupBy='product',period='30d'){
   const breakdown=getPnLBreakdown({groupBy,period});
-  const totalPnL=breakdown.totals.pnl||1;
+  const totalPnL=Math.abs(breakdown.totals.pnl)>1?breakdown.totals.pnl:1;
   const totalVol=breakdown.totals.volume||1;
   const totalRev=breakdown.totals.revenue||1;
 
@@ -341,7 +344,7 @@ function getTraderPerformance(period='30d'){
   const traderWins={};
   const buyByOrder=buildBuyByOrderForPnL();
 
-  S.sells.forEach(s=>{
+  S.sells.filter(s=>s.status!=='cancelled').forEach(s=>{
     if(new Date(s.date)<cutoff)return;
 
     const trader=s.trader||'Unknown';
@@ -433,8 +436,9 @@ function getPnLDashboard(){
   const traderPerf=getTraderPerformance(period);
 
   // Calculate period totals
-  const periodDays=period==='7d'?7:period==='14d'?14:period==='30d'?30:period==='90d'?90:365;
-  const cutoff=new Date(Date.now()-periodDays*24*60*60*1000);
+  const now2=new Date();
+  const periodDays=period==='7d'?7:period==='14d'?14:period==='30d'?30:period==='90d'?90:period==='mtd'?now2.getDate():period==='ytd'?Math.floor((now2-new Date(now2.getFullYear(),0,1))/(24*60*60*1000))+1:365;
+  const cutoff=getPeriodCutoff(period);
 
   let periodPnL=0,periodVol=0,periodTrades=0;
   Object.values(dailyPnL).forEach(d=>{
@@ -462,8 +466,8 @@ function getPnLDashboard(){
   const bestDay=sortedDays[0]||null;
   const worstDay=sortedDays[sortedDays.length-1]||null;
 
-  // Average daily P&L
-  const tradingDays=Object.keys(dailyPnL).length;
+  // Average daily P&L (only count trading days within the selected period)
+  const tradingDays=Object.values(dailyPnL).filter(d=>new Date(d.date)>=cutoff).length;
   const avgDailyPnL=tradingDays?periodPnL/tradingDays:0;
 
   return{

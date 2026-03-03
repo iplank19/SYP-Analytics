@@ -40,6 +40,7 @@ except ImportError:
     jwt = None
 
 app = Flask(__name__, static_folder='.', static_url_path='')
+app.config['MAX_CONTENT_LENGTH'] = 10 * 1024 * 1024  # 10MB max upload
 
 # --- CORS: restrict to known origins ---
 ALLOWED_ORIGINS = [
@@ -74,6 +75,14 @@ ADMIN_USERS = [u.strip().lower() for u in os.environ.get('ADMIN_USERS', 'admin,i
 _pricing_login_attempts = {}  # ip -> {'count': int, 'lockout_until': float}
 PRICING_MAX_ATTEMPTS = 5
 PRICING_LOCKOUT_SECONDS = 300  # 5 minutes
+
+
+def get_current_user():
+    """Get current user from g.user (if JWT applied) or from request JSON body."""
+    if hasattr(g, 'user') and g.user:
+        return g.user
+    data = request.get_json(silent=True) or {}
+    return data.get('trader', data.get('user', 'unknown'))
 
 
 def _get_token_from_request():
@@ -352,7 +361,7 @@ def init_crm_db():
     # Add locations column if missing (migration)
     try:
         conn.execute("ALTER TABLE mills ADD COLUMN locations TEXT DEFAULT '[]'")
-    except:
+    except sqlite3.OperationalError:
         pass
 
     # ââ Entity Resolution tables (migration-safe) ââââââââââââââââââ
@@ -396,7 +405,7 @@ def init_crm_db():
     for tbl in ('customers', 'mills'):
         try:
             conn.execute(f"ALTER TABLE {tbl} ADD COLUMN canonical_id TEXT")
-        except:
+        except sqlite3.OperationalError:
             pass
     conn.commit()
     conn.close()
@@ -921,26 +930,26 @@ def init_mi_db():
     # Add locations column if missing (migration)
     try:
         conn.execute("ALTER TABLE mills ADD COLUMN locations TEXT DEFAULT '[]'")
-    except:
+    except sqlite3.OperationalError:
         pass
     # Add length column to rl_prices if missing (migration from old schema)
     try:
         conn.execute("ALTER TABLE rl_prices ADD COLUMN length TEXT NOT NULL DEFAULT 'RL'")
-    except:
+    except sqlite3.OperationalError:
         pass
     # Recreate unique index to include length (drop old 3-col index, create 4-col)
     try:
         conn.execute("DROP INDEX IF EXISTS idx_rl_unique")
         conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_rl_unique ON rl_prices(date, region, product, length)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_rl_product_region ON rl_prices(product, region)")
-    except:
+    except sqlite3.OperationalError:
         pass
     # Add canonical_id to MI tables (migration-safe)
     for tbl in ('mills', 'mill_quotes'):
         col = 'canonical_id' if tbl == 'mills' else 'canonical_mill_id'
         try:
             conn.execute(f"ALTER TABLE {tbl} ADD COLUMN {col} TEXT")
-        except:
+        except sqlite3.OperationalError:
             pass
     conn.commit()
     conn.close()
@@ -1625,7 +1634,7 @@ def mileage_bulk():
 # Geocode endpoint (for debugging)
 @app.route('/api/geocode', methods=['POST'])
 def geocode():
-    data = request.get_json()
+    data = request.get_json() or {}
     location = data.get('location', '')
     
     if not location:
@@ -1752,7 +1761,7 @@ def create_prospect():
         prospect = conn.execute('SELECT * FROM prospects WHERE id = ?', (prospect_id,)).fetchone()
         conn.close()
         _log_audit(
-            getattr(g, 'user', data.get('trader', 'unknown')),
+            get_current_user(),
             'prospect_create', 'prospect', prospect_id, normalized_name,
             ip_address=request.remote_addr
         )
@@ -1785,7 +1794,7 @@ def update_prospect(id):
         if not prospect:
             return jsonify({'error': 'Prospect not found'}), 404
         _log_audit(
-            getattr(g, 'user', data.get('trader', 'unknown')),
+            get_current_user(),
             'prospect_update', 'prospect', id, prospect['company_name'],
             details=f'Updated fields: {", ".join(fields)}',
             ip_address=request.remote_addr
@@ -1805,7 +1814,7 @@ def delete_prospect(id):
         conn.commit()
         conn.close()
         _log_audit(
-            getattr(g, 'user', 'unknown'),
+            get_current_user(),
             'prospect_delete', 'prospect', id,
             old['company_name'] if old else None,
             ip_address=request.remote_addr
@@ -1820,29 +1829,33 @@ def delete_prospect(id):
 def create_touch():
     try:
         data = request.get_json()
+        if not data:
+            return jsonify({'error': 'JSON body required'}), 400
         conn = get_crm_db()
-        products = json.dumps(data.get('products_discussed')) if data.get('products_discussed') else None
+        try:
+            products = json.dumps(data.get('products_discussed')) if data.get('products_discussed') else None
 
-        cursor = conn.execute('''
-            INSERT INTO contact_touches (prospect_id, touch_type, notes, products_discussed, follow_up_date)
-            VALUES (?, ?, ?, ?, ?)
-        ''', (
-            data.get('prospect_id'),
-            data.get('touch_type'),
-            data.get('notes'),
-            products,
-            data.get('follow_up_date')
-        ))
-        touch_id = cursor.lastrowid
+            cursor = conn.execute('''
+                INSERT INTO contact_touches (prospect_id, touch_type, notes, products_discussed, follow_up_date)
+                VALUES (?, ?, ?, ?, ?)
+            ''', (
+                data.get('prospect_id'),
+                data.get('touch_type'),
+                data.get('notes'),
+                products,
+                data.get('follow_up_date')
+            ))
+            touch_id = cursor.lastrowid
 
-        # Update prospect's updated_at
-        conn.execute('UPDATE prospects SET updated_at = CURRENT_TIMESTAMP WHERE id = ?',
-                    (data.get('prospect_id'),))
-        conn.commit()
+            # Update prospect's updated_at
+            conn.execute('UPDATE prospects SET updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+                        (data.get('prospect_id'),))
+            conn.commit()
 
-        touch = conn.execute('SELECT * FROM contact_touches WHERE id = ?', (touch_id,)).fetchone()
-        conn.close()
-        return jsonify(dict(touch)), 201
+            touch = conn.execute('SELECT * FROM contact_touches WHERE id = ?', (touch_id,)).fetchone()
+            return jsonify(dict(touch)), 201
+        finally:
+            conn.close()
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -1885,6 +1898,8 @@ def list_touches():
 def add_interest(id):
     try:
         data = request.get_json()
+        if not data:
+            return jsonify({'error': 'JSON body required'}), 400
         conn = get_crm_db()
 
         # Check if interest already exists
@@ -2277,7 +2292,7 @@ def create_customer():
         customer = conn.execute('SELECT * FROM customers WHERE id = ?', (cursor.lastrowid,)).fetchone()
         conn.close()
         _log_audit(
-            getattr(g, 'user', data.get('trader', 'unknown')),
+            get_current_user(),
             'customer_create', 'customer', cursor.lastrowid, normalized_name,
             ip_address=request.remote_addr
         )
@@ -2316,7 +2331,7 @@ def update_customer(id):
         if not customer:
             return jsonify({'error': 'Customer not found'}), 404
         _log_audit(
-            getattr(g, 'user', 'unknown'),
+            get_current_user(),
             'customer_update', 'customer', id, customer['name'],
             details=f'Updated fields: {", ".join(fields)}',
             ip_address=request.remote_addr
@@ -2335,7 +2350,7 @@ def delete_customer(id):
         conn.commit()
         conn.close()
         _log_audit(
-            getattr(g, 'user', 'unknown'),
+            get_current_user(),
             'customer_delete', 'customer', id,
             old['name'] if old else None,
             ip_address=request.remote_addr
@@ -2419,7 +2434,7 @@ def create_mill():
         if mill:
             sync_mill_to_mi(dict(mill))
         _log_audit(
-            getattr(g, 'user', data.get('trader', 'unknown')),
+            get_current_user(),
             'mill_create', 'mill', cursor.lastrowid, company,
             ip_address=request.remote_addr
         )
@@ -2476,7 +2491,7 @@ def update_mill(id):
             mi_conn.close()
 
         _log_audit(
-            getattr(g, 'user', 'unknown'),
+            get_current_user(),
             'mill_update', 'mill', id, mill_dict.get('name'),
             details=f'Updated fields: {", ".join(fields)}',
             ip_address=request.remote_addr
@@ -2495,7 +2510,7 @@ def delete_mill(id):
         conn.commit()
         conn.close()
         _log_audit(
-            getattr(g, 'user', 'unknown'),
+            get_current_user(),
             'mill_delete', 'mill', id,
             old['name'] if old else None,
             ip_address=request.remote_addr
@@ -2519,6 +2534,8 @@ def delete_mill(id):
 def rename_customer(id):
     try:
         data = request.get_json()
+        if not data:
+            return jsonify({'error': 'JSON body required'}), 400
         new_name = normalize_customer_name(data.get('name', '').strip())
         if not new_name:
             return jsonify({'error': 'New name required'}), 400
@@ -2544,6 +2561,8 @@ def rename_customer(id):
 def rename_mill(id):
     try:
         data = request.get_json()
+        if not data:
+            return jsonify({'error': 'JSON body required'}), 400
         new_name = data.get('name', '').strip()
         if not new_name:
             return jsonify({'error': 'New name required'}), 400
@@ -2597,7 +2616,7 @@ def entity_search():
     try:
         q = request.args.get('q', '').strip()
         entity_type = request.args.get('type', 'mill')
-        limit = int(request.args.get('limit', '10'))
+        limit = min(100, max(1, int(request.args.get('limit', '10'))))
         if not q:
             return jsonify([])
         results = _entity_resolver.search(q, entity_type, limit)
@@ -2739,6 +2758,8 @@ def tc_import_receive():
         data = request.get_json(force=True)
         if not isinstance(data, list):
             return jsonify({'error': 'Expected array of orders'}), 400
+        if len(data) > 50000:
+            return jsonify({'error': 'Maximum 50000 orders per import'}), 400
         _tc_staging['data'] = data
         _tc_staging['timestamp'] = time.time()
         return jsonify({
@@ -2755,6 +2776,10 @@ def tc_import_retrieve():
     if not _tc_staging['data']:
         return jsonify({'error': 'No TC data staged. POST data first.'}), 404
     age = time.time() - _tc_staging['timestamp']
+    if age > 3600:
+        _tc_staging['data'] = None
+        _tc_staging['timestamp'] = 0
+        return jsonify({'error': 'Staged TC data expired (older than 1 hour). POST again.'}), 410
     return jsonify({
         'data': _tc_staging['data'],
         'count': len(_tc_staging['data']),
@@ -2952,6 +2977,9 @@ def parse_pdf():
         pages_text = []
         tables = []
         with pdfplumber.open(tmp_path) as pdf:
+            if len(pdf.pages) > 50:
+                os.unlink(tmp_path)
+                return jsonify({'error': 'PDF too large (max 50 pages)'}), 400
             for i, page in enumerate(pdf.pages):
                 # Extract text
                 text = page.extract_text() or ''
@@ -3046,6 +3074,9 @@ def health_mi():
 @app.route('/api/mi/reseed', methods=['POST'])
 def mi_reseed():
     """Manually trigger MI re-seed from Supabase cloud data."""
+    admin_key = os.environ.get('ADMIN_API_KEY', '')
+    if admin_key and request.headers.get('X-Admin-Key') != admin_key:
+        return jsonify({'error': 'Unauthorized'}), 403
     try:
         # Clear existing quotes to force re-seed
         mi_conn = get_mi_db()
@@ -3110,6 +3141,8 @@ def get_config():
 # ==========================================
 
 PRICING_PASSWORD = os.environ.get('PRICING_PASSWORD', '2026')
+if PRICING_PASSWORD == '2026':
+    print("WARNING: Using default pricing password. Set PRICING_PASSWORD env var.")
 
 @app.route('/pricing')
 def pricing_page():
@@ -3123,13 +3156,19 @@ def pricing_auth():
     # Rate limit by IP
     ip = request.remote_addr or 'unknown'
     now = time.time()
+
+    # Cleanup stale entries older than 2x lockout period to prevent memory leak
+    stale_cutoff = now - (PRICING_LOCKOUT_SECONDS * 2)
+    stale_ips = [k for k, v in _pricing_login_attempts.items() if v.get('lockout_until', 0) < stale_cutoff and v.get('count', 0) == 0]
+    for stale_ip in stale_ips:
+        _pricing_login_attempts.pop(stale_ip, None)
     record = _pricing_login_attempts.get(ip, {'count': 0, 'lockout_until': 0})
     if record['lockout_until'] > now:
         remaining = int(record['lockout_until'] - now)
         return jsonify({'ok': False, 'error': f'Too many attempts. Try again in {remaining}s.'}), 429
 
     data = request.get_json() or {}
-    if data.get('password') == PRICING_PASSWORD:
+    if secrets.compare_digest(data.get('password', ''), PRICING_PASSWORD):
         # Reset on success
         _pricing_login_attempts.pop(ip, None)
         return jsonify({'ok': True})
@@ -3211,6 +3250,8 @@ def mi_list_mills():
 
 def mi_create_mill():
     data = request.get_json()
+    if not data:
+        return jsonify({'error': 'JSON body required'}), 400
     name = data.get('name', '').strip()
     if not name:
         return jsonify({'error': 'Mill name required'}), 400
@@ -3246,31 +3287,35 @@ def mi_get_mill(mill_id):
 
 def mi_update_mill(mill_id):
     data = request.get_json()
+    if not data:
+        return jsonify({'error': 'JSON body required'}), 400
     # Update CRM mill
     conn = get_crm_db()
-    fields = []
-    vals = []
-    for k in ['name', 'city', 'state', 'lat', 'lon', 'region', 'notes', 'contact', 'phone', 'email', 'trader']:
-        if k in data:
-            fields.append(f"{k}=?")
-            vals.append(data[k])
-    if 'location' not in data and ('city' in data or 'state' in data):
-        # Auto-update location from city/state
-        city = data.get('city', '')
-        state = data.get('state', '')
-        if city or state:
-            fields.append("location=?")
-            vals.append(f"{city}, {state}".strip(', '))
-    if 'products' in data:
-        fields.append("products=?")
-        vals.append(json.dumps(data['products']))
-    if fields:
-        fields.append("updated_at=CURRENT_TIMESTAMP")
-        vals.append(mill_id)
-        conn.execute(f"UPDATE mills SET {','.join(fields)} WHERE id=?", vals)
-        conn.commit()
-    mill = conn.execute("SELECT * FROM mills WHERE id=?", (mill_id,)).fetchone()
-    conn.close()
+    try:
+        fields = []
+        vals = []
+        for k in ['name', 'city', 'state', 'lat', 'lon', 'region', 'notes', 'contact', 'phone', 'email', 'trader']:
+            if k in data:
+                fields.append(f"{k}=?")
+                vals.append(data[k])
+        if 'location' not in data and ('city' in data or 'state' in data):
+            # Auto-update location from city/state
+            city = data.get('city', '')
+            state = data.get('state', '')
+            if city or state:
+                fields.append("location=?")
+                vals.append(f"{city}, {state}".strip(', '))
+        if 'products' in data:
+            fields.append("products=?")
+            vals.append(json.dumps(data['products']))
+        if fields:
+            fields.append("updated_at=CURRENT_TIMESTAMP")
+            vals.append(mill_id)
+            conn.execute(f"UPDATE mills SET {','.join(fields)} WHERE id=?", vals)
+            conn.commit()
+        mill = conn.execute("SELECT * FROM mills WHERE id=?", (mill_id,)).fetchone()
+    finally:
+        conn.close()
     if not mill:
         return jsonify({'error': 'Not found'}), 404
     # Sync to MI
@@ -3279,7 +3324,7 @@ def mi_update_mill(mill_id):
 
 @app.route('/api/mi/mills/geocode', methods=['POST'])
 def mi_geocode_mill():
-    data = request.get_json()
+    data = request.get_json() or {}
     location = data.get('location', '')
     if not location:
         return jsonify({'error': 'Location required'}), 400
@@ -3415,7 +3460,7 @@ def mi_list_quotes():
         conditions.append("date<=?")
         params.append(until)
     try:
-        limit = int(request.args.get('limit', 500))
+        limit = min(5000, max(1, int(request.args.get('limit', 500))))
     except (ValueError, TypeError):
         limit = 500
     sql = f"SELECT * FROM mill_quotes WHERE {' AND '.join(conditions)} ORDER BY date DESC, created_at DESC LIMIT ?"
@@ -3432,6 +3477,12 @@ def mi_submit_quotes():
         return jsonify({'error': 'Request body must be JSON'}), 400
     quotes = data if isinstance(data, list) else [data]
     conn = get_mi_db()
+    try:
+        return _mi_submit_quotes_inner(conn, quotes)
+    finally:
+        conn.close()
+
+def _mi_submit_quotes_inner(conn, quotes):
     created = []
 
     # Auto-replace: For each mill+product+length combo being uploaded, delete existing quotes
@@ -3561,7 +3612,6 @@ def mi_submit_quotes():
                 )
 
     conn.commit()
-    conn.close()
     invalidate_matrix_cache()  # Clear cached matrix data
 
     # Recompute price changes if this was a bulk sync (>50 quotes = likely full sync)
@@ -3574,6 +3624,9 @@ def mi_submit_quotes():
 
 def mi_delete_mill_quotes():
     """Delete all quotes for a specific mill."""
+    admin_key = os.environ.get('ADMIN_API_KEY', '')
+    if admin_key and request.headers.get('X-Admin-Key') != admin_key:
+        return jsonify({'error': 'Unauthorized'}), 403
     mill_name = request.args.get('mill', '').strip()
     if not mill_name:
         return jsonify({'error': 'mill parameter required'}), 400
@@ -3598,7 +3651,10 @@ def mi_delete_quote(quote_id):
 
 def mi_rename_mill_quotes():
     """Bulk rename mill_name in quotes (admin utility)."""
-    data = request.get_json()
+    admin_key = os.environ.get('ADMIN_API_KEY', '')
+    if admin_key and request.headers.get('X-Admin-Key') != admin_key:
+        return jsonify({'error': 'Unauthorized'}), 403
+    data = request.get_json() or {}
     old_name = data.get('old_name', '').strip()
     new_name = data.get('new_name', '').strip()
     if not old_name or not new_name:
@@ -3633,7 +3689,7 @@ def mi_latest_quotes():
         FROM mill_quotes mq
         LEFT JOIN mills m ON mq.mill_id = m.id
         WHERE mq.id IN (
-            SELECT MAX(id) FROM mill_quotes{inner_where} GROUP BY mill_name, product
+            SELECT MAX(id) FROM mill_quotes{inner_where} GROUP BY mill_name, LOWER(REPLACE(product, ' ', '')), length
         )
     """
     params = list(inner_params)
@@ -3820,7 +3876,7 @@ def mi_quote_history():
     mill = request.args.get('mill')
     product = request.args.get('product')
     try:
-        days = int(request.args.get('days', 90))
+        days = min(365, max(1, int(request.args.get('days', 90))))
     except (ValueError, TypeError):
         days = 90
     cutoff = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d')
@@ -4122,7 +4178,7 @@ def mi_intel_recommendations():
 def mi_intel_trends():
     product_filter = request.args.get('product')
     try:
-        days = int(request.args.get('days', 90))
+        days = min(365, max(1, int(request.args.get('days', 90))))
     except (ValueError, TypeError):
         days = 90
     conn = get_mi_db()
@@ -4811,7 +4867,7 @@ def forecast_seasonal():
     try:
         product = request.args.get('product', '2x4#2')
         region = request.args.get('region', 'west')
-        years = int(request.args.get('years', 5))
+        years = min(20, max(1, int(request.args.get('years', 5))))
 
         cache_key = f"seasonal_{product}_{region}_{years}"
         cached = get_rl_cached(cache_key)
@@ -4939,7 +4995,7 @@ def forecast_shortterm():
     try:
         product = request.args.get('product', '2x4#2')
         region = request.args.get('region', 'west')
-        weeks = int(request.args.get('weeks', 8))
+        weeks = min(52, max(1, int(request.args.get('weeks', 8))))
 
         cache_key = f"forecast_{product}_{region}_{weeks}"
         cached = get_rl_cached(cache_key)
@@ -5161,7 +5217,7 @@ def forecast_pricing():
                     miles = None
                     mi_conn = get_mi_db()
                     lane = mi_conn.execute(
-                        "SELECT miles FROM lanes WHERE origin=? AND destination=?",
+                        "SELECT miles FROM lanes WHERE origin=? AND dest=?",
                         (origin, destination)
                     ).fetchone()
                     mi_conn.close()
@@ -5174,9 +5230,7 @@ def forecast_pricing():
                             coords_o = geocode_location(origin)
                             coords_d = geocode_location(destination)
                             if coords_o and coords_d:
-                                route = get_driving_distance(coords_o, coords_d)
-                                if route:
-                                    miles = route.get('miles', route.get('distance', 0))
+                                miles = get_distance(coords_o, coords_d)
                         except Exception:
                             pass
 
@@ -5304,7 +5358,7 @@ def mi_add_lane():
 
 @app.route('/api/mi/mileage', methods=['POST'])
 def mi_mileage_lookup():
-    data = request.get_json()
+    data = request.get_json() or {}
     origin = data.get('origin', '')
     dest = data.get('dest', '')
     if not origin or not dest:
@@ -5343,7 +5397,7 @@ def mi_get_settings():
 @app.route('/api/mi/settings', methods=['PUT'])
 
 def mi_update_settings():
-    data = request.get_json()
+    data = request.get_json() or {}
     conn = get_mi_db()
     for k, v in data.items():
         conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?,?)", (k, str(v)))
@@ -5384,7 +5438,7 @@ def create_audit_entry():
     try:
         data = request.get_json() or {}
         _log_audit(
-            user=data.get('user', g.user),
+            user=data.get('user', get_current_user()),
             action=data.get('action', 'unknown'),
             entity_type=data.get('entity_type', 'unknown'),
             entity_id=data.get('entity_id'),
@@ -5405,7 +5459,7 @@ def create_audit_entry():
 def intel_mill_moves():
     """Recent mill price changes from the mill_price_changes table."""
     try:
-        days = int(request.args.get('days', 30))
+        days = min(365, max(1, int(request.args.get('days', 30))))
         product = request.args.get('product', '').strip()
         mill = request.args.get('mill', '').strip()
         conn = get_mi_db()
@@ -5887,7 +5941,7 @@ def upsert_trade_status():
             conn.commit()
             row = conn.execute('SELECT * FROM trade_status WHERE trade_id = ?', (trade_id,)).fetchone()
             conn.close()
-            _log_audit(g.user, 'trade_status_update', 'trade', trade_id,
+            _log_audit(get_current_user(), 'trade_status_update', 'trade', trade_id,
                        details=f'Status changed from {old_status} to {status}',
                        old_value=old_status, new_value=status,
                        ip_address=request.remote_addr)
@@ -5900,7 +5954,7 @@ def upsert_trade_status():
             conn.commit()
             row = conn.execute('SELECT * FROM trade_status WHERE trade_id = ?', (trade_id,)).fetchone()
             conn.close()
-            _log_audit(g.user, 'trade_status_create', 'trade', trade_id,
+            _log_audit(get_current_user(), 'trade_status_create', 'trade', trade_id,
                        details=f'Trade created with status {status}',
                        new_value=status, ip_address=request.remote_addr)
             return jsonify(dict(row)), 201
@@ -5963,7 +6017,7 @@ def list_trade_statuses():
 def approve_trade(trade_id):
     """Approve a trade (admin or senior trader)."""
     try:
-        user = g.user.lower()
+        user = get_current_user().lower()
         if user not in ADMIN_USERS:
             return jsonify({'error': 'Only admin/senior traders can approve trades'}), 403
 
@@ -5977,17 +6031,18 @@ def approve_trade(trade_id):
             conn.close()
             return jsonify({'error': f'Cannot approve trade in "{row["status"]}" status. Must be "pending".'}), 400
 
+        current_user = get_current_user()
         conn.execute('''
             UPDATE trade_status SET status = 'approved', approved_by = ?, approved_at = datetime('now'),
                    updated_at = datetime('now')
             WHERE trade_id = ?
-        ''', (g.user, trade_id))
+        ''', (current_user, trade_id))
         conn.commit()
         updated = conn.execute('SELECT * FROM trade_status WHERE trade_id = ?', (trade_id,)).fetchone()
         conn.close()
 
-        _log_audit(g.user, 'trade_approve', 'trade', trade_id,
-                   details=f'Trade approved by {g.user}',
+        _log_audit(current_user, 'trade_approve', 'trade', trade_id,
+                   details=f'Trade approved by {current_user}',
                    old_value='pending', new_value='approved',
                    ip_address=request.remote_addr)
         return jsonify(dict(updated))
@@ -6027,8 +6082,9 @@ def advance_trade(trade_id):
             next_status = next((s for s in allowed_next if s != 'cancelled'), allowed_next[0])
 
         # Approval requires admin
+        current_user = get_current_user()
         if next_status == 'approved':
-            user = g.user.lower()
+            user = current_user.lower()
             if user not in ADMIN_USERS:
                 conn.close()
                 return jsonify({'error': 'Only admin/senior traders can approve trades'}), 403
@@ -6036,7 +6092,7 @@ def advance_trade(trade_id):
                 UPDATE trade_status SET status = ?, approved_by = ?, approved_at = datetime('now'),
                        updated_at = datetime('now'), notes = COALESCE(?, notes)
                 WHERE trade_id = ?
-            ''', (next_status, g.user, data.get('notes'), trade_id))
+            ''', (next_status, current_user, data.get('notes'), trade_id))
         else:
             conn.execute('''
                 UPDATE trade_status SET status = ?, updated_at = datetime('now'),
@@ -6048,7 +6104,7 @@ def advance_trade(trade_id):
         updated = conn.execute('SELECT * FROM trade_status WHERE trade_id = ?', (trade_id,)).fetchone()
         conn.close()
 
-        _log_audit(g.user, 'trade_advance', 'trade', trade_id,
+        _log_audit(current_user, 'trade_advance', 'trade', trade_id,
                    details=f'Trade advanced from {current} to {next_status}',
                    old_value=current, new_value=next_status,
                    ip_address=request.remote_addr)
@@ -6227,7 +6283,7 @@ def update_credit(customer):
             conn.commit()
             row = conn.execute('SELECT * FROM credit_limits WHERE id = ?', (existing['id'],)).fetchone()
             conn.close()
-            _log_audit(g.user, 'credit_update', 'credit', customer, customer,
+            _log_audit(get_current_user(), 'credit_update', 'credit', customer, customer,
                        old_value={'limit': old_limit, 'terms': old_terms},
                        new_value={'limit': data.get('credit_limit', old_limit),
                                   'terms': data.get('payment_terms', old_terms)},
@@ -6252,7 +6308,7 @@ def update_credit(customer):
                 (customer,)
             ).fetchone()
             conn.close()
-            _log_audit(g.user, 'credit_create', 'credit', customer, customer,
+            _log_audit(get_current_user(), 'credit_create', 'credit', customer, customer,
                        new_value={'limit': data.get('credit_limit', 0),
                                   'terms': data.get('payment_terms', 'Net 30')},
                        ip_address=request.remote_addr)
@@ -6330,7 +6386,7 @@ def freight_reconcile():
             }
             results.append(entry)
 
-            _log_audit(g.user, 'freight_reconcile', 'freight', trade_id,
+            _log_audit(get_current_user(), 'freight_reconcile', 'freight', trade_id,
                        details=f'Variance: ${variance:+.2f} ({variance_pct:+.1f}%)',
                        old_value=str(est), new_value=str(act),
                        ip_address=request.remote_addr)
@@ -6466,7 +6522,7 @@ def _compute_offering_products(profile, destination):
                 miles = None
                 mi_conn = get_mi_db()
                 lane = mi_conn.execute(
-                    "SELECT miles FROM lanes WHERE origin=? AND destination=?",
+                    "SELECT miles FROM lanes WHERE origin=? AND dest=?",
                     (origin, destination)
                 ).fetchone()
                 mi_conn.close()
@@ -6784,7 +6840,7 @@ def list_offerings():
         status = request.args.get('status', '')
         customer_id = request.args.get('customer_id', '')
         trader = request.args.get('trader', '')
-        limit_n = int(request.args.get('limit', 50))
+        limit_n = min(500, max(1, int(request.args.get('limit', 50))))
 
         sql = 'SELECT * FROM offerings WHERE 1=1'
         params = []
@@ -6846,44 +6902,36 @@ def update_offering(oid):
             conn.close()
             return jsonify({'error': 'Offering not found'}), 404
 
-        fields = []
-        vals = []
+        set_parts = []  # SQL fragments like 'field=?' or "field=datetime('now')"
+        param_vals = []  # Only values for '=?' placeholders
 
         if 'products' in data:
             products = data['products']
-            fields.append('products=?')
-            vals.append(json.dumps(products) if isinstance(products, list) else products)
+            set_parts.append('products=?')
+            param_vals.append(json.dumps(products) if isinstance(products, list) else products)
             # Recalculate total margin
             if isinstance(products, list):
                 total_margin = sum(item.get('margin', 0) for item in products if isinstance(item, dict) and 'error' not in item)
-                fields.append('total_margin=?')
-                vals.append(total_margin)
+                set_parts.append('total_margin=?')
+                param_vals.append(total_margin)
 
         if 'status' in data:
-            fields.append('status=?')
-            vals.append(data['status'])
+            set_parts.append('status=?')
+            param_vals.append(data['status'])
             if data['status'] == 'approved':
-                fields.append("approved_at=datetime('now')")
-                fields.append('approved_by=?')
-                vals.append(data.get('approved_by', 'Ian'))
+                set_parts.append("approved_at=datetime('now')")
+                set_parts.append('approved_by=?')
+                param_vals.append(data.get('approved_by', 'Ian'))
             elif data['status'] == 'sent':
-                fields.append("sent_at=datetime('now')")
+                set_parts.append("sent_at=datetime('now')")
 
         if 'edit_notes' in data:
-            fields.append('edit_notes=?')
-            vals.append(data['edit_notes'])
+            set_parts.append('edit_notes=?')
+            param_vals.append(data['edit_notes'])
 
-        if fields:
-            vals.append(oid)
-            # Build SET clause carefully (some fields have no placeholder)
-            set_parts = []
-            final_vals = []
-            for f, v in zip(fields, vals[:-1]):
-                set_parts.append(f)
-                if '=?' in f:
-                    final_vals.append(v)
-            final_vals.append(oid)
-            conn.execute(f"UPDATE offerings SET {', '.join(set_parts)} WHERE id=?", final_vals)
+        if set_parts:
+            param_vals.append(oid)
+            conn.execute(f"UPDATE offerings SET {', '.join(set_parts)} WHERE id=?", param_vals)
             conn.commit()
 
         conn.close()
@@ -6920,7 +6968,7 @@ def offering_history(customer_id):
     """Get offering history for a specific customer."""
     try:
         conn = get_crm_db()
-        limit_n = int(request.args.get('limit', 20))
+        limit_n = min(200, max(1, int(request.args.get('limit', 20))))
         rows = conn.execute(
             'SELECT * FROM offerings WHERE customer_id=? ORDER BY generated_at DESC LIMIT ?',
             (customer_id, limit_n)

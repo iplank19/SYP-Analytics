@@ -4,7 +4,7 @@
 // When duplicate order numbers exist, keep the most recent (first in array, since buys are unshift'd)
 function buildBuyByOrder(){
   const buyByOrder={};
-  S.buys.forEach(b=>{
+  S.buys.filter(b=>b.status!=='cancelled').forEach(b=>{
     const ord=normalizeOrderNum(b.orderNum||b.po);
     if(ord&&!buyByOrder[ord])buyByOrder[ord]=b;
   });
@@ -226,14 +226,15 @@ function calcMarketMovers(){
 // Daily P&L aggregation for calendar heatmap
 // Groups matched sell trades by sell date, calculates profit per trade
 // Ignores date filter so calendar can show any month; respects trader filter
-function calcDailyPnL(){
+// Optional opts.product override so risk module can call with {product:'all'}
+function calcDailyPnL(days,opts){
   const buyByOrder=buildBuyByOrder();
   const isAdmin=S.trader==='Admin';
   const isMyTrade=t=>isAdmin||t===S.trader||!t;
-  const mP=p=>S.filters.prod==='all'||p===S.filters.prod;
+  const mP=p=>(opts?.product||S.filters.prod)==='all'||p===(opts?.product||S.filters.prod);
 
   const daily={};
-  S.sells.filter(s=>isMyTrade(s.trader)&&mP(s.product)).forEach(s=>{
+  S.sells.filter(s=>s.status!=='cancelled'&&isMyTrade(s.trader)&&mP(s.product)).forEach(s=>{
     const ord=normalizeOrderNum(s.orderNum||s.linkedPO||s.oc);
     const buy=ord?buyByOrder[ord]:null;
     if(!buy||!s.date)return;
@@ -502,7 +503,7 @@ function calcDailyPnLSeries(days){
 
   // Build daily totals
   const dailyMap={}
-  S.sells.filter(s=>isMyTrade(s.trader)&&new Date(s.date)>=cutoff).forEach(s=>{
+  S.sells.filter(s=>s.status!=='cancelled'&&isMyTrade(s.trader)&&new Date(s.date)>=cutoff).forEach(s=>{
     const ord=normalizeOrderNum(s.orderNum||s.linkedPO||s.oc)
     const buy=ord?buyByOrder[ord]:null
     if(!buy||!s.date)return
@@ -550,7 +551,7 @@ function getQuickStats(){
   // Compute P&L for a date range
   const pnlFor=(startDate)=>{
     let profit=0,count=0
-    S.sells.filter(s=>isMyTrade(s.trader)&&new Date(s.date)>=startDate).forEach(s=>{
+    S.sells.filter(s=>s.status!=='cancelled'&&isMyTrade(s.trader)&&new Date(s.date)>=startDate).forEach(s=>{
       const ord=normalizeOrderNum(s.orderNum||s.linkedPO||s.oc)
       const buy=ord?buyByOrder[ord]:null
       if(!buy)return
@@ -571,12 +572,12 @@ function getQuickStats(){
 
   // Open positions
   const positions={}
-  S.buys.filter(b=>isMyTrade(b.trader)).forEach(b=>{
+  S.buys.filter(b=>b.status!=='cancelled'&&isMyTrade(b.trader)).forEach(b=>{
     const key=b.product||'Unknown'
     if(!positions[key])positions[key]={bought:0,sold:0}
     positions[key].bought+=b.volume||0
   })
-  S.sells.filter(s=>isMyTrade(s.trader)).forEach(s=>{
+  S.sells.filter(s=>s.status!=='cancelled'&&isMyTrade(s.trader)).forEach(s=>{
     const key=s.product||'Unknown'
     if(!positions[key])positions[key]={bought:0,sold:0}
     positions[key].sold+=s.volume||0
@@ -584,9 +585,9 @@ function getQuickStats(){
   const openPositions=Object.values(positions).filter(p=>Math.abs(p.bought-p.sold)>0).length
   const netPosition=Object.values(positions).reduce((s,p)=>s+(p.bought-p.sold),0)
 
-  // Average margin (matched trades, last 30d)
-  let totalMargin=0,marginCount=0
-  S.sells.filter(s=>isMyTrade(s.trader)&&new Date(s.date)>=monthAgo).forEach(s=>{
+  // Average margin (volume-weighted, matched trades, last 30d)
+  let totalMarginDollars=0,totalMarginVol=0
+  S.sells.filter(s=>s.status!=='cancelled'&&isMyTrade(s.trader)&&new Date(s.date)>=monthAgo).forEach(s=>{
     const ord=normalizeOrderNum(s.orderNum||s.linkedPO||s.oc)
     const buy=ord?buyByOrder[ord]:null
     if(!buy)return
@@ -594,14 +595,14 @@ function getQuickStats(){
     if(vol<=0)return
     const frPerMBF=vol>0?(s.freight||0)/vol:0
     const sellFob=(s.price||0)-frPerMBF
-    totalMargin+=sellFob-(buy.price||0)
-    marginCount++
+    totalMarginDollars+=(sellFob-(buy.price||0))*vol
+    totalMarginVol+=vol
   })
-  const avgMargin=marginCount>0?totalMargin/marginCount:0
+  const avgMargin=totalMarginVol>0?totalMarginDollars/totalMarginVol:0
 
   // Trade count (last 30d)
-  const buyCount=S.buys.filter(b=>isMyTrade(b.trader)&&new Date(b.date)>=monthAgo).length
-  const sellCount=S.sells.filter(s=>isMyTrade(s.trader)&&new Date(s.date)>=monthAgo).length
+  const buyCount=S.buys.filter(b=>b.status!=='cancelled'&&isMyTrade(b.trader)&&new Date(b.date)>=monthAgo).length
+  const sellCount=S.sells.filter(s=>s.status!=='cancelled'&&isMyTrade(s.trader)&&new Date(s.date)>=monthAgo).length
 
   return{
     pnl:{

@@ -45,13 +45,20 @@ function normalizeVolume(val) {
   return isNaN(num) ? 0 : Math.round(num * 100) / 100;
 }
 
-// Normalize date to YYYY-MM-DD format
+// Normalize date to YYYY-MM-DD format (uses local date to avoid timezone shift)
 function normalizeDate(d) {
   if (!d) return today();
-  // Handle ISO strings and date objects
+  // If already in YYYY-MM-DD format, return as-is (avoids timezone shift)
+  if (typeof d === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d.trim())) return d.trim();
+  // Handle ISO strings — extract date portion directly to avoid timezone shift
+  if (typeof d === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(d)) return d.substring(0, 10);
+  // Handle date objects and other formats
   const date = new Date(d);
   if (isNaN(date.getTime())) return today();
-  return date.toISOString().split('T')[0];
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
 }
 
 // Normalize region to lowercase (west/central/east)
@@ -125,7 +132,9 @@ function normalizeShipWindow(ship) {
   const s = String(ship).toLowerCase().trim();
   if (['prompt', 'immediate', 'spot', 'now', 'asap'].includes(s)) return 'Prompt';
   if (s.includes('day') && !s.includes('7')) return 'Prompt';
-  return '1-2 Weeks';
+  if (s.includes('week')) return '1-2 Weeks';
+  // Preserve original value if no standard match found (e.g. "3-4 Months", "Q2 2026")
+  return String(ship).trim();
 }
 
 // Normalize order object (buy or sell) - call before saving
@@ -223,8 +232,8 @@ function calcTraderStats(trader,buys,sells){
   // Build buy lookup from ALL department buys for cross-trader matching
   // A sell by trader A may be matched to a buy by trader B (same order number)
   const buyByOrder={};
-  S.buys.forEach(b=>{
-    const ord=String(b.orderNum||b.po||'').trim();
+  S.buys.filter(b=>b.status!=='cancelled').forEach(b=>{
+    const ord=normalizeOrderNum(b.orderNum||b.po);
     if(ord)buyByOrder[ord]=b;
   });
 
@@ -233,8 +242,8 @@ function calcTraderStats(trader,buys,sells){
   let wins=0,matchedSells=0;
   let bestProfit=0,bestTrade=null;
 
-  sells.forEach(s=>{
-    const ord=String(s.orderNum||s.linkedPO||s.oc||'').trim();
+  sells.filter(s=>s.status!=='cancelled').forEach(s=>{
+    const ord=normalizeOrderNum(s.orderNum||s.linkedPO||s.oc);
     const buy=ord?buyByOrder[ord]:null;
     if(!buy)return;
 
@@ -370,7 +379,7 @@ function btnLoading(btn,loading=true){
 // defaults to S.sells when called with no arguments.
 function buildOrderSold(sells){
   const orderSold={};
-  (sells||S.sells).forEach(s=>{
+  (sells||S.sells).filter(s=>s.status!=='cancelled').forEach(s=>{
     const ord=normalizeOrderNum(s.orderNum||s.linkedPO||s.oc);
     if(ord)orderSold[ord]=(orderSold[ord]||0)+(s.volume||0);
   });
