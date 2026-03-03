@@ -389,7 +389,7 @@ async function miSaveManualRows() {
   });
   if (!quotes.length) { showToast('No valid rows to save', 'warn'); return; }
   try {
-    await miSubmitQuotes(quotes);
+    await miSubmitQuotes(quotes, {full_list: true});
     S.psNewQuotesSince = new Date().toISOString();
     showToast(`Saved ${quotes.length} mill quotes`, 'positive');
     _miLastSavedQuotes = quotes;
@@ -626,7 +626,7 @@ async function miSavePreview() {
   const valid = _miPreviewQuotes.filter(q => q.mill && q.product && q.price > 0);
   if (!valid.length) { showToast('No valid quotes to save', 'warn'); return; }
   try {
-    const result = await miSubmitQuotes(valid);
+    const result = await miSubmitQuotes(valid, {full_list: true});
     showToast(`Saved ${result.created} mill quotes to database`, 'positive');
     // Set new-data indicator for price sheet
     S.psNewQuotesSince = new Date().toISOString();

@@ -122,7 +122,7 @@ async function miLoadAllQuotes(filters = {}) {
   return miApiGet('/api/mi/quotes?' + params);
 }
 
-async function miSubmitQuotes(quotes) {
+async function miSubmitQuotes(quotes, opts={}) {
   // Normalize mill names and fill in city/state before submission
   if (typeof normalizeMillName === 'function') {
     quotes.forEach(q => {
@@ -132,20 +132,32 @@ async function miSubmitQuotes(quotes) {
       if (!q.shipWindow && !q.ship_window) q.shipWindow = 'Prompt';
     });
   }
-  const result = await miApiPost('/api/mi/quotes', quotes);
 
-  // Auto-replace: remove old quotes for same mill + same date from S.millQuotes
-  const clearKeys = new Set();
-  quotes.forEach(q => {
-    const mill = (q.mill || '').toUpperCase();
-    const date = q.date || today();
-    if (mill) clearKeys.add(`${mill}|${date}`);
-  });
-  if (clearKeys.size) {
-    S.millQuotes = S.millQuotes.filter(mq => {
-      const key = `${(mq.mill || '').toUpperCase()}|${mq.date || ''}`;
-      return !clearKeys.has(key);
+  // full_list=true: this is a complete price list, so wipe ALL old quotes for these mills
+  // (any product/length NOT on the new list is effectively withdrawn by the mill)
+  const isFullList = opts.full_list || false;
+  const payload = isFullList ? {quotes, full_list: true} : quotes;
+  const result = await miApiPost('/api/mi/quotes', payload);
+
+  // Local state cleanup
+  if (isFullList) {
+    // Full-list wipe: remove ALL old quotes for these mills from S.millQuotes
+    const wipeMills = new Set(quotes.map(q => (q.mill || '').toUpperCase()).filter(Boolean));
+    S.millQuotes = S.millQuotes.filter(mq => !wipeMills.has((mq.mill || '').toUpperCase()));
+  } else {
+    // Auto-replace: remove old quotes for same mill + same date from S.millQuotes
+    const clearKeys = new Set();
+    quotes.forEach(q => {
+      const mill = (q.mill || '').toUpperCase();
+      const date = q.date || today();
+      if (mill) clearKeys.add(`${mill}|${date}`);
     });
+    if (clearKeys.size) {
+      S.millQuotes = S.millQuotes.filter(mq => {
+        const key = `${(mq.mill || '').toUpperCase()}|${mq.date || ''}`;
+        return !clearKeys.has(key);
+      });
+    }
   }
 
   // Now push the new quotes

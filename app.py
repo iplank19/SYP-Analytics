@@ -3477,15 +3477,45 @@ def mi_submit_quotes():
     data = request.get_json()
     if data is None:
         return jsonify({'error': 'Request body must be JSON'}), 400
-    quotes = data if isinstance(data, list) else [data]
+    # Support both formats: raw array OR {quotes: [...], full_list: true}
+    if isinstance(data, dict) and 'quotes' in data:
+        quotes = data['quotes'] if isinstance(data['quotes'], list) else [data['quotes']]
+        is_full_list = data.get('full_list', False)
+    else:
+        quotes = data if isinstance(data, list) else [data]
+        is_full_list = request.args.get('full_list') == 'true'
+
+    # Build set of mills to wipe if this is a full price list submission
+    full_list_mills = None
+    if is_full_list:
+        full_list_mills = set()
+        for q in quotes:
+            mill = (q.get('mill') or '').strip()
+            if mill:
+                full_list_mills.add(mill)
+        app.logger.info(f"Full-list intake for {len(full_list_mills)} mills: {full_list_mills}")
+
     conn = get_mi_db()
     try:
-        return _mi_submit_quotes_inner(conn, quotes)
+        return _mi_submit_quotes_inner(conn, quotes, full_list_mills=full_list_mills)
     finally:
         conn.close()
 
-def _mi_submit_quotes_inner(conn, quotes):
+def _mi_submit_quotes_inner(conn, quotes, full_list_mills=None):
+    """Submit quotes. full_list_mills: set of mill names whose ENTIRE old data should be wiped
+    (because a complete price list was received — anything not on the new list is withdrawn)."""
     created = []
+
+    # Full-list wipe: if a complete price list came in for a mill, delete ALL old quotes
+    # for that mill so withdrawn products don't linger as stale ghost quotes.
+    if full_list_mills:
+        for mill_name in full_list_mills:
+            deleted = conn.execute(
+                "DELETE FROM mill_quotes WHERE UPPER(mill_name)=?",
+                (mill_name.upper(),)
+            ).rowcount
+            if deleted:
+                app.logger.info(f"Full-list wipe: cleared {deleted} old quotes for {mill_name}")
 
     # Auto-replace: For each mill+product+length combo being uploaded, delete existing quotes
     # This ensures uploaded quotes always show as "today" even if price unchanged

@@ -98,9 +98,9 @@ async function showBestCosts(){
 
     if(typeof miLoadLatestQuotes==='function'){
       try{
-        // Fetch all quotes (no product filter — we normalize client-side)
-        // Use all:true to bypass 2-day window — Quote Engine needs full price history
-        const quotes=await miLoadLatestQuotes({all:true});
+        // Fetch latest quotes using server's default 2-day window (today + yesterday,
+        // weekend-aware). Stale quotes >2 days old should NOT be quoted.
+        const quotes=await miLoadLatestQuotes({});
         quotes.forEach(q=>{
           if(_qeNormProduct(q.product)!==normBase)return;
           // Length filter: prefer exact length match, allow RL only if no exact matches
