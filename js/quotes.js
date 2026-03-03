@@ -112,9 +112,13 @@ async function showBestCosts(){
       }catch(e){console.warn('MI lookup failed:',e);}
     }
 
-    // Add local mill quotes as fallback
+    // Add local mill quotes as fallback (with same 2-day window)
     if(typeof getLatestMillQuotes==='function'){
-      const local=getLatestMillQuotes({});
+      // Apply 2-day window to local quotes too — stale prices should never be quoted
+      const twoDaysAgo=new Date();
+      twoDaysAgo.setDate(twoDaysAgo.getDate()-2);
+      const sinceStr=twoDaysAgo.toISOString().slice(0,10);
+      const local=getLatestMillQuotes({since:sinceStr});
       local.forEach(q=>{
         if(_qeNormProduct(q.product)!==normBase)return;
         if(parsed.length&&parsed.length!=='RL'&&q.length&&q.length!=='RL'&&normalizeLength(q.length)!==parsed.length)return;
