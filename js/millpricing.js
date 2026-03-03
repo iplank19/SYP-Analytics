@@ -50,22 +50,28 @@ async function editMillQuote(id,updates){
 // ===== QUERY HELPERS =====
 
 // Get most recent quote per mill+product combo
+// Keys are normalized (lowercase, no spaces) so "2x4#1" and "2x4 #1" dedup correctly.
+// For same-date ties, keeps the LOWEST price.
 function getLatestMillQuotes(filters={}){
   const latest={};
   const sorted=[...S.millQuotes].sort((a,b)=>new Date(b.date)-new Date(a.date));
   const normFilter=filters.product?(filters.product||'').toLowerCase().replace(/\s+/g,''):null;
   sorted.forEach(q=>{
     if(filters.mill&&q.mill!==filters.mill)return;
-    if(normFilter){
-      const normQ=(q.product||'').toLowerCase().replace(/\s+/g,'');
-      if(normQ!==normFilter)return;
-    }
+    const normQ=(q.product||'').toLowerCase().replace(/\s+/g,'');
+    if(normFilter&&normQ!==normFilter)return;
     if(filters.since){
       const since=new Date(filters.since);
       if(new Date(q.date)<since)return;
     }
-    const key=`${q.mill}|${q.product}|${q.length||'RL'}`;
-    if(!latest[key])latest[key]=q;
+    const key=`${q.mill}|${normQ}|${q.length||'RL'}`;
+    if(!latest[key]){
+      latest[key]=q;
+    }else if(latest[key].date===q.date&&q.price<latest[key].price){
+      // Same date: keep lower price
+      latest[key]=q;
+    }
+    // else: existing entry has a newer date (sorted desc), keep it
   });
   return Object.values(latest);
 }

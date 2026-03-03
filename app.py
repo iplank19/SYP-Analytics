@@ -1046,9 +1046,9 @@ def seed_mi_from_supabase():
     print("MI tables empty â seeding from Supabase cloud...")
     try:
         res = requests.get(
-            f"{supa_url}/rest/v1/syp_data?select=data&limit=1",
+            f"{supa_url}/rest/v1/syp_data?user_id=eq.default&select=data",
             headers={'apikey': supa_key, 'Authorization': f'Bearer {supa_key}'},
-            timeout=15
+            timeout=30
         )
         if not res.ok:
             print(f"Supabase fetch failed: {res.status_code}")
@@ -1059,6 +1059,8 @@ def seed_mi_from_supabase():
             return
 
         d = rows[0]['data']
+        print(f"  Cloud blob keys: {list(d.keys())}")
+        print(f"  millQuotes: {len(d.get('millQuotes', []))}, mills: {len(d.get('mills', []))}, customers: {len(d.get('customers', []))}")
 
         # Seed mills into CRM â MI
         cloud_mills = d.get('mills', [])
@@ -1319,9 +1321,9 @@ def seed_rl_from_supabase():
 
     try:
         res = requests.get(
-            f"{supa_url}/rest/v1/syp_data?select=data&limit=1",
+            f"{supa_url}/rest/v1/syp_data?user_id=eq.default&select=data",
             headers={'apikey': supa_key, 'Authorization': f'Bearer {supa_key}'},
-            timeout=15
+            timeout=30
         )
         if not res.ok:
             return
