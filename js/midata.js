@@ -77,6 +77,7 @@ async function miLoadLatestQuotes(filters = {}) {
   if (filters.product) params.set('product', filters.product);
   if (filters.region) params.set('region', filters.region);
   if (filters.since) params.set('since', filters.since);
+  if (filters.all) params.set('all', 'true');
   return miApiGetWithRetry('/api/mi/quotes/latest?' + params);
 }
 
