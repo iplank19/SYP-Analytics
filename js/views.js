@@ -1469,7 +1469,7 @@ function render(){
               <div style="margin-bottom:8px">
                 <label style="font-size:9px;color:var(--muted);display:block;margin-bottom:4px">State $/mi Rates</label>
                 <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:4px">
-                  ${['AR','LA','TX','MS','AL','NC'].map(st=>`<div style="display:flex;align-items:center;gap:4px">
+                  ${['AR','LA','TX','MS','AL','NC','GA','FL','SC'].map(st=>`<div style="display:flex;align-items:center;gap:4px">
                     <span style="font-size:9px;color:var(--muted);width:20px">${st}</span>
                     <input type="number" value="${S.stateRates?.[st]||''}" step="0.05" placeholder="0" style="width:45px;padding:3px;font-size:10px" onchange="updateStateRate('${st}',+this.value||0)">
                   </div>`).join('')}

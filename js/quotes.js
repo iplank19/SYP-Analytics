@@ -248,7 +248,7 @@ function applyAllMargin(){
   }
 }
 
-// Copy the quick quote to clipboard
+// Copy the quick quote to clipboard as formatted HTML table (Outlook-friendly)
 function copyQuickQuote(){
   const items=S.quoteItems.filter(i=>i.sellDlvd);
   if(!items.length){
@@ -261,17 +261,59 @@ function copyQuickQuote(){
   const customDest=document.getElementById('qb-custom-dest')?.value?.trim();
   const dest=customDest||'';
 
-  let text=`Quote for ${customerName}${dest?' - '+dest:''}\n`;
-  text+=`${new Date().toLocaleDateString()}\n\n`;
+  // Build HTML table
+  const header=`${customerName}${dest?' — Delivered '+dest:''}`;
+  const html=`<div style="font-family:Calibri,Arial,sans-serif;font-size:11pt;">
+<p style="margin:0 0 8px 0;font-weight:bold;font-size:12pt;">${header}</p>
+<table style="border-collapse:collapse;font-family:Calibri,Arial,sans-serif;font-size:11pt;min-width:400px;">
+  <thead>
+    <tr style="background:#1a5f7a;color:white;">
+      <th style="padding:6px 14px;text-align:left;border:1px solid #ccc;">Product</th>
+      <th style="padding:6px 14px;text-align:center;border:1px solid #ccc;">TLs</th>
+      <th style="padding:6px 14px;text-align:right;border:1px solid #ccc;">$/MBF Dlvd</th>
+      <th style="padding:6px 14px;text-align:left;border:1px solid #ccc;">Ship</th>
+    </tr>
+  </thead>
+  <tbody>
+    ${items.map((item,i)=>{
+      const ship=item.shipWeek||'Prompt';
+      return`<tr style="background:${i%2?'#f5f5f5':'white'};">
+      <td style="padding:5px 14px;border:1px solid #ddd;">${item.product||''}</td>
+      <td style="padding:5px 14px;text-align:center;border:1px solid #ddd;">${item.tls||1}</td>
+      <td style="padding:5px 14px;text-align:right;border:1px solid #ddd;font-weight:bold;color:#2e7d32;">$${item.sellDlvd}</td>
+      <td style="padding:5px 14px;border:1px solid #ddd;color:#666;">${ship}</td>
+    </tr>`;
+    }).join('')}
+  </tbody>
+</table>
+<p style="margin:6px 0 0 0;font-size:9pt;color:#888;">All prices $/MBF delivered${dest?' '+dest:''}. Subject to prior sale.</p>
+</div>`;
 
+  // Plain text fallback
+  const maxProd=Math.max(...items.map(i=>(i.product||'').length),7);
+  let text=`${header}\n${'─'.repeat(maxProd+28)}\n`;
+  text+=`${'Product'.padEnd(maxProd+2)}${'TLs'.padStart(4)}${'$/MBF'.padStart(8)}${'Ship'.padStart(10)}\n`;
+  text+=`${'─'.repeat(maxProd+28)}\n`;
   items.forEach(item=>{
-    text+=`${item.product}: $${item.sellDlvd} delivered\n`;
+    text+=`${(item.product||'').padEnd(maxProd+2)}${String(item.tls||1).padStart(4)}${('$'+item.sellDlvd).padStart(8)}${(item.shipWeek||'Prompt').padStart(10)}\n`;
   });
+  text+=`\nAll prices $/MBF delivered${dest?' '+dest:''}. Subject to prior sale.\n`;
 
-  text+=`\nAll prices per MBF, delivered.\n`;
+  // Copy as HTML (pastes as table in Outlook/Word) with text fallback
+  const htmlBlob=new Blob([html],{type:'text/html'});
+  const textBlob=new Blob([text],{type:'text/plain'});
 
-  navigator.clipboard.writeText(text).then(()=>{
-    showToast('Quote copied!','positive');
+  navigator.clipboard.write([
+    new ClipboardItem({
+      'text/html':htmlBlob,
+      'text/plain':textBlob
+    })
+  ]).then(()=>{
+    showToast(`Quote copied — ${items.length} item${items.length>1?'s':''}!`,'positive');
+  }).catch(()=>{
+    navigator.clipboard.writeText(text).then(()=>{
+      showToast('Copied as text','positive');
+    });
   });
 }
 
