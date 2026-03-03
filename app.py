@@ -3679,7 +3679,9 @@ def mi_latest_quotes():
     if not since and not show_all:
         since = _mi_default_since()
 
-    # Fast MAX(id) approach instead of correlated subquery
+    # Pick newest-date row per mill+product+length, preferring lowest price on ties.
+    # NOTE: MAX(id) is unreliable because seed inserts may not match date order.
+    # Uses ROW_NUMBER() window function (SQLite 3.25+) for efficient single-pass ranking.
     inner_where = ""
     inner_params = []
     if since:
@@ -3687,24 +3689,29 @@ def mi_latest_quotes():
         inner_params = [since]
 
     sql = f"""
-        SELECT mq.*, m.lat, m.lon, m.region, m.city, m.state
-        FROM mill_quotes mq
-        LEFT JOIN mills m ON mq.mill_id = m.id
-        WHERE mq.id IN (
-            SELECT MAX(id) FROM mill_quotes{inner_where} GROUP BY mill_name, LOWER(REPLACE(product, ' ', '')), length
-        )
+        SELECT sq.*, m.lat, m.lon, m.region, m.city, m.state
+        FROM (
+            SELECT *, ROW_NUMBER() OVER (
+                PARTITION BY mill_name, LOWER(REPLACE(product, ' ', '')), length
+                ORDER BY date DESC, price ASC, id DESC
+            ) AS rn
+            FROM mill_quotes{inner_where}
+        ) sq
+        LEFT JOIN mills m ON sq.mill_id = m.id
+        WHERE sq.rn = 1
     """
     params = list(inner_params)
     if product:
-        sql += " AND LOWER(REPLACE(mq.product, ' ', ''))=LOWER(REPLACE(?, ' ', ''))"
+        sql += " AND LOWER(REPLACE(sq.product, ' ', ''))=LOWER(REPLACE(?, ' ', ''))"
         params.append(product)
     if region:
         sql += " AND m.region=?"
         params.append(region)
-    sql += " ORDER BY mq.product, mq.price"
+    sql += " ORDER BY sq.product, sq.price"
     rows = conn.execute(sql, params).fetchall()
     conn.close()
-    return jsonify([dict(r) for r in rows])
+    # Strip the rn column from results
+    return jsonify([{k: v for k, v in dict(r).items() if k != 'rn'} for r in rows])
 
 @app.route('/api/mi/quotes/matrix', methods=['GET'])
 def mi_quote_matrix():
@@ -3748,20 +3755,24 @@ def mi_quote_matrix():
             inner_where = " WHERE date >= ?"
             inner_params = [filter_since]
         sql = f"""
-            SELECT mq.mill_name, mq.product, mq.length, mq.price, mq.date, mq.volume,
-                   mq.ship_window, mq.tls, mq.trader,
+            SELECT sq.mill_name, sq.product, sq.length, sq.price, sq.date, sq.volume,
+                   sq.ship_window, sq.tls, sq.trader,
                    m.lat, m.lon, m.region, m.city, m.state
-            FROM mill_quotes mq
-            LEFT JOIN mills m ON mq.mill_id = m.id
-            WHERE mq.id IN (
-                SELECT MAX(id) FROM mill_quotes{inner_where} GROUP BY mill_name, product, length
-            )
+            FROM (
+                SELECT *, ROW_NUMBER() OVER (
+                    PARTITION BY mill_name, product, length
+                    ORDER BY date DESC, price ASC, id DESC
+                ) AS rn
+                FROM mill_quotes{inner_where}
+            ) sq
+            LEFT JOIN mills m ON sq.mill_id = m.id
+            WHERE sq.rn = 1
         """
         params = list(inner_params)
         if filter_product:
-            sql += " AND mq.product = ?"
+            sql += " AND sq.product = ?"
             params.append(filter_product)
-        sql += " ORDER BY mq.mill_name, mq.product, mq.length"
+        sql += " ORDER BY sq.mill_name, sq.product, sq.length"
         rows = conn.execute(sql, params).fetchall()
         conn.close()
 
@@ -3827,16 +3838,20 @@ def mi_quote_matrix():
             inner_where2 = " WHERE date >= ?"
             inner_params2 = [filter_since]
         sql = f"""
-            SELECT mq.mill_name, mq.product, mq.price, mq.date, mq.volume, mq.ship_window,
-                   mq.tls, mq.trader, m.lat, m.lon, m.region, m.city, m.state
-            FROM mill_quotes mq
-            LEFT JOIN mills m ON mq.mill_id = m.id
-            WHERE mq.id IN (
-                SELECT MAX(id) FROM mill_quotes{inner_where2} GROUP BY mill_name, product
-            )
+            SELECT sq.mill_name, sq.product, sq.price, sq.date, sq.volume, sq.ship_window,
+                   sq.tls, sq.trader, m.lat, m.lon, m.region, m.city, m.state
+            FROM (
+                SELECT *, ROW_NUMBER() OVER (
+                    PARTITION BY mill_name, product
+                    ORDER BY date DESC, price ASC, id DESC
+                ) AS rn
+                FROM mill_quotes{inner_where2}
+            ) sq
+            LEFT JOIN mills m ON sq.mill_id = m.id
+            WHERE sq.rn = 1
         """
         params = list(inner_params2)
-        sql += " ORDER BY mq.mill_name, mq.product"
+        sql += " ORDER BY sq.mill_name, sq.product"
         rows = conn.execute(sql, params).fetchall()
         conn.close()
 
