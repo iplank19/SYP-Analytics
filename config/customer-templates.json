@@ -1,0 +1,99 @@
+{
+  "_meta": {
+    "description": "Customer product templates by buyer type. Used by morning trading brief to match price movements to customer segments.",
+    "note": "The brief should surface DEALS and VALUE — price drops, unusually low costs, spread opportunities — not just best-cost-of-the-day for every cell.",
+    "updated": "2026-03-03",
+    "freight_note": "Freight is calculated direct to each customer's city using the mileage API (Nominatim geocoding). No hub approximation.",
+    "grades": {
+      "MSR": "Machine Stress Rated (2400f). Listed as '2x4 MSR' in MI_PRODUCTS.",
+      "#1": "Structural grade",
+      "#2": "Standard structural",
+      "#3": "Utility/economy"
+    }
+  },
+  "templates": {
+    "truss": {
+      "name": "Truss",
+      "description": "Truss manufacturers — MSR and #1 for rated components, #2 studs for non-rated. Heavy on 2x4/2x6 (bread and butter), wides secondary.",
+      "products": {
+        "2x4 MSR":  ["10", "12", "14", "16", "18", "20"],
+        "2x4#1":    ["10", "12", "14", "16", "18", "20"],
+        "2x4#2":    ["8", "10", "12"],
+        "2x6 MSR":  ["10", "12", "14", "16"],
+        "2x6#1":    ["10", "12", "14", "16"],
+        "2x6#2":    ["8", "10", "12", "14", "16"],
+        "2x8 MSR":  ["10", "12", "14", "16"],
+        "2x10 MSR": ["10", "12", "14", "16"]
+      },
+      "priority": ["2x4 MSR", "2x4#1", "2x4#2", "2x6 MSR", "2x6#1", "2x6#2", "2x8 MSR", "2x10 MSR"]
+    },
+    "treater": {
+      "name": "Treater",
+      "description": "Pressure treating plants — #1 grade wides for decking, fencing, outdoor structural. Full length range, heavy on RL.",
+      "products": {
+        "2x6#1":  ["8", "10", "12", "14", "16", "18", "20"],
+        "2x8#1":  ["8", "10", "12", "14", "16", "18", "20"],
+        "2x10#1": ["8", "10", "12", "14", "16", "18", "20"],
+        "2x12#1": ["8", "10", "12", "14", "16", "18", "20"]
+      }
+    },
+    "pallet": {
+      "name": "Pallet",
+      "description": "Pallet and crating buyers — #3 economy grade, studs + 2x8. Shorter lengths, price-driven.",
+      "products": {
+        "2x4#3": ["8", "10", "12", "14", "16"],
+        "2x6#3": ["8", "10", "12", "14", "16"],
+        "2x8#3": ["8", "10", "12", "14", "16"]
+      }
+    },
+    "truss_2": {
+      "name": "Truss #2",
+      "description": "Truss shops that use MSR for rated components plus #2 studs for plates/bracing. Broader than standard truss template.",
+      "products": {
+        "2x4 MSR":  ["10", "12", "14", "16", "18", "20"],
+        "2x6 MSR":  ["10", "12", "14", "16", "18", "20"],
+        "2x8 MSR":  ["10", "12", "14", "16", "18", "20"],
+        "2x10 MSR": ["10", "12", "14", "16", "18", "20"],
+        "2x4#2":    ["8", "10", "12", "14", "16", "18", "20"],
+        "2x6#2":    ["8", "10", "12", "14", "16", "18", "20"]
+      }
+    }
+  },
+  "customers": {
+    "A-1 TRUSS INC":              { "template": "truss",   "city": "Batesville",     "state": "AR" },
+    "AFFORDABLE LUXURY HOMES":    { "template": "truss",   "city": "Markle",         "state": "IN" },
+    "AMERICAN CRATING CO INC":    { "template": "pallet",  "city": "Tulsa",          "state": "OK" },
+    "BEAR CREEK TRUSS INC":       { "template": "truss",   "city": "Tuscola",        "state": "IL" },
+    "BLUNIER BUILDERS INC":       { "template": "treater", "city": "Eureka",         "state": "IL" },
+    "C&M TRUSS LLC":              { "template": "truss",   "city": "Sardinia",       "state": "OH",
+                                    "locations": ["Sardinia, OH", "Laurelville, OH"] },
+    "CAC WALL PANELS LLC":        { "template": "truss",   "city": "Harlan",         "state": "IN" },
+    "CAPITAL TRUSS AND LUMBER":   { "template": "truss",   "city": "Hindsville",     "state": "AR" },
+    "CENTER TRUSS LLC":           { "template": "truss",   "city": "Centreville",    "state": "MI" },
+    "CENTRAL ILLINOIS TRUSS":     { "template": "truss_2", "city": "Deer Creek",     "state": "IL" },
+    "CHIBUZO LLC":                { "template": "pallet",  "city": "Fort Smith",     "state": "AR" },
+    "D&L METAL SALES":            { "template": "truss",   "city": "LaGrange",       "state": "IN" },
+    "DO IT BEST CORP":            { "template": "truss_2", "city": "Findlay",        "state": "OH" },
+    "L3RK":                       { "template": "truss_2", "city": "Sandborn",       "state": "IN" },
+    "MARTIN TRUSS MFG LLC":       { "template": "truss",   "city": "Elkhart",        "state": "IN" },
+    "MID AMERICA TRUSS":          { "template": "truss",   "city": "Jefferson City",  "state": "MO" },
+    "MIDWEST TIMBER INC":         { "template": "treater", "city": "Edwardsburg",    "state": "MI" },
+    "NISBET INC":                 { "template": "truss",   "city": "Cincinnati",     "state": "OH" },
+    "NORTHERN CROSSARM CO INC":   { "template": "treater", "city": "Chippewa Falls",  "state": "WI" },
+    "NORTHERN INDIANA TRUSS":     { "template": "truss",   "city": "Warsaw",         "state": "IN" },
+    "PRO TRUSS & PANEL LLC":      { "template": "truss",   "city": "Romulus",        "state": "MI" },
+    "Power Truss and Lumber":     { "template": "truss",   "city": "Mayfield",       "state": "KY" },
+    "Precision Truss & Metal":    { "template": "truss",   "city": "Clarkson",       "state": "KY" },
+    "ProTec Panel and Truss":     { "template": "truss",   "city": "Bremen",         "state": "IN" },
+    "Rehkemper & Sons":           { "template": "truss",
+                                    "locations": [
+                                      { "city": "St. Rose",      "state": "IL" },
+                                      { "city": "Sikeston",      "state": "MO" },
+                                      { "city": "Brookline",     "state": "MO" },
+                                      { "city": "Cherry Valley", "state": "IL" }
+                                    ] },
+    "TEXAS BUILDING SUPPLY":      { "template": "truss",   "city": "Van Alstyne",    "state": "TX" },
+    "TK CONSTRUCTORS INC":        { "template": "truss",   "city": "Muncie",         "state": "IN" },
+    "TRUSS OPS NORTH LLC":        { "template": "truss",   "city": "Lincoln",        "state": "AR" }
+  }
+}
