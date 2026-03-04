@@ -185,7 +185,6 @@ function renderSkeleton(){
 const _VIEW_REDIRECTS={
   'blotter':{parent:'trading',stateKey:'tradingTab',tab:'blotter'},
   'pnl-calendar':{parent:'trading',stateKey:'tradingTab',tab:'blotter'},
-  'leaderboard':{parent:'dashboard',stateKey:null,tab:null},
   'insights':{parent:'analytics',stateKey:'analyticsTab',tab:'spreads'},
   'benchmark':{parent:'analytics',stateKey:'analyticsTab',tab:'spreads'},
   'risk':{parent:'analytics',stateKey:'analyticsTab',tab:'spreads'},
@@ -527,7 +526,7 @@ function render(){
     const _dashTab=S.dashTab||'overview';
     const _dashTabBar=''; // Single tab — overview only
     if(_dashTab==='overview'&&a&&!a.buys.length&&!a.sells.length){
-      c.innerHTML=_dashTabBar+`<div class="panel"><div class="panel-body" style="padding:80px;text-align:center"><h2 style="margin-bottom:12px;color:var(--text)">Welcome, ${escapeHtml(S.trader)}!</h2><p style="margin-bottom:24px">${S.trader==='Admin'?'No department trades yet. Traders can add trades from their accounts.':'Start by adding your trades or importing Random Lengths data.'}</p><div style="display:flex;gap:12px;justify-content:center"><button class="btn btn-success" onclick="showBuyModal()">+ Add Buy</button><button class="btn btn-primary" onclick="showSellModal()">+ Add Sell</button><button class="btn btn-warn" onclick="go('details')">Import RL Data</button></div></div></div>`;
+      c.innerHTML=_dashTabBar+`<div class="panel"><div class="panel-body" style="padding:80px;text-align:center"><h2 style="margin-bottom:12px;color:var(--text)">Welcome, ${escapeHtml(S.trader)}!</h2><p style="margin-bottom:24px">Start by adding your trades or importing Random Lengths data.</p><div style="display:flex;gap:12px;justify-content:center"><button class="btn btn-success" onclick="showBuyModal()">+ Add Buy</button><button class="btn btn-primary" onclick="showSellModal()">+ Add Sell</button><button class="btn btn-warn" onclick="go('details')">Import RL Data</button></div></div></div>`;
       return;
     }
     {
@@ -1192,8 +1191,8 @@ function render(){
     const r=getRange(),inR=d=>new Date(d)>=r.start&&new Date(d)<=r.end;
     const mP=p=>S.filters.prod==='all'||p===S.filters.prod;
     const mR=rg=>S.filters.reg==='all'||rg===S.filters.reg;
-    const isAdminUser=S.trader==='Admin';
-    const isMyTrade=t=>isAdminUser||t===S.trader||!t;
+    // Single-user mode: show all trades for this user
+    const isMyTrade=t=>t===S.trader||!t;
     const myBuys=S.buys.filter(b=>inR(b.date)&&mP(b.product)&&mR(b.region)&&isMyTrade(b.trader));
     const mySells=S.sells.filter(s=>inR(s.date)&&mP(s.product)&&isMyTrade(s.trader));
 
@@ -1287,8 +1286,8 @@ function render(){
     const buyTotalVol=filteredBuys.reduce((s,b)=>s+(b.volume||0),0)
     const sellTotalVol=filteredSells.reduce((s,x)=>s+(x.volume||0),0)
     const hasActiveFilters=!!(bf.search||bf.mill||bf.product||bf.customer||bf.showShorts||bf.noOrderNum);
-    const filteredEmptyBuys=hasActiveFilters&&myBuys.length?`<tr><td colspan="${S.trader==='Admin'?12:11}" class="empty-state">No buys match current filters <button class="btn btn-default btn-sm" onclick="clearBlotterFilters()" style="margin-left:8px">Clear Filters</button></td></tr>`:`<tr><td colspan="${S.trader==='Admin'?12:11}" class="empty-state">No buys</td></tr>`;
-    const filteredEmptySells=hasActiveFilters&&mySells.length?`<tr><td colspan="${S.trader==='Admin'?11:10}" class="empty-state">No sells match current filters <button class="btn btn-default btn-sm" onclick="clearBlotterFilters()" style="margin-left:8px">Clear Filters</button></td></tr>`:`<tr><td colspan="${S.trader==='Admin'?11:10}" class="empty-state">No sells</td></tr>`;
+    const filteredEmptyBuys=hasActiveFilters&&myBuys.length?`<tr><td colspan="11" class="empty-state">No buys match current filters <button class="btn btn-default btn-sm" onclick="clearBlotterFilters()" style="margin-left:8px">Clear Filters</button></td></tr>`:`<tr><td colspan="11" class="empty-state">No buys</td></tr>`;
+    const filteredEmptySells=hasActiveFilters&&mySells.length?`<tr><td colspan="10" class="empty-state">No sells match current filters <button class="btn btn-default btn-sm" onclick="clearBlotterFilters()" style="margin-left:8px">Clear Filters</button></td></tr>`:`<tr><td colspan="10" class="empty-state">No sells</td></tr>`;
     // Age class helper
     const ageClass=d=>{if(!d)return'';const days=Math.floor((new Date()-new Date(d))/(1000*60*60*24));return days>30?'age-stale':days>14?'age-old':days>7?'age-week':'age-fresh'}
     // Trade status helper
@@ -1296,9 +1295,9 @@ function render(){
 
     c.innerHTML=_tTabBar+`
       <div class="panel" style="margin-bottom:12px"><div class="panel-header" style="border-left:3px solid ${traderColor(S.trader)}">
-        <div><strong>${S.trader==='Admin'?'All Traders':escapeHtml(S.trader)+"'s Trade Blotter"}</strong> <span style="color:var(--muted)"> -- ${filteredBuys.length} buys, ${filteredSells.length} sells</span></div>
+        <div><strong>Trade Blotter</strong> <span style="color:var(--muted)"> -- ${filteredBuys.length} buys, ${filteredSells.length} sells</span></div>
         <div style="display:flex;align-items:center;gap:8px">
-          ${S.trader==='Admin'?'<button class="btn btn-default btn-sm" onclick="showImportModal()">Import CSV</button>':''}
+          <button class="btn btn-default btn-sm" onclick="showImportModal()">Import CSV</button>
           <button class="btn btn-info btn-sm" onclick="expCSV('buys')">Export CSV</button>
           <button class="btn btn-info btn-sm" onclick="exportPDF()">Export PDF</button>
         </div>
@@ -1323,13 +1322,13 @@ function render(){
           <button class="btn btn-default btn-sm" onclick="clearBlotterFilters()">Clear</button>
         </div>
       </div></div>
-      <div class="panel"><div class="panel-header"><span>${S.trader==='Admin'?'ALL BUYS':'MY BUYS'}</span><span style="color:var(--muted);font-size:10px;margin-left:8px">${filteredBuys.length} trades</span></div>
+      <div class="panel"><div class="panel-header"><span>BUYS</span><span style="color:var(--muted);font-size:10px;margin-left:8px">${filteredBuys.length} trades</span></div>
         <div class="panel-body table-wrap" style="padding:0"><table class="data-table"><thead><tr>${S.trader==='Admin'?'<th>Trader</th>':''}<th class="sortable" onclick="toggleSort('orderNum')">Order # ${sortIcon('orderNum')}</th><th class="sortable" onclick="toggleSort('date')">Date ${sortIcon('date')}</th><th>Status</th><th class="right">Age</th><th class="sortable" onclick="toggleSort('mill')">Mill ${sortIcon('mill')}</th><th>Origin</th><th>Reg</th><th class="sortable" onclick="toggleSort('product')">Product ${sortIcon('product')}</th><th>Len</th><th class="right sortable" onclick="toggleSort('price')">Price ${sortIcon('price')}</th><th></th></tr></thead><tbody>
           ${filteredBuys.length?filteredBuys.map(b=>{const ordDisplay=String(b.orderNum||b.po||'').trim();const ord=normalizeOrderNum(b.orderNum||b.po);const sold=orderSold[ord]||0;const avail=(b.volume||0)-sold;const age=calcAge(b.date);const ageCls=ageClass(b.date);const linkedSells=ord?sellByOrder[ord]||[]:[];const coworkerSells=linkedSells.filter(s=>s.trader&&s.trader!==b.trader);const isCancelled=b.status==='cancelled';const st=tradeStatus(b);return`<tr class="${isCancelled?'cancelled-row':''}">${S.trader==='Admin'?`<td><span style="display:inline-block;width:20px;height:20px;border-radius:50%;background:${traderColor(b.trader||'Ian P')};color:var(--bg);font-size:10px;font-weight:700;text-align:center;line-height:20px" title="${escapeHtml(b.trader||'Ian P')}">${traderInitial(b.trader||'Ian P')}</span></td>`:''}<td class="bold accent">${escapeHtml(ordDisplay)||'--'}${coworkerSells.length?` <span style="font-size:9px;color:var(--info)" title="Sold by: ${escapeHtml(coworkerSells.map(s=>s.trader).join(', '))}">->${coworkerSells.map(s=>traderInitial(s.trader)).join(',')}</span>`:''}</td><td>${fmtD(b.date)}</td><td><span class="status-badge status-${st}">${st}</span></td><td class="right ${ageCls}" title="${age} days old">${age}d</td><td>${escapeHtml(b.mill)||'--'}</td><td>${escapeHtml(b.origin)||'--'}</td><td style="text-transform:capitalize">${escapeHtml(b.region)}</td><td class="bold">${escapeHtml(b.product)}${b.msrPremium?' <span style="color:var(--accent);font-size:9px">+'+b.msrPremium+'</span>':''}</td><td>${b.length||'RL'}${b.tally?' <span style="color:var(--warn);font-size:9px">T</span>':''}</td><td class="right positive editable" ondblclick="editCell(this,'price','buy-${b.id}')">${fmt(b.price)}${b.freight?' <span style="color:var(--muted);font-size:9px">FOB</span>':''}</td><td><div class="action-buttons"><button class="btn btn-default btn-sm" onclick="editBuy(${b.id})">Edit</button><button class="btn btn-default btn-sm" onclick="dupBuy(${b.id})">&#x29C9;</button><button class="btn btn-default btn-sm" onclick="cancelBuy(${b.id})" title="${b.status==='cancelled'?'Reactivate':'Cancel'}">${b.status==='cancelled'?'&#x21A9;':'&#x2298;'}</button><button class="btn btn-danger btn-sm" onclick="delBuy(${b.id})">x</button></div></td></tr>`}).join(''):filteredEmptyBuys}
         </tbody></table></div>
         <div class="panel-footer"><span>Avg Price: <strong>${buyTotalVol>0?fmt(Math.round(filteredBuys.reduce((s,b)=>s+(b.price||0)*(b.volume||0),0)/buyTotalVol)):'--'}</strong></span><span>${filteredBuys.length} trades</span></div>
       </div>
-      <div class="panel" style="margin-top:16px"><div class="panel-header"><span>${S.trader==='Admin'?'ALL SELLS':'MY SELLS'}</span><span style="color:var(--muted);font-size:10px;margin-left:8px">${filteredSells.length} trades</span></div>
+      <div class="panel" style="margin-top:16px"><div class="panel-header"><span>SELLS</span><span style="color:var(--muted);font-size:10px;margin-left:8px">${filteredSells.length} trades</span></div>
         <div class="panel-body table-wrap" style="padding:0"><table class="data-table"><thead><tr>${S.trader==='Admin'?'<th>Trader</th>':''}<th class="sortable" onclick="toggleSort('orderNum')">Order # ${sortIcon('orderNum')}</th><th class="sortable" onclick="toggleSort('date')">Date ${sortIcon('date')}</th><th>Status</th><th class="sortable" onclick="toggleSort('customer')">Customer ${sortIcon('customer')}</th><th>Dest</th><th class="sortable" onclick="toggleSort('product')">Product ${sortIcon('product')}</th><th>Len</th><th class="right sortable" onclick="toggleSort('price')">Price ${sortIcon('price')}</th><th>Matched</th><th></th></tr></thead><tbody>
           ${filteredSells.length?filteredSells.map(x=>{
             const ordDisplay=String(x.orderNum||x.linkedPO||x.oc||'').trim()
@@ -1395,7 +1394,6 @@ function render(){
     </div>`:'';
 
     c.innerHTML=_qTabBar+`
-      ${S.trader==='Admin'?`<div style="margin-bottom:12px;padding:8px 12px;background:rgba(232,115,74,0.1);border:1px solid #e8734a;font-size:11px;color:#e8734a">🔑 <strong>Admin View</strong> — Each trader has separate quote items and profiles.</div>`:''}
 
       <div class="grid-2" style="gap:16px;align-items:start">
         <!-- LEFT: Product Matrix -->
@@ -1733,8 +1731,8 @@ function render(){
                 <button class="btn btn-sm ${S.crmViewMode==='table'?'btn-info':'btn-default'}" onclick="S.crmViewMode='table';SS('crmViewMode','table');render()" style="font-size:10px">☰ Table</button>
                 <button class="btn btn-sm ${S.crmViewMode==='kanban'?'btn-info':'btn-default'}" onclick="S.crmViewMode='kanban';SS('crmViewMode','kanban');render()" style="font-size:10px">▦ Board</button>
               </div>
-              ${S.trader==='Admin'?`<button class="btn btn-danger btn-sm" onclick="resetAllCRMData()" title="Delete all CRM data">🗑️ Reset All</button>
-              <button class="btn btn-default btn-sm" onclick="seedMockData()" title="Load test data">🧪 Mock Data</button>`:''}
+              <button class="btn btn-danger btn-sm" onclick="resetAllCRMData()" title="Delete all CRM data">🗑️ Reset All</button>
+              <button class="btn btn-default btn-sm" onclick="seedMockData()" title="Load test data">🧪 Mock Data</button>
               ${S.crmViewMode==='table'?`<select onchange="S.crmStatusFilter=this.value;loadCRMProspects()" style="padding:4px 8px;font-size:10px">
                 <option value="all" ${statusFilter==='all'?'selected':''}>All Status</option>
                 <option value="prospect" ${statusFilter==='prospect'?'selected':''}>New Prospects</option>
@@ -1816,7 +1814,7 @@ function render(){
       // Build enriched customer data for 360 view
       const custData=customers.map(cu=>{
         const locs=cu.locations||[cu.destination].filter(Boolean)
-        const trades=S.trader==='Admin'?S.sells.filter(s=>s.customer===cu.name):S.sells.filter(s=>s.customer===cu.name&&(s.trader===S.trader||!s.trader))
+        const trades=S.sells.filter(s=>s.customer===cu.name&&(s.trader===S.trader||!s.trader))
         const vol=trades.reduce((s,x)=>s+(x.volume||0),0)
         const cm=custMargins[cu.name]||{vol:0,marginVal:0,n:0}
         const avgMargin=cm.vol>0?cm.marginVal/cm.vol:0
@@ -1842,7 +1840,7 @@ function render(){
       const selCust=S.selectedCustomer?custData.find(c=>c.name===S.selectedCustomer):null
 
       contentHTML=`
-        <div class="panel"><div class="panel-header"><span>${S.trader==='Admin'?'ALL CUSTOMERS':'MY CUSTOMERS'}</span><button class="btn btn-default btn-sm" onclick="showCustModal()">+ Add</button></div>
+        <div class="panel"><div class="panel-header"><span>CUSTOMERS</span><button class="btn btn-default btn-sm" onclick="showCustModal()">+ Add</button></div>
           <div class="panel-body table-wrap" style="padding:0"><table class="data-table"><thead><tr>${S.trader==='Admin'?'<th>Trader</th>':''}<th class="sortable" ${_csC('name')}>Customer ${_csI('name')}</th><th>Locations</th><th class="right sortable" ${_csC('trades')}>Trades ${_csI('trades')}</th><th class="right sortable" ${_csC('vol')}>Volume ${_csI('vol')}</th><th class="right sortable" ${_csC('margin')}>Avg Margin ${_csI('margin')}</th><th>Credit Status</th><th></th></tr></thead><tbody>
             ${custData.length?custData.map(cu=>{
               const creditColor=cu.creditUtil>90?'var(--negative)':cu.creditUtil>70?'var(--warn)':'var(--positive)'
@@ -1945,7 +1943,7 @@ function render(){
       // Enrich mills with trade data for sorting
       const enrichedMills=mills.map(m=>{
         const company=m.name;
-        const trades=S.trader==='Admin'?S.buys.filter(b=>extractMillCompany(b.mill)===company):S.buys.filter(b=>extractMillCompany(b.mill)===company&&(b.trader===S.trader||!b.trader));
+        const trades=S.buys.filter(b=>extractMillCompany(b.mill)===company&&(b.trader===S.trader||!b.trader));
         const vol=trades.reduce((s,b)=>s+(b.volume||0),0);
         return{...m,_trades:trades,_vol:vol,_tradeCount:trades.length};
       });
@@ -1958,7 +1956,7 @@ function render(){
         return _ms.dir==='asc'?va-vb:vb-va;
       });
       contentHTML=`
-        <div class="card"><div class="card-header"><span class="card-title warn">${S.trader==='Admin'?'ALL MILLS':'MY MILLS'}</span><button class="btn btn-default btn-sm" onclick="showMillModal()">+ Add</button></div>
+        <div class="card"><div class="card-header"><span class="card-title warn">MILLS</span><button class="btn btn-default btn-sm" onclick="showMillModal()">+ Add</button></div>
           <div class="table-wrap"><table><thead><tr>${S.trader==='Admin'?'<th>👤</th>':''}<th class="sortable" ${_msC('name')}>Mill ${_msI('name')}</th><th>Locations</th><th>Last Quoted</th><th class="right sortable" ${_msC('trades')}>Trades ${_msI('trades')}</th><th class="right sortable" ${_msC('vol')}>Volume ${_msI('vol')}</th><th></th></tr></thead><tbody>
             ${enrichedMills.length?enrichedMills.map(m=>{
               const rawLocs=Array.isArray(m.locations)?m.locations:[];

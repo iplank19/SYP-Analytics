@@ -2,17 +2,14 @@
 SYP Analytics - Flask Server
 Handles mileage API proxy, CRM, and static file serving
 """
-from flask import Flask, send_from_directory, request, jsonify, g
+from flask import Flask, send_from_directory, request, jsonify
 from flask_cors import CORS
-from functools import wraps
 import requests
 import os
 import re
 import time
 import sqlite3
 import json
-import hashlib
-import secrets
 from datetime import datetime, timedelta, timezone
 import tempfile
 import math
@@ -34,104 +31,16 @@ def business_day_cutoff(biz_days):
     return d.strftime('%Y-%m-%d')
 
 
-try:
-    import jwt
-except ImportError:
-    jwt = None
-
 app = Flask(__name__, static_folder='.', static_url_path='')
 app.config['MAX_CONTENT_LENGTH'] = 10 * 1024 * 1024  # 10MB max upload
 
-# --- CORS: restrict to known origins ---
-ALLOWED_ORIGINS = [
-    origin.strip() for origin in
-    os.environ.get('ALLOWED_ORIGINS', 'http://localhost:5000,http://localhost:5001').split(',')
-]
-# In production (Heroku), ALLOWED_ORIGINS env var should include the app domain
-CORS(app, origins=ALLOWED_ORIGINS + ['https://trade.fctg.com'], supports_credentials=True)
-
-# --- JWT Auth configuration ---
-JWT_SECRET = os.environ.get('JWT_SECRET', secrets.token_hex(32))
-JWT_EXPIRY_HOURS = int(os.environ.get('JWT_EXPIRY_HOURS', '24'))
-
-# Trader credentials: loaded from TRADER_CREDENTIALS env var as "user:hash,user:hash"
-# To generate a hash: python -c "import hashlib; print(hashlib.sha256('password'.encode()).hexdigest())"
-# Default: single admin user (override via env var in production)
-_DEFAULT_ADMIN_HASH = hashlib.sha256('changeme'.encode()).hexdigest()
-TRADER_CREDENTIALS = {}
-_cred_str = os.environ.get('TRADER_CREDENTIALS', '')
-if _cred_str:
-    for pair in _cred_str.split(','):
-        if ':' in pair:
-            user, pw_hash = pair.strip().split(':', 1)
-            TRADER_CREDENTIALS[user.strip().lower()] = pw_hash.strip()
-if not TRADER_CREDENTIALS:
-    TRADER_CREDENTIALS['admin'] = _DEFAULT_ADMIN_HASH
-
-# Admin users who can access destructive endpoints
-ADMIN_USERS = [u.strip().lower() for u in os.environ.get('ADMIN_USERS', 'admin,ian').split(',')]
-
-# Pricing portal login attempt tracking (simple in-memory rate limiter)
-_pricing_login_attempts = {}  # ip -> {'count': int, 'lockout_until': float}
-PRICING_MAX_ATTEMPTS = 5
-PRICING_LOCKOUT_SECONDS = 300  # 5 minutes
+# --- CORS: allow all origins for local development ---
+CORS(app)
 
 
 def get_current_user():
-    """Get current user from g.user (if JWT applied) or from request JSON body."""
-    if hasattr(g, 'user') and g.user:
-        return g.user
-    data = request.get_json(silent=True) or {}
-    return data.get('trader', data.get('user', 'unknown'))
-
-
-def _get_token_from_request():
-    """Extract JWT token from Authorization header or query param."""
-    auth = request.headers.get('Authorization', '')
-    if auth.startswith('Bearer '):
-        return auth[7:]
-    return request.args.get('token')
-
-
-def _decode_token(token):
-    """Decode and validate a JWT token. Returns payload dict or None."""
-    if not jwt or not token:
-        return None
-    try:
-        return jwt.decode(token, JWT_SECRET, algorithms=['HS256'])
-    except (jwt.ExpiredSignatureError, jwt.InvalidTokenError):
-        return None
-
-
-def login_required(f):
-    """Decorator: require a valid JWT token for the endpoint."""
-    @wraps(f)
-    def decorated(*args, **kwargs):
-        token = _get_token_from_request()
-        payload = _decode_token(token)
-        if not payload:
-            return jsonify({'error': 'Authentication required'}), 401
-        g.user = payload.get('user', '')
-        g.trader = payload.get('trader', '')
-        return f(*args, **kwargs)
-    return decorated
-
-
-def admin_required(f):
-    """Decorator: require a valid JWT token AND admin privileges."""
-    @wraps(f)
-    def decorated(*args, **kwargs):
-        token = _get_token_from_request()
-        payload = _decode_token(token)
-        if not payload:
-            return jsonify({'error': 'Authentication required'}), 401
-        user = payload.get('user', '').lower()
-        if user not in ADMIN_USERS:
-            return jsonify({'error': 'Admin privileges required'}), 403
-        g.user = payload.get('user', '')
-        g.trader = payload.get('trader', '')
-        return f(*args, **kwargs)
-    return decorated
+    """Get current user (single-user local mode)."""
+    return 'Ian P'
 
 # CRM Database Setup
 CRM_DB_PATH = os.path.join(os.path.dirname(__file__), 'crm.db')
@@ -1266,8 +1175,6 @@ def mi_extract_state(location):
 def mi_get_region(state_code):
     return MI_STATE_REGIONS.get(state_code, 'central')
 
-# Now that mi_extract_state and mi_get_region are defined, run the cloud seed
-seed_mi_from_supabase()
 
 # ----- Seed rl_prices from gzipped CSV (historical Random Lengths data) -----
 
@@ -1370,7 +1277,6 @@ def seed_rl_from_supabase():
         print(f"RL Supabase seed error: {type(e).__name__}: {e}")
 
 seed_rl_from_csv()
-seed_rl_from_supabase()
 
 def mi_geocode_location(location):
     """Geocode using shared geo_cache, with DB fallback then Nominatim."""
@@ -2050,7 +1956,6 @@ def crm_dashboard():
 
 # Seed mock data for testing
 @app.route('/api/crm/seed-mock', methods=['POST'])
-@admin_required
 def seed_mock_data():
     try:
         conn = get_crm_db()
@@ -2191,7 +2096,6 @@ def convert_prospect(id):
 
 # Wipe ALL CRM data (prospects, customers, mills)
 @app.route('/api/crm/wipe-all', methods=['POST'])
-@admin_required
 def wipe_all_crm():
     try:
         conn = get_crm_db()
@@ -2208,7 +2112,6 @@ def wipe_all_crm():
 
 # Cleanup endpoint - wipe all CRM data except Ian's
 @app.route('/api/crm/cleanup-non-ian', methods=['POST'])
-@admin_required
 def cleanup_non_ian():
     try:
         conn = get_crm_db()
@@ -3075,113 +2978,21 @@ def health_mi():
 
 @app.route('/api/mi/reseed', methods=['POST'])
 def mi_reseed():
-    """Manually trigger MI re-seed from Supabase cloud data."""
-    admin_key = os.environ.get('ADMIN_API_KEY', '')
-    if admin_key and request.headers.get('X-Admin-Key') != admin_key:
-        return jsonify({'error': 'Unauthorized'}), 403
-    try:
-        # Clear existing quotes to force re-seed
-        mi_conn = get_mi_db()
-        mi_conn.execute("DELETE FROM mill_quotes")
-        mi_conn.commit()
-        mi_conn.close()
-        seed_mi_from_supabase()
-        # Report results
-        mi_conn = get_mi_db()
-        new_count = mi_conn.execute("SELECT COUNT(*) FROM mill_quotes").fetchone()[0]
-        mi_conn.close()
-        return jsonify({'status': 'ok', 'quotes_seeded': new_count})
-    except Exception as e:
-        return jsonify({'status': 'error', 'error': str(e)}), 500
-
-# ==================== AUTH ENDPOINTS ====================
-
-@app.route('/api/auth/login', methods=['POST'])
-def auth_login():
-    """Authenticate a trader and return a JWT token."""
-    if not jwt:
-        return jsonify({'error': 'JWT support not available (pip install PyJWT)'}), 500
-    data = request.get_json() or {}
-    username = (data.get('username') or '').strip().lower()
-    password = data.get('password') or ''
-    if not username or not password:
-        return jsonify({'error': 'Username and password required'}), 400
-    pw_hash = hashlib.sha256(password.encode()).hexdigest()
-    expected = TRADER_CREDENTIALS.get(username)
-    if not expected or not secrets.compare_digest(pw_hash, expected):
-        return jsonify({'error': 'Invalid credentials'}), 401
-    payload = {
-        'user': username,
-        'trader': data.get('trader', username),
-        'exp': datetime.now(timezone.utc) + timedelta(hours=JWT_EXPIRY_HOURS),
-        'iat': datetime.now(timezone.utc)
-    }
-    token = jwt.encode(payload, JWT_SECRET, algorithm='HS256')
-    return jsonify({'token': token, 'user': username, 'expires_in': JWT_EXPIRY_HOURS * 3600})
-
-@app.route('/api/auth/verify', methods=['GET'])
-def auth_verify():
-    """Verify a JWT token is still valid."""
-    token = _get_token_from_request()
-    payload = _decode_token(token)
-    if payload:
-        return jsonify({'valid': True, 'user': payload.get('user', ''), 'trader': payload.get('trader', '')})
-    return jsonify({'valid': False}), 401
+    """Not used in single-user local mode (no cloud sync)."""
+    return jsonify({'status': 'ok', 'message': 'Cloud sync disabled in local mode'})
 
 # ==================== CONFIG ENDPOINT ====================
 
-@app.route('/api/config', methods=['GET'])
-def get_config():
-    """Return Supabase credentials (behind auth so frontend doesn't hardcode them)."""
-    return jsonify({
-        'supabaseUrl': os.environ.get('SUPABASE_URL', ''),
-        'supabaseKey': os.environ.get('SUPABASE_ANON_KEY', ''),
-    })
 
 # ==========================================
 # PRICING MATRIX â standalone read-only view
 # ==========================================
 
-PRICING_PASSWORD = os.environ.get('PRICING_PASSWORD', '2026')
-if PRICING_PASSWORD == '2026':
-    print("WARNING: Using default pricing password. Set PRICING_PASSWORD env var.")
 
 @app.route('/pricing')
 def pricing_page():
     return send_from_directory('.', 'pricing.html')
 
-@app.route('/api/pricing/auth', methods=['POST'])
-def pricing_auth():
-    if not PRICING_PASSWORD:
-        return jsonify({'ok': False, 'error': 'Pricing portal not configured. Set PRICING_PASSWORD env var.'}), 503
-
-    # Rate limit by IP
-    ip = request.remote_addr or 'unknown'
-    now = time.time()
-
-    # Cleanup stale entries older than 2x lockout period to prevent memory leak
-    stale_cutoff = now - (PRICING_LOCKOUT_SECONDS * 2)
-    stale_ips = [k for k, v in _pricing_login_attempts.items() if v.get('lockout_until', 0) < stale_cutoff and v.get('count', 0) == 0]
-    for stale_ip in stale_ips:
-        _pricing_login_attempts.pop(stale_ip, None)
-    record = _pricing_login_attempts.get(ip, {'count': 0, 'lockout_until': 0})
-    if record['lockout_until'] > now:
-        remaining = int(record['lockout_until'] - now)
-        return jsonify({'ok': False, 'error': f'Too many attempts. Try again in {remaining}s.'}), 429
-
-    data = request.get_json() or {}
-    if secrets.compare_digest(data.get('password', ''), PRICING_PASSWORD):
-        # Reset on success
-        _pricing_login_attempts.pop(ip, None)
-        return jsonify({'ok': True})
-
-    # Track failed attempt
-    record['count'] = record.get('count', 0) + 1
-    if record['count'] >= PRICING_MAX_ATTEMPTS:
-        record['lockout_until'] = now + PRICING_LOCKOUT_SECONDS
-        record['count'] = 0
-    _pricing_login_attempts[ip] = record
-    return jsonify({'ok': False, 'error': 'Invalid password'}), 401
 
 @app.route('/api/pricing/customers', methods=['GET'])
 def pricing_customers():
@@ -3336,7 +3147,6 @@ def mi_geocode_mill():
     return jsonify({'error': f'Could not geocode: {location}'}), 404
 
 @app.route('/api/admin/consolidate-mills', methods=['POST'])
-@admin_required
 def consolidate_mills():
     """One-time migration: consolidate per-location mill entries into per-company entries."""
     conn = get_crm_db()
@@ -6062,11 +5872,9 @@ def list_trade_statuses():
 @app.route('/api/trades/<trade_id>/approve', methods=['POST'])
 
 def approve_trade(trade_id):
-    """Approve a trade (admin or senior trader)."""
+    """Approve a trade."""
     try:
-        user = get_current_user().lower()
-        if user not in ADMIN_USERS:
-            return jsonify({'error': 'Only admin/senior traders can approve trades'}), 403
+        user = get_current_user()
 
         conn = get_crm_db()
         row = conn.execute('SELECT * FROM trade_status WHERE trade_id = ?', (trade_id,)).fetchone()
@@ -6128,13 +5936,9 @@ def advance_trade(trade_id):
             # Default: first non-cancelled option, or cancelled if that's the only option
             next_status = next((s for s in allowed_next if s != 'cancelled'), allowed_next[0])
 
-        # Approval requires admin
+        # Status transition
         current_user = get_current_user()
         if next_status == 'approved':
-            user = current_user.lower()
-            if user not in ADMIN_USERS:
-                conn.close()
-                return jsonify({'error': 'Only admin/senior traders can approve trades'}), 403
             conn.execute('''
                 UPDATE trade_status SET status = ?, approved_by = ?, approved_at = datetime('now'),
                        updated_at = datetime('now'), notes = COALESCE(?, notes)
@@ -7242,5 +7046,5 @@ _scheduler_thread.start()
 
 
 if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 5000))
+    port = int(os.environ.get('PORT', 5001))
     app.run(host='0.0.0.0', port=port, debug=False)

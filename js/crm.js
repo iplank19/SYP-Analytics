@@ -371,10 +371,7 @@ function showCustModal(c=null){
   document.getElementById('modal').innerHTML=`<div class="modal-overlay" onclick="closeModal()"><div class="modal" onclick="event.stopPropagation()">
     <div class="modal-header"><span class="modal-title">${c?'EDIT':'NEW'} CUSTOMER</span><button class="modal-close" onclick="closeModal()">×</button></div>
     <div class="modal-body">
-      ${S.trader==='Admin'?`<div style="margin-bottom:16px;padding:12px;background:rgba(232,115,74,0.1);border:1px solid #e8734a">
-        <div class="form-group" style="margin:0"><label class="form-label" style="color:#e8734a;font-weight:600">🔑 Assign to Trader</label>
-        <select id="m-trader" style="width:200px">${TRADERS.map(t=>`<option value="${t}" ${(c?.trader||'Ian P')===t?'selected':''}>${t}</option>`).join('')}</select></div>
-      </div>`:''}
+      <!-- Single-user mode: trader assignment removed -->
       <div class="form-grid">
         <div class="form-group full"><label class="form-label">Company Name</label><input type="text" id="m-name" value="${escapeHtml(c?.name||'')}"></div>
         <div class="form-group"><label class="form-label">Contact</label><input type="text" id="m-contact" value="${escapeHtml(c?.contact||'')}"></div>

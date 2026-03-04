@@ -1,13 +1,15 @@
-// SYP Analytics - Data & Storage Functions
+// SYP Analytics - Data & Storage Functions (LOCAL-FIRST)
 //
 // Save Pattern (all state mutations MUST follow one of these):
-//   1. save(key, value)         — single key → IndexedDB + LS + debounced cloud push
-//   2. saveAllLocal()           — full state → IndexedDB + LS + debounced cloud push
-//   3. cloudSync('push')        — full state → Supabase (called automatically by 1 & 2)
-//   4. cloudSync('pull')        — Supabase → merge into S → saveAllLocal()
+//   1. save(key, value)         — single key → IndexedDB + LS (local only, no auto-cloud sync)
+//   2. saveAllLocal()           — full state → IndexedDB + LS (local only, no auto-cloud sync)
+//   3. cloudSync('push')        — full state → Supabase (called MANUALLY via Settings buttons only)
+//   4. cloudSync('pull')        — Supabase → merge into S → saveAllLocal() (called MANUALLY via Settings buttons only)
 //
-// Data priority: Supabase (source of truth) > IndexedDB (primary local) > localStorage (backup)
-// Merge strategy: _mergeById uses updatedAt timestamps — local wins ties only when updatedAt > remote
+// Data priority: IndexedDB (primary local source of truth) > localStorage (backup) > Supabase (opt-in backup only)
+// App boots from IndexedDB — zero cloud dependency for offline-first operation
+// Cloud sync is completely optional and user-initiated via Settings → "Push to Cloud" / "Pull from Cloud"
+// Merge strategy (if pull used): _mergeById uses updatedAt timestamps — local wins ties only when updatedAt > remote
 // RL data: merged by 'date' key (not full replacement) to preserve local-only entries
 //
 // IndexedDB for larger local storage
@@ -419,16 +421,8 @@ async function saveAllLocal(){
   SS('reportSchedules',S.reportSchedules||[])
   SS('reportHistory',S.reportHistory||[])
 
-  // Debounced cloud push (prevents rapid-fire syncs during bulk operations)
-  if(supabase){
-    clearTimeout(_cloudPushTimer);
-    _cloudPushTimer=setTimeout(()=>{
-      // Check flags inside callback — _isPulling may have changed since scheduling
-      if(_isPulling||_isPushing)return;
-      _isPushing=true;
-      cloudSync('push').catch(e=>console.warn('Auto cloud sync failed:',e)).finally(()=>{_isPushing=false});
-    },2000);
-  }
+  // Note: Cloud push is now manual only — triggered via Settings buttons (doCloudSync)
+  // No automatic cloud sync on local saves
 
 }
 
@@ -715,13 +709,6 @@ async function save(key,value){
   await dbSet(storageKey,value);
   SS(storageKey,value); // backup
 
-  // Auto-sync to cloud if configured, or if key is in always-sync list
-  if(supabase && (S.autoSync || ALWAYS_SYNC_KEYS.includes(key))){
-    clearTimeout(_cloudPushTimer);
-    _cloudPushTimer=setTimeout(()=>{
-      if(_isPulling||_isPushing)return;
-      _isPushing=true;
-      cloudSync('push').catch(e=>console.warn('Auto cloud sync failed:',e)).finally(()=>{_isPushing=false});
-    },2000);
-  }
+  // Note: Cloud push is now manual only — no automatic sync on individual saves
+  // User must explicitly click "Push to Cloud" in Settings
 }

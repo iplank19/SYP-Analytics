@@ -189,10 +189,7 @@ function showBuyModal(b=null){
   document.getElementById('modal').innerHTML=`<div class="modal-overlay" onclick="closeModalSafe()"><div class="modal wide" onclick="event.stopPropagation()">
     <div class="modal-header"><span class="modal-title positive">${b?'EDIT':'NEW'} BUY</span><button class="modal-close" onclick="closeModal()">×</button></div>
     <div class="modal-body">
-      ${S.trader==='Admin'?`<div style="margin-bottom:16px;padding:12px;background:rgba(232,115,74,0.1);border:1px solid #e8734a">
-        <div class="form-group" style="margin:0"><label class="form-label" style="color:#e8734a;font-weight:600">🔑 Assign to Trader</label>
-        <select id="m-trader" style="width:200px">${TRADERS.map(t=>`<option value="${t}" ${(b?.trader||'Ian P')===t?'selected':''}>${t}</option>`).join('')}</select></div>
-      </div>`:''}
+      <!-- Single-user mode: trader assignment removed -->
       <div class="form-grid">
         <div class="form-group"><label class="form-label">Order #</label>
           <input type="text" id="m-orderNum" value="${escapeHtml(b?.orderNum||b?.po||'')}" placeholder="e.g. 70123" list="order-list-buy" onchange="onBuyOrderChange()">
@@ -1574,10 +1571,7 @@ function showSellModal(s=null){
   document.getElementById('modal').innerHTML=`<div class="modal-overlay" onclick="closeModalSafe()"><div class="modal wide" onclick="event.stopPropagation()">
     <div class="modal-header"><span class="modal-title">${s?'EDIT':'NEW'} SELL</span><button class="modal-close" onclick="closeModal()">×</button></div>
     <div class="modal-body">
-      ${S.trader==='Admin'?`<div style="margin-bottom:16px;padding:12px;background:rgba(232,115,74,0.1);border:1px solid #e8734a">
-        <div class="form-group" style="margin:0"><label class="form-label" style="color:#e8734a;font-weight:600">🔑 Assign to Trader</label>
-        <select id="m-trader" style="width:200px">${TRADERS.map(t=>`<option value="${t}" ${(s?.trader||'Ian P')===t?'selected':''}>${t}</option>`).join('')}</select></div>
-      </div>`:''}
+      <!-- Single-user mode: trader assignment removed -->
       <div class="form-grid">
         <div class="form-group"><label class="form-label">Order #</label>
           <input type="text" id="m-orderNum" value="${escapeHtml(s?.orderNum||s?.linkedPO||s?.oc||'')}" placeholder="e.g. 70123" list="order-list-sell" onchange="onSellOrderChange();updateSellCalc()">
@@ -3047,7 +3041,7 @@ async function confirmImportOrders(){
 
   orders.forEach((o,i)=>{
     if(!checked.has(i))return;
-    const mapTrader=name=>{const m=TRADER_MAP[name];if(m)return m;if(TRADERS.includes(name))return name;return'Admin';};
+    const mapTrader=name=>{const m=TRADER_MAP[name];if(m)return m;return'Ian P';};
 
     const orderFreight=freightByOrder[String(o.orderNum)]||0;
     const orderMiles=milesByOrder[String(o.orderNum)]||0;
@@ -3159,7 +3153,7 @@ async function confirmImportOrders(){
   const newMills=new Map();// name → {origin, trader}
   orders.forEach((o,i)=>{
     if(!checked.has(i))return;
-    const mapTrader=name=>{const m=TRADER_MAP[name];if(m)return m;if(TRADERS.includes(name))return name;return'Admin';};
+    const mapTrader=name=>{const m=TRADER_MAP[name];if(m)return m;return'Ian P';};
     if(o.sell&&o.sell.customer){
       const trader=mapTrader(o.sell.trader);
       // Re-normalize the customer name to handle cases where it might match an existing customer with a different variation

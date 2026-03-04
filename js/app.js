@@ -1,13 +1,6 @@
 // SYP Analytics - App Init & Settings
 
-// Secure password hashing using Web Crypto API (SHA-256)
-async function hashPassword(input){
-  const encoder=new TextEncoder()
-  const data=encoder.encode(input)
-  const hashBuffer=await crypto.subtle.digest('SHA-256',data)
-  const hashArray=Array.from(new Uint8Array(hashBuffer))
-  return hashArray.map(b=>b.toString(16).padStart(2,'0')).join('')
-}
+// Password hashing removed — app auto-initializes with single user mode
 
 // SETTINGS
 function saveKey(){const v=document.getElementById('api-key').value.trim();save('apiKey',v);showToast('API key saved!','positive')}
@@ -74,11 +67,11 @@ function exportLeaderboardReport(){
   const allBuys=S.buys.filter(b=>inR(b.date));
   const allSells=S.sells.filter(s=>inR(s.date));
 
-  const traderStats=TRADERS.map(t=>{
-    const buys=allBuys.filter(b=>b.trader===t||(!b.trader&&t==='Ian P'));
-    const sells=allSells.filter(s=>s.trader===t||(!s.trader&&t==='Ian P'));
-    return calcTraderStats(t,buys,sells);
-  });
+  // Single-user mode: only show current trader's stats
+  const t=S.trader;
+  const buys=allBuys.filter(b=>b.trader===t||(!b.trader&&t==='Ian P'));
+  const sells=allSells.filter(s=>s.trader===t||(!s.trader&&t==='Ian P'));
+  const traderStats=[calcTraderStats(t,buys,sells)];
 
   let csv='Trader,Volume (MBF),Buy Vol,Sell Vol,Trades,Margin/MBF,Profit,Win Rate,Best Trade,Customers\\n';
   traderStats.forEach(t=>{
@@ -97,14 +90,14 @@ function exportLeaderboardReport(){
 
 function showAllAchievements(){
   const modal=document.getElementById('modal');
-  const traderAchs={};
-  TRADERS.forEach(t=>traderAchs[t]=S.achievements.filter(a=>a.trader===t));
+  const t=S.trader;
+  const traderAchs=S.achievements.filter(a=>a.trader===t);
 
   modal.innerHTML=`
     <div class="modal-overlay" onclick="closeModal()">
       <div class="modal wide" onclick="event.stopPropagation()">
         <div class="modal-header">
-          <span class="modal-title warn">🏆 ALL ACHIEVEMENTS</span>
+          <span class="modal-title warn">🏆 ACHIEVEMENTS</span>
           <button class="modal-close" onclick="closeModal()">×</button>
         </div>
         <div class="modal-body">
@@ -122,19 +115,11 @@ function showAllAchievements(){
               `).join('')}
             </div>
           </div>
-          <div style="font-size:11px;color:var(--muted);margin-bottom:8px">Achievements by trader:</div>
-          <table style="font-size:11px">
-            <thead><tr><th>Trader</th><th>Earned</th><th>Achievements</th></tr></thead>
-            <tbody>
-              ${TRADERS.map(t=>`
-                <tr style="border-left:3px solid ${traderColor(t)}">
-                  <td class="bold">${t}</td>
-                  <td>${traderAchs[t].length}/${ACHIEVEMENTS.length}</td>
-                  <td>${traderAchs[t].map(a=>a.icon).join(' ')||'<span style="color:var(--muted)">None yet</span>'}</td>
-                </tr>
-              `).join('')}
-            </tbody>
-          </table>
+          <div style="font-size:11px;color:var(--muted);margin-bottom:8px">Your achievements:</div>
+          <div style="padding:12px;background:var(--panel);border-radius:4px">
+            <span style="font-weight:600">${traderAchs.length}/${ACHIEVEMENTS.length}</span> earned
+            <div style="margin-top:8px">${traderAchs.map(a=>a.icon).join(' ')||'<span style="color:var(--muted)">None yet</span>'}</div>
+          </div>
         </div>
         <div class="modal-footer">
           <button class="btn btn-default" onclick="closeModal()">Close</button>
@@ -281,48 +266,26 @@ async function init(){
     return;
   }
 
-  // Always require login
-  const isLoggedIn=sessionStorage.getItem('syp_logged_in')==='true';
-  const sessionTrader=sessionStorage.getItem('syp_trader');
-
-  if(!isLoggedIn||!sessionTrader){
-    showLoginScreen();
-    return;
-  }
-  
-  // Set trader from session (locked after login)
-  S.trader=sessionTrader;
+  // Auto-initialize as single user (no login screen)
+  S.trader='Ian P';
   
   await initDB();
   await loadAllLocal();
   migrateTraderNames();
   if(!localStorage.getItem('syp_entityMigration_v1')){migrateEntityNames();localStorage.setItem('syp_entityMigration_v1','1')}
 
-  // Init Supabase (loads from backend config or user settings)
-  await loadSupabaseConfig()
+  // Init Supabase for manual sync only (not auto-pull on boot)
+  // App boots from IndexedDB — cloud sync is opt-in via Settings buttons
   const sbUrl=LS('supabaseUrl','')||SUPABASE_URL;
   const sbKey=LS('supabaseKey','')||SUPABASE_KEY;
   if(sbUrl&&sbKey){
     initSupabase(sbUrl,sbKey);
-    // Auto-pull on load with loading indicator
-    const content=document.getElementById('content');
-    if(content)content.innerHTML='<div style="display:flex;align-items:center;justify-content:center;height:60vh;color:var(--muted)"><div style="text-align:center"><div style="font-size:24px;margin-bottom:12px">☁️</div><div>Syncing from cloud...</div></div></div>';
-    try{
-      const result=await cloudSync('pull');
-      if(result.success){
-        // cloudSync('pull') already updated S.* and saved to IndexedDB — no need to reload
-        migrateTraderNames();
-        if(!localStorage.getItem('syp_entityMigration_v1')){migrateEntityNames();localStorage.setItem('syp_entityMigration_v1','1')}
-      }
-    }catch(e){
-      _dbg('Cloud sync failed:',e);
-    }
   }
   
   // Update trader display in sidebar (read-only, shows who's logged in)
   const traderSelect=document.getElementById('trader-select');
   if(traderSelect){
-    traderSelect.outerHTML=`<div style="padding:8px 12px;background:var(--card);border:1px solid ${traderColor(S.trader)};font-weight:600;color:${traderColor(S.trader)};text-align:center">${S.trader==='Admin'?'🔑 Admin':S.trader}</div>`;
+    traderSelect.outerHTML=`<div style="padding:8px 12px;background:var(--card);border:1px solid ${traderColor(S.trader)};font-weight:600;color:${traderColor(S.trader)};text-align:center">${S.trader}</div>`;
   }
   
   document.getElementById('f-date').onchange=e=>{S.filters.date=e.target.value;render()};
@@ -595,74 +558,10 @@ function _startLoginGlobe(){
 }
 
 function showLoginScreen(){
-  document.querySelector('.ai-toggle').style.display='none';
-  const sb=document.querySelector('.status-bar');if(sb)sb.style.display='none';
-  const app=document.getElementById('app');
-  app.style.cssText='display:flex;align-items:center;justify-content:center;height:100vh;background:var(--bg);position:relative;overflow:hidden';
-  app.innerHTML=`
-    <canvas id="login-globe" style="position:absolute;top:0;left:0;width:100%;height:100%;z-index:0"></canvas>
-    <div style="background:color-mix(in srgb,var(--panel) 92%,transparent);backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);border:1px solid var(--border);padding:40px;width:320px;text-align:center;position:relative;z-index:1">
-      <div style="background:linear-gradient(135deg,var(--accent),#3a5eb8);padding:12px;font-weight:700;font-size:16px;color:var(--bg);margin-bottom:24px">SYP ANALYTICS</div>
-      <div style="color:var(--muted);font-size:11px;margin-bottom:20px">Buckeye Pacific</div>
-      <select id="login-trader" style="width:100%;padding:12px;margin-bottom:12px;text-align:center;font-size:14px">
-        ${ALL_LOGINS.map(t=>`<option value="${t}"${t==='Admin'?' style="font-weight:bold;color:#e8734a"':''}>${t==='Admin'?'🔑 Admin':t}</option>`).join('')}
-      </select>
-      <input type="password" id="login-password" placeholder="Enter your password" style="width:100%;padding:12px;margin-bottom:16px;text-align:center" onkeydown="if(event.key==='Enter')doLogin()">
-      <button class="btn btn-primary" style="width:100%" onclick="doLogin()">Login</button>
-      <div id="login-error" style="color:var(--negative);font-size:11px;margin-top:12px"></div>
-      <div style="margin-top:20px;border-top:1px solid var(--border);padding-top:16px">
-        <div style="color:var(--muted);font-size:10px;margin-bottom:8px">First time? Set your password:</div>
-        <input type="password" id="new-password" placeholder="New password" style="width:100%;padding:8px;margin-bottom:8px;text-align:center;font-size:12px">
-        <button class="btn btn-default btn-sm" style="width:100%" onclick="setupTraderPassword()">Set Password</button>
-      </div>
-      <div style="margin-top:20px;border-top:1px solid var(--border);padding-top:16px">
-        <button class="btn btn-default" style="width:100%;padding:10px;font-size:12px" onclick="showMatrixLogin()">📊 Matrix Login</button>
-        <div style="color:var(--muted);font-size:9px;margin-top:4px">View pricing matrix only</div>
-      </div>
-    </div>`;
-  _startLoginGlobe();
-  setTimeout(()=>document.getElementById('login-password')?.focus(),100);
+  // Login screen removed — app auto-initializes with single user mode
 }
 
-function showMatrixLogin(){
-  const app=document.getElementById('app');
-  app.style.cssText='display:flex;align-items:center;justify-content:center;height:100vh;background:var(--bg);position:relative;overflow:hidden';
-  app.innerHTML=`
-    <canvas id="login-globe" style="position:absolute;top:0;left:0;width:100%;height:100%;z-index:0"></canvas>
-    <div style="background:color-mix(in srgb,var(--panel) 92%,transparent);backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);border:1px solid var(--border);padding:40px;width:320px;text-align:center;position:relative;z-index:1">
-      <div style="background:linear-gradient(135deg,var(--accent),#3a5eb8);padding:12px;font-weight:700;font-size:16px;color:var(--bg);margin-bottom:24px">PRICING MATRIX</div>
-        <div style="color:var(--muted);font-size:11px;margin-bottom:20px">Enter PIN to view mill pricing</div>
-        <input type="password" id="matrix-pin" placeholder="Enter PIN" style="width:100%;padding:12px;margin-bottom:16px;text-align:center;font-size:18px;letter-spacing:8px" maxlength="10" onkeydown="if(event.key==='Enter')doMatrixLogin()">
-        <button class="btn btn-primary" style="width:100%" onclick="doMatrixLogin()">View Matrix</button>
-        <div id="matrix-login-error" style="color:var(--negative);font-size:11px;margin-top:12px"></div>
-        <button class="btn btn-default btn-sm" style="margin-top:16px" onclick="showLoginScreen()">← Back to Login</button>
-    </div>`;
-  _startLoginGlobe();
-  setTimeout(()=>document.getElementById('matrix-pin')?.focus(),100);
-}
-
-async function doMatrixLogin(){
-  const pin=document.getElementById('matrix-pin')?.value||'';
-  const errEl=document.getElementById('matrix-login-error');
-  if(!pin){errEl.textContent='Enter a PIN';return;}
-  errEl.textContent='Checking...';
-  try{
-    const res=await fetch('/api/pricing/auth',{
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({password:pin})
-    });
-    const data=await res.json();
-    if(data.ok){
-      sessionStorage.setItem('syp_matrix_only','true');
-      _triggerGlobeBurst(()=>launchMatrixMode());
-    }else{
-      errEl.textContent='Invalid PIN';
-    }
-  }catch(e){
-    errEl.textContent='Connection error';
-  }
-}
+// Matrix login removed — app auto-initializes with single user mode
 
 let _matrixModeTab='matrix';
 
@@ -764,154 +663,9 @@ async function loadMatrixView(){
   }
 }
 
-async function doLogin(){
-  const trader=document.getElementById('login-trader')?.value||'Ian P';
-  const input=document.getElementById('login-password')?.value||'';
-  const errEl=document.getElementById('login-error');
+// doLogin removed — app auto-initializes with single user mode
 
-  errEl.textContent='Checking...';
-
-  // Pull passwords from cloud first
-  await loadSupabaseConfig()
-  let passwords=safeJSONParse(localStorage.getItem('traderPasswords'),{});
-  if(!SUPABASE_URL||!SUPABASE_KEY){
-    // Skip cloud pull if not configured
-  }else try{
-    const res=await fetch(`${SUPABASE_URL}/rest/v1/syp_data?user_id=eq.default&select=data`,{
-      headers:{'apikey':SUPABASE_KEY,'Authorization':`Bearer ${SUPABASE_KEY}`}
-    });
-    const rows=await res.json();
-    if(rows&&rows[0]?.data?.traderPasswords){
-      // Merge cloud passwords with local (cloud takes priority)
-      const cloudPwds=rows[0].data.traderPasswords;
-      passwords={...passwords,...cloudPwds};
-      localStorage.setItem('traderPasswords',JSON.stringify(passwords));
-    }
-  }catch(e){_dbg('Could not fetch cloud passwords:',e)}
-
-  const stored=passwords[trader]||'';
-
-  if(!stored){
-    errEl.textContent='No password set for '+trader+'. Set one below.';
-    return;
-  }
-
-  // Secure hash comparison
-  const hash=await hashPassword(input)
-
-  // Also accept legacy btoa hash for migration (one-time)
-  const legacyHash=btoa(input.split('').reverse().join('')+input.length)
-  const isLegacy=hash!==stored&&legacyHash===stored
-
-  if(hash===stored||isLegacy){
-    // Migrate legacy hash to SHA-256
-    if(isLegacy){
-      passwords[trader]=hash
-      localStorage.setItem('traderPasswords',JSON.stringify(passwords))
-      try{
-        const pullRes=await fetch(`${SUPABASE_URL}/rest/v1/syp_data?user_id=eq.default&select=data`,{
-          headers:{'apikey':SUPABASE_KEY,'Authorization':`Bearer ${SUPABASE_KEY}`}
-        })
-        const pullRows=await pullRes.json()
-        if(pullRows&&pullRows[0]?.data){
-          pullRows[0].data.traderPasswords={...(pullRows[0].data.traderPasswords||{}),...passwords}
-          await fetch(`${SUPABASE_URL}/rest/v1/syp_data?user_id=eq.default`,{
-            method:'PATCH',
-            headers:{'apikey':SUPABASE_KEY,'Authorization':`Bearer ${SUPABASE_KEY}`,'Content-Type':'application/json','Prefer':'return=minimal'},
-            body:JSON.stringify({data:pullRows[0].data})
-          })
-        }
-      }catch(e){_dbg('Legacy hash migration sync failed:',e)}
-    }
-    S.trader=trader;
-    SS('trader',trader);
-    sessionStorage.setItem('syp_logged_in','true');
-    sessionStorage.setItem('syp_trader',trader);
-    _triggerGlobeBurst();
-  }else{
-    errEl.textContent='Incorrect password for '+trader;
-  }
-}
-
-async function setupTraderPassword(){
-  const trader=document.getElementById('login-trader')?.value||'Ian P';
-  const pwd=document.getElementById('new-password')?.value||'';
-  const errEl=document.getElementById('login-error');
-
-  if(!pwd||pwd.length<3){
-    errEl.textContent='Password must be at least 3 characters';
-    return;
-  }
-
-  const passwords=safeJSONParse(localStorage.getItem('traderPasswords'),{});
-
-  if(passwords[trader]){
-    errEl.textContent='Password already set. Contact admin to reset.';
-    return;
-  }
-
-  errEl.textContent='Saving...';
-  const hash=await hashPassword(pwd)
-  passwords[trader]=hash;
-  localStorage.setItem('traderPasswords',JSON.stringify(passwords));
-
-  // Sync to cloud
-  await loadSupabaseConfig()
-  if(!SUPABASE_URL||!SUPABASE_KEY){
-    errEl.innerHTML=`<span style="color:var(--positive)">Password set locally for ${escapeHtml(trader)}. Cloud sync not configured.</span>`;
-    document.getElementById('new-password').value='';
-    return;
-  }
-  try{
-    // First pull existing data
-    const res=await fetch(`${SUPABASE_URL}/rest/v1/syp_data?user_id=eq.default&select=data`,{
-      headers:{'apikey':SUPABASE_KEY,'Authorization':`Bearer ${SUPABASE_KEY}`}
-    });
-    const rows=await res.json();
-    let existingData=rows&&rows[0]?.data?rows[0].data:{};
-
-    // Merge passwords
-    existingData.traderPasswords={...(existingData.traderPasswords||{}),...passwords};
-
-    // Push back
-    const method=rows&&rows.length>0?'PATCH':'POST';
-    const url=method==='PATCH'?`${SUPABASE_URL}/rest/v1/syp_data?user_id=eq.default`:`${SUPABASE_URL}/rest/v1/syp_data`;
-    const body=method==='PATCH'?{data:existingData}:{user_id:'default',data:existingData};
-
-    await fetch(url,{
-      method,
-      headers:{'apikey':SUPABASE_KEY,'Authorization':`Bearer ${SUPABASE_KEY}`,'Content-Type':'application/json','Prefer':'return=minimal'},
-      body:JSON.stringify(body)
-    });
-
-    errEl.innerHTML=`<span style="color:var(--positive)">Password set for ${escapeHtml(trader)}! Now login above.</span>`;
-  }catch(e){
-    _dbg('Cloud sync failed:',e);
-    errEl.innerHTML=`<span style="color:var(--positive)">Password set locally for ${escapeHtml(trader)}.</span>`;
-  }
-
-  document.getElementById('new-password').value='';
-}
-
-async function setAppPassword(pwd){
-  if(!pwd||pwd.length<3){
-    showToast('Password must be at least 3 characters','warn');
-    return;
-  }
-  const passwords=safeJSONParse(localStorage.getItem('traderPasswords'),{});
-  const hash=await hashPassword(pwd)
-  passwords[S.trader]=hash;
-  localStorage.setItem('traderPasswords',JSON.stringify(passwords));
-  showToast('Password updated for '+S.trader,'positive');
-  // Sync passwords to cloud
-  if(supabase){cloudSync('push').catch(()=>{});}
-}
-
-function doLogout(){
-  sessionStorage.removeItem('syp_logged_in');
-  sessionStorage.removeItem('syp_trader');
-  location.reload();
-}
+// Password setup functions removed — app auto-initializes with single user mode
 
 // Mobile navigation functions
 function toggleMobileSidebar(){

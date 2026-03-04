@@ -393,44 +393,44 @@ function calcTraderLeaderboard(period){
 
   const buyByOrder=buildBuyByOrder()
 
-  const board=TRADERS.map(t=>{
-    const buys=allBuys.filter(b=>b.trader===t||(!b.trader&&t==='Ian P'))
-    const sells=allSells.filter(s=>s.trader===t||(!s.trader&&t==='Ian P'))
-    const buyVol=buys.reduce((s,b)=>s+(b.volume||0),0)
-    const sellVol=sells.reduce((s,x)=>s+(x.volume||0),0)
+  // Single-user mode: only calculate stats for current trader
+  const t=S.trader
+  const buys=allBuys.filter(b=>b.trader===t||(!b.trader&&t==='Ian P'))
+  const sells=allSells.filter(s=>s.trader===t||(!s.trader&&t==='Ian P'))
+  const buyVol=buys.reduce((s,b)=>s+(b.volume||0),0)
+  const sellVol=sells.reduce((s,x)=>s+(x.volume||0),0)
 
-    let profit=0,matchedVol=0,wins=0,matchedCount=0
-    sells.forEach(s=>{
-      const ord=normalizeOrderNum(s.orderNum||s.linkedPO||s.oc)
-      const buy=ord?buyByOrder[ord]:null
-      if(!buy)return
-      const vol=s.volume||0
-      if(vol<=0)return
-      const frPerMBF=vol>0?(s.freight||0)/vol:0
-      const sellFob=(s.price||0)-frPerMBF
-      const tradeProfit=(sellFob-(buy.price||0))*vol
-      profit+=tradeProfit
-      matchedVol+=vol
-      matchedCount++
-      if(sellFob>(buy.price||0))wins++
-    })
-
-    const margin=matchedVol>0?profit/matchedVol:0
-    const winRate=matchedCount>0?(wins/matchedCount)*100:0
-    const trades=buys.length+sells.length
-
-    return{
-      name:t,
-      profit,
-      volume:buyVol+sellVol,
-      buyVol,
-      sellVol,
-      margin,
-      winRate,
-      trades,
-      matchedCount
-    }
+  let profit=0,matchedVol=0,wins=0,matchedCount=0
+  sells.forEach(s=>{
+    const ord=normalizeOrderNum(s.orderNum||s.linkedPO||s.oc)
+    const buy=ord?buyByOrder[ord]:null
+    if(!buy)return
+    const vol=s.volume||0
+    if(vol<=0)return
+    const frPerMBF=vol>0?(s.freight||0)/vol:0
+    const sellFob=(s.price||0)-frPerMBF
+    const tradeProfit=(sellFob-(buy.price||0))*vol
+    profit+=tradeProfit
+    matchedVol+=vol
+    matchedCount++
+    if(sellFob>(buy.price||0))wins++
   })
+
+  const margin=matchedVol>0?profit/matchedVol:0
+  const winRate=matchedCount>0?(wins/matchedCount)*100:0
+  const trades=buys.length+sells.length
+
+  const board=[{
+    name:t,
+    profit,
+    volume:buyVol+sellVol,
+    buyVol,
+    sellVol,
+    margin,
+    winRate,
+    trades,
+    matchedCount
+  }]
 
   // Rank by profit
   board.sort((a,b)=>b.profit-a.profit)

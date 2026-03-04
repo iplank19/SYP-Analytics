@@ -894,9 +894,12 @@ function importPOFile(file){
 // AUTO-SEED FROM SERVER
 // ============================================================
 
-// Load pre-parsed seed data if S.poHistory is empty
+// Load pre-parsed seed data if S.poHistory is empty (runs once per session)
+let _poSeeded=false
 async function seedPOHistory(){
   const SEED_VERSION=4 // v4: scrubbed junk (INV- transfers, bad prices/lengths)
+  if(_poSeeded)return
+  _poSeeded=true // lock permanently — one attempt per session
   if(S.poHistory&&S.poHistory.length&&(S._poSeedVer||0)>=SEED_VERSION)return
   try{
     const res=await fetch('/api/po/seed')

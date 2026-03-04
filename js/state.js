@@ -842,15 +842,13 @@ const LS=(k,d)=>{try{const v=localStorage.getItem('syp_'+k);return v?JSON.parse(
 let _lsFullWarned=false;
 const SS=(k,v)=>{try{localStorage.setItem('syp_'+k,JSON.stringify(v))}catch(e){console.warn('localStorage write failed for key "'+k+'":', e.message);S._localStorageFull=true;if(!_lsFullWarned&&typeof showToast==='function'){_lsFullWarned=true;showToast('Local storage full — data saved to cloud only','warn')}}};
 
-// Traders in department
-const TRADERS=['Ian P','Aubrey M','Hunter S','Sawyer R','Jackson M','John W'];
-const ALL_LOGINS=['Admin',...TRADERS]; // Admin + all traders for login
+// Traders constant removed — app operates as single user (Ian P)
 // CSV full names → trader profiles. John Edwards is NOT John W — his trades go to Admin.
 const TRADER_MAP={'Ian Plank':'Ian P','Aubrey Milligan':'Aubrey M','Sawyer Rapp':'Sawyer R','Jackson McCormick':'Jackson M','Hunter Sweet':'Hunter S'};
 // Legacy first-name-only → new format (for migrating old data)
 const LEGACY_TRADER={'Ian':'Ian P','Aubrey':'Aubrey M','Hunter':'Hunter S','Sawyer':'Sawyer R','Jackson':'Jackson M'};
-// Normalize any trader value to current format
-function normalizeTrader(t){if(!t)return t;if(TRADERS.includes(t)||t==='Admin')return t;return LEGACY_TRADER[t]||TRADER_MAP[t]||null;}
+// Normalize any trader value to current format (single user mode)
+function normalizeTrader(t){if(!t)return t;if(t==='Ian P'||t==='Admin')return t;return LEGACY_TRADER[t]||TRADER_MAP[t]||null;}
 
 let S={
   view:'dashboard',
